@@ -1,131 +1,161 @@
-MEGA-BYTES: Battle Pets
+# **MEGA-BYTES: Battle Pets**
 
-Mobile | Auto-battle Pet Sim | Revenue Share Team
+### *Mobile | Auto-Battle Pet Sim | Revenue Share Team*
 
-We’re building a digital pet game where players raise AI-born creatures called MEGA-BYTES to fight corrupted internet “slop.”
+---
 
-This is not a passive pet.
-How you raise it directly affects:
+## **PROJECT OVERVIEW**
 
-how it looks
-how it fights
-what personality it develops
+We are building a digital pet game where players raise AI-born creatures called **MEGA-BYTES** to combat corrupted internet “slop.”
 
-Every player ends up with something unique.
+This is not a passive pet system.
 
-CORE GAME LOOP
-Hatch a MEGA-BYTE
-Feed, clean, rest, play (short daily sessions)
-Train stats → changes appearance
-Evolve through multiple stages
-Enter battles or pageants
-Generate a new egg → repeat
+Player behavior directly determines:
 
-Low time commitment, high attachment.
+* **Visual evolution**
+* **Combat performance**
+* **Final personality**
 
-SYSTEM DESIGN (Simplified)
-6 core stats (Power, Speed, Defense, Special, Stamina, Accuracy)
-Needs system directly modifies stats (bad care = weaker performance)
-Auto-battle system (player influences, not controls)
-Single status + 3 effect limit → clean, readable combat
-Behavior tracking system → determines final personality
+Each MEGA-BYTE is a reflection of how it was raised.
 
-Everything is deterministic and connected.
+---
 
-EVOLUTION STRUCTURE (VISUAL-FIRST)
+## **CORE GAME LOOP**
 
-Each pet is built in layers:
+* Hatch a MEGA-BYTE
+* Care for it (feed, clean, rest, play)
+* Train stats → directly affects form
+* Evolve across multiple stages
+* Enter battles or pageants
+* Generate next-generation egg
 
-Shape (base identity)
-Animal (form language)
-Element (color + FX)
-Features (wings, armor, horns, etc.)
-Branch (battle vs nurture aesthetic)
-Temperament (final aura + behavior)
+**Design Goal:**
+Low time commitment, high emotional attachment.
 
-Key idea:
-→ Stats and care choices physically change the creature
+---
 
-No two outputs should feel the same.
+## **CORE SYSTEM DESIGN**
 
-ART DIRECTION
+* **6 Core Stats:** Power, Speed, Defense, Special, Stamina, Accuracy
+* **Needs System:** Directly modifies stats (poor care = reduced performance)
+* **Auto-Battle System:** Player influences outcomes, does not control directly
+* **Combat Constraints:** 1 status + max 3 effects for clarity
+* **Behavior Tracking:** Determines final personality state
 
-Style Goals:
+All systems are deterministic and interconnected. 
 
-Clean, readable, stylized (not hyper-detailed)
-Strong silhouettes first, detail second
-Designed for small screens (mobile-first)
+---
 
-Structure:
+## **EVOLUTION STRUCTURE (VISUAL-DRIVEN)**
 
-Modular parts (body, head, limbs, features, overlays)
-Layer-based assembly system
-Designed for recombination at scale
+Each MEGA-BYTE evolves through layered identity stages:
 
-Visual Systems:
+1. **Shape** — Core silhouette identity
+2. **Animal** — Form language and structure
+3. **Element** — Color palette + particle effects
+4. **Features** — Wings, armor, horns, etc.
+5. **Branch** — Battle vs Nurture visual direction
+6. **Temperament** — Final aura and behavioral identity
 
-Element = color + particle identity
-Corruption = visual degradation (glitch, distortion, breakage)
-Temperament = subtle aura overlays
+**Key Principle:**
+Visual design is system-driven.
+Stats and care decisions directly shape appearance.
 
-Animation:
+---
 
-Short, punchy, readable under 1 second
-Idle loops are subtle and alive
-Effects layered, not overwhelming
-UI / UX DIRECTION
+## **ART DIRECTION**
 
-Core Principle:
-The pet is always the focus.
+### **Visual Goals**
 
-Home Screen:
+* Clean, readable, stylized (not hyper-detailed)
+* Strong silhouettes first, detail second
+* Designed for mobile readability
 
-Centered creature (always visible)
-Circular need meters (color coded)
-Quick actions (feed, clean, rest, play, train)
+### **Asset Structure**
 
-Battle Screen:
+* Modular body system (head, limbs, features, overlays)
+* Layer-based assembly pipeline
+* Built for large-scale recombination
 
-Clean 1v1 layout
-Minimal buttons (2 moves + ult)
-Heavy emphasis on animation + VFX readability
+### **Visual Systems**
 
-Other Screens:
+* **Element:** Color identity + particle effects
+* **Corruption:** Progressive visual degradation (glitch, distortion)
+* **Temperament:** Subtle aura overlays
 
-Pageant = showcase pose + performance
-Collection = grid + lineage tracking
-Shop = simple card-based layout
+### **Animation Direction**
 
-Everything is designed to be:
+* Short, responsive, readable under 1 second
+* Subtle but alive idle loops
+* Layered VFX, never overwhelming
 
-fast to read
-touch-friendly
-visually driven
-WHAT WE NEED
-1. Character / Creature Artist
-Strong silhouette design
-Can design modular parts (not just full characters)
-Understands evolution consistency
-Can hit stylized + readable for mobile
-2. Environment / UI Artist
-Clean UI layout design
-Mobile-first thinking
-Can design icons, menus, and screen flow
-Able to match the creature art style
-PROJECT STATUS
-Full GDD complete (production-ready)
-Systems fully mapped and deterministic
-Developer already onboard
-Fast-moving team, Discord-based workflow
-IMPORTANT
+---
 
-This is a system-heavy game.
-Art is not just decoration, it’s part of the mechanics.
+## **UI / UX DIRECTION**
 
-If you like designing things where:
+### **Core Principle**
 
-visuals reflect systems
-choices affect form
-and everything connects
+The creature is always the focal point.
 
-you’ll fit here.
+### **Home Screen**
+
+* Centered MEGA-BYTE (persistent presence)
+* Circular need meters (color-coded states)
+* Quick action buttons (feed, clean, rest, play, train)
+
+### **Battle Screen**
+
+* Clean 1v1 layout
+* Minimal inputs (2 moves + ultimate)
+* Emphasis on animation clarity and VFX readability
+
+### **Additional Screens**
+
+* **Pageant:** Performance-based showcase
+* **Collection:** Grid + lineage tracking
+* **Shop:** Card-based marketplace layout
+
+**Design Focus:**
+Fast readability, touch-friendly, visually driven.
+
+---
+
+## **OPEN ROLES**
+
+### **Character / Creature Artist**
+
+* Strong silhouette and form design
+* Experience with modular character systems
+* Ability to maintain consistency across evolution stages
+* Stylized, readable design for mobile
+
+### **Environment / UI Artist**
+
+* Clean UI layout and hierarchy design
+* Mobile-first interface thinking
+* Icon, menu, and screen composition
+* Ability to match overall art direction
+
+---
+
+## **PROJECT STATUS**
+
+* Full GDD complete (production-ready)
+* Systems fully defined and interconnected
+* Developer currently onboard
+* Fast iteration workflow (Discord-based)
+
+---
+
+## **NOTES**
+
+This is a **system-driven game**.
+Art is directly tied to mechanics and player behavior.
+
+Ideal contributors are comfortable designing within systems where:
+
+* Visuals reflect gameplay decisions
+* Form evolves from interaction
+* All elements are interconnected
+
+---

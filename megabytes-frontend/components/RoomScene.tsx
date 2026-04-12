@@ -13,6 +13,7 @@ export interface RoomAction {
   icon: string;
   color: string;
   onPress: () => void;
+  disabled?: boolean;
 }
 
 interface RoomSceneProps {
@@ -22,8 +23,12 @@ interface RoomSceneProps {
   roomTag: string;
   sceneTint: string;
   accent: string;
-  actions: RoomAction[];
   statusLine: string;
+  timerLine?: string | null;
+  primaryActions: [RoomAction, RoomAction];
+  secondaryActions?: RoomAction[];
+  onExit: () => void;
+  onShop: () => void;
 }
 
 export default function RoomScene({
@@ -33,8 +38,12 @@ export default function RoomScene({
   roomTag,
   sceneTint,
   accent,
-  actions,
   statusLine,
+  timerLine,
+  primaryActions,
+  secondaryActions = [],
+  onExit,
+  onShop,
 }: RoomSceneProps) {
   const { stage } = useEvolution();
   const driftX = useRef(new Animated.Value(0)).current;
@@ -115,19 +124,56 @@ export default function RoomScene({
 
         <View style={styles.statusDock}>
           <View style={styles.statusDot} />
-          <Text style={styles.statusText}>{statusLine}</Text>
+          <View style={styles.statusTextWrap}>
+            <Text style={styles.statusText}>{statusLine}</Text>
+            {timerLine ? <Text style={styles.timerText}>{timerLine}</Text> : null}
+          </View>
         </View>
 
-        <View style={styles.actionsRow}>
-          {actions.map((action) => (
-            <TouchableOpacity key={action.key} style={styles.actionBtn} onPress={action.onPress} activeOpacity={0.85}>
+        <View style={styles.primaryRow}>
+          {primaryActions.map((action) => (
+            <TouchableOpacity
+              key={action.key}
+              style={[styles.primaryBtn, action.disabled && styles.btnDisabled]}
+              onPress={action.onPress}
+              activeOpacity={0.85}
+              disabled={action.disabled}
+            >
               <View style={[styles.actionIcon, { borderColor: `${action.color}88`, backgroundColor: `${action.color}22` }]}>
-                <Ionicons name={action.icon as any} size={18} color={action.color} />
+                <Ionicons name={action.icon as any} size={20} color={action.color} />
               </View>
               <Text style={styles.actionTitle}>{action.title}</Text>
               <Text style={styles.actionSub}>{action.subtitle}</Text>
             </TouchableOpacity>
           ))}
+        </View>
+
+        {secondaryActions.length > 0 ? (
+          <View style={styles.secondaryRow}>
+            {secondaryActions.map((action) => (
+              <TouchableOpacity
+                key={action.key}
+                style={[styles.secondaryBtn, action.disabled && styles.btnDisabled]}
+                onPress={action.onPress}
+                activeOpacity={0.85}
+                disabled={action.disabled}
+              >
+                <Ionicons name={action.icon as any} size={14} color={action.color} />
+                <Text style={styles.secondaryLabel}>{action.title}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        ) : null}
+
+        <View style={styles.cornerNav}>
+          <TouchableOpacity style={styles.cornerBtn} onPress={onExit} activeOpacity={0.85}>
+            <Ionicons name="arrow-back-outline" size={16} color="#a9d8ff" />
+            <Text style={styles.cornerText}>EXIT</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cornerBtn} onPress={onShop} activeOpacity={0.85}>
+            <Ionicons name="cart-outline" size={16} color="#a9ffd2" />
+            <Text style={styles.cornerText}>SHOP</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     </ImageBackground>
@@ -177,7 +223,7 @@ const styles = StyleSheet.create({
   petWrap: { position: 'absolute', bottom: 10 },
   petSprite: { width: width * 0.34, height: width * 0.34 },
   statusDock: {
-    marginBottom: 10,
+    marginBottom: 8,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(100,192,255,0.23)',
@@ -188,11 +234,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  statusDot: { width: 8, height: 8, borderRadius: 99, backgroundColor: '#59ff90' },
+  statusDot: { width: 8, height: 8, borderRadius: 99, backgroundColor: '#59ff90', marginTop: 2 },
+  statusTextWrap: { flex: 1 },
   statusText: { color: 'rgba(230,244,255,0.88)', fontSize: 11.5, fontWeight: '600' },
-  actionsRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10, paddingBottom: 14 },
-  actionBtn: {
-    width: (width - 38) / 2,
+  timerText: { color: '#8ee0ff', fontSize: 10.5, fontWeight: '700', marginTop: 2 },
+  primaryRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  primaryBtn: {
+    flex: 1,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(98,188,255,0.22)',
@@ -205,4 +253,31 @@ const styles = StyleSheet.create({
   actionIcon: { width: 46, height: 46, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   actionTitle: { color: '#dff2ff', fontSize: 11, fontWeight: '800', letterSpacing: 1.1 },
   actionSub: { color: 'rgba(210,232,255,0.58)', fontSize: 9.5, textAlign: 'center' },
+  secondaryRow: { flexDirection: 'row', gap: 8, justifyContent: 'center', marginBottom: 10 },
+  secondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(120,190,255,0.25)',
+    backgroundColor: 'rgba(8,18,62,0.78)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  secondaryLabel: { color: '#d6ecff', fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
+  cornerNav: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  cornerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(120,190,255,0.28)',
+    backgroundColor: 'rgba(8,18,62,0.88)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  cornerText: { color: '#d9efff', fontSize: 10.5, fontWeight: '800', letterSpacing: 1.1 },
+  btnDisabled: { opacity: 0.5 },
 });

@@ -36,6 +36,8 @@ export const careAction = (action) =>
 
 export const trainStat = (stat, result) =>
   request('PATCH', `/api/byte/${BYTE_ID}/train`, { stat, result });
+export const praiseByte = () => request('POST', `/api/byte/${BYTE_ID}/praise`);
+export const scoldByte = () => request('POST', `/api/byte/${BYTE_ID}/scold`);
 
 // Player
 export const getPlayer = () => request('GET', `/api/player/${PLAYER_ID}`);

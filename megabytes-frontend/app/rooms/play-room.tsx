@@ -1,56 +1,73 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { careAction, enterRoom } from '../../services/api';
+import { enterRoom, praiseByte } from '../../services/api';
 import RoomScene, { RoomAction } from '../../components/RoomScene';
 
 export default function PlayRoom() {
   const router = useRouter();
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [status, setStatus] = useState('Play room loaded. Engagement routines ready.');
+  const [timerLine, setTimerLine] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     enterRoom('Play_Room', 1).catch(() => {});
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
+  const runTimed = useCallback(async (label: string, seconds: number, work: () => Promise<void>, doneText: string) => {
+    if (busy) return;
+    setBusy(true);
+    setStatus(`${label} started.`);
+    let remaining = seconds;
+    setTimerLine(`${label}: ${remaining}s remaining`);
+    timerRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) setTimerLine(`${label}: ${remaining}s remaining`);
+    }, 1000);
 
-  const runPlay = useCallback(async (name: string) => {
-    setStatus(`${name} started...`);
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setTimerLine(null);
+
     try {
-      await careAction('feed');
+      await work();
     } catch {}
-    setStatus(`${name} complete. Mood boost applied in demo flow.`);
-  }, []);
 
-  const actions: RoomAction[] = [
+    setStatus(doneText);
+    setBusy(false);
+  }, [busy]);
+
+  const primaryActions: [RoomAction, RoomAction] = [
     {
-      key: 'toy',
-      title: 'TOY LOOP',
-      subtitle: 'Mood and social boost',
+      key: 'play-short',
+      title: 'QUICK PLAY',
+      subtitle: '30s mood boost',
       icon: 'game-controller-outline',
       color: '#ff93e2',
-      onPress: () => runPlay('Toy Loop'),
+      disabled: busy,
+      onPress: () => runTimed('Quick Play', 30, () => praiseByte(), 'Quick Play complete. Mood and social drive improved.'),
     },
     {
-      key: 'sync',
-      title: 'SYNC GAME',
-      subtitle: 'Engagement routine',
+      key: 'play-long',
+      title: 'PLAY SESSION',
+      subtitle: '90s full engagement',
       icon: 'sync-outline',
       color: '#8ebdff',
-      onPress: () => runPlay('Sync Game'),
-    },
-    {
-      key: 'minigame',
-      title: 'MINIGAME',
-      subtitle: 'Placeholder for future gameplay',
-      icon: 'extension-puzzle-outline',
-      color: '#ffd57f',
-      onPress: () => setStatus('Minigame slot reserved. Add gameplay module when ready.'),
-    },
-    {
-      key: 'exit',
-      title: 'EXIT',
-      subtitle: 'Return to home',
-      icon: 'arrow-back-outline',
-      color: '#88b5ff',
-      onPress: () => router.replace('/(tabs)'),
+      disabled: busy,
+      onPress: () =>
+        runTimed(
+          'Play Session',
+          90,
+          async () => {
+            await praiseByte();
+            await praiseByte();
+          },
+          'Play Session complete. Byte is energized and socially engaged.'
+        ),
     },
   ];
 
@@ -59,12 +76,14 @@ export default function PlayRoom() {
       title="PLAY ROOM"
       subtitle="ENGAGEMENT SPACE"
       roomTag="MOOD SUPPORT"
-      ambient="Play-focused interactions keep the Byte lively. This room can later host social and fun-focused minigames." 
+      ambient="Use quick play bursts or long sessions to maintain mood and bonding momentum."
       sceneTint="rgba(66,26,70,0.22)"
       accent="#ff8ed2"
       statusLine={status}
-      actions={actions}
+      timerLine={timerLine}
+      primaryActions={primaryActions}
+      onExit={() => router.replace('/(tabs)')}
+      onShop={() => router.push('/(tabs)/shop')}
     />
   );
 }
-

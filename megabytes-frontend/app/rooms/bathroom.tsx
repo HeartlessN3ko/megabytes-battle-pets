@@ -1,57 +1,89 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { careAction, enterRoom } from '../../services/api';
 import RoomScene, { RoomAction } from '../../components/RoomScene';
 
 export default function BathroomRoom() {
   const router = useRouter();
-  const [status, setStatus] = useState('Bathroom diagnostics online. Remove corruption residue.');
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [status, setStatus] = useState('Bathroom diagnostics online. Hygiene bay is ready.');
+  const [timerLine, setTimerLine] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     enterRoom('Bathroom', 1).catch(() => {});
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
+  const runTimed = useCallback(async (label: string, seconds: number, work: () => Promise<void>, doneText: string) => {
+    if (busy) return;
+    setBusy(true);
+    setStatus(`${label} started.`);
 
-  const runClean = useCallback(async (name: string, hygiene: number, extra = '') => {
-    setStatus(`${name} cycle running...`);
+    let remaining = seconds;
+    setTimerLine(`${label}: ${remaining}s remaining`);
+    timerRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) setTimerLine(`${label}: ${remaining}s remaining`);
+    }, 1000);
+
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setTimerLine(null);
+
     try {
-      await careAction('clean');
+      await work();
     } catch {}
 
-    setStatus(`${name} complete. Hygiene +${hygiene}.${extra}`);
-  }, []);
+    setStatus(doneText);
+    setBusy(false);
+  }, [busy]);
 
-  const actions: RoomAction[] = [
+  const primaryActions: [RoomAction, RoomAction] = [
     {
-      key: 'clean',
-      title: 'CLEAN',
-      subtitle: 'Hygiene +30',
+      key: 'clean-short',
+      title: 'CLEAN SWEEP',
+      subtitle: '30s quick clean',
       icon: 'water-outline',
       color: '#53daff',
-      onPress: () => runClean('Clean', 30),
+      disabled: busy,
+      onPress: () => runTimed('Clean Sweep', 30, () => careAction('clean'), 'Clean Sweep complete. Hygiene improved and clutter cleared.'),
     },
     {
-      key: 'deep-clean',
+      key: 'clean-long',
       title: 'DEEP CLEAN',
-      subtitle: 'Hygiene +50',
+      subtitle: '90s intensive clean',
       icon: 'sparkles-outline',
       color: '#8ce9ff',
-      onPress: () => runClean('Deep Clean', 50, ' cleanse.sys applied'),
+      disabled: busy,
+      onPress: () =>
+        runTimed(
+          'Deep Clean',
+          90,
+          async () => {
+            await careAction('clean');
+            await careAction('clean');
+          },
+          'Deep Clean complete. Hygiene up, corruption pressure reduced.'
+        ),
     },
+  ];
+
+  const secondaryActions: RoomAction[] = [
     {
-      key: 'quick-wash',
-      title: 'QUICK WASH',
-      subtitle: 'Hygiene +15',
-      icon: 'flash-outline',
-      color: '#7cb7ff',
-      onPress: () => runClean('Quick Wash', 15, ' Speed +1 demo boost'),
-    },
-    {
-      key: 'exit',
-      title: 'EXIT',
-      subtitle: 'Return to home',
-      icon: 'arrow-back-outline',
-      color: '#88b5ff',
-      onPress: () => router.replace('/(tabs)'),
+      key: 'polish',
+      title: 'POLISH',
+      subtitle: 'Instant mood polish',
+      icon: 'color-wand-outline',
+      color: '#8fb8ff',
+      disabled: busy,
+      onPress: async () => {
+        if (busy) return;
+        setStatus('Polish routine complete. Byte looks refreshed.');
+      },
     },
   ];
 
@@ -60,12 +92,15 @@ export default function BathroomRoom() {
       title="BATHROOM"
       subtitle="CLEANSE BAY"
       roomTag="HYGIENE CONTROL"
-      ambient="Corruption traces are easier to clear here. Delayed cleanup tends to drag mood and behavior metrics." 
+      ambient="Use quick clean for short upkeep and deep clean for full restoration runs."
       sceneTint="rgba(20,52,82,0.2)"
       accent="#78deff"
       statusLine={status}
-      actions={actions}
+      timerLine={timerLine}
+      primaryActions={primaryActions}
+      secondaryActions={secondaryActions}
+      onExit={() => router.replace('/(tabs)')}
+      onShop={() => router.push('/(tabs)/shop')}
     />
   );
 }
-

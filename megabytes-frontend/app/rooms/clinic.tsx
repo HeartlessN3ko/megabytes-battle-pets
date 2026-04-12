@@ -1,56 +1,73 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { careAction, enterRoom } from '../../services/api';
 import RoomScene, { RoomAction } from '../../components/RoomScene';
 
 export default function ClinicRoom() {
   const router = useRouter();
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [status, setStatus] = useState('Clinic scan active. Stabilization options available.');
+  const [timerLine, setTimerLine] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     enterRoom('Clinic', 1).catch(() => {});
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
+  const runTimed = useCallback(async (label: string, seconds: number, work: () => Promise<void>, doneText: string) => {
+    if (busy) return;
+    setBusy(true);
+    setStatus(`${label} started.`);
+    let remaining = seconds;
+    setTimerLine(`${label}: ${remaining}s remaining`);
+    timerRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) setTimerLine(`${label}: ${remaining}s remaining`);
+    }, 1000);
 
-  const runRecovery = useCallback(async (name: string, action: 'clean' | 'rest') => {
-    setStatus(`${name} routine running...`);
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setTimerLine(null);
+
     try {
-      await careAction(action);
+      await work();
     } catch {}
-    setStatus(`${name} complete. Recovery data synced.`);
-  }, []);
 
-  const actions: RoomAction[] = [
+    setStatus(doneText);
+    setBusy(false);
+  }, [busy]);
+
+  const primaryActions: [RoomAction, RoomAction] = [
     {
-      key: 'stabilize',
+      key: 'stabilize-short',
       title: 'STABILIZE',
-      subtitle: 'Bandwidth and mood support',
+      subtitle: '30s recovery pass',
       icon: 'medkit-outline',
       color: '#7cffc0',
-      onPress: () => runRecovery('Stabilize', 'rest'),
+      disabled: busy,
+      onPress: () => runTimed('Stabilize', 30, () => careAction('rest'), 'Stabilize complete. Recovery profile improved.'),
     },
     {
-      key: 'patch',
-      title: 'PATCH CLEANSE',
-      subtitle: 'Hygiene and corruption care',
+      key: 'purge-long',
+      title: 'DEEP PURGE',
+      subtitle: '90s repair cycle',
       icon: 'build-outline',
       color: '#79d2ff',
-      onPress: () => runRecovery('Patch Cleanse', 'clean'),
-    },
-    {
-      key: 'diagnostics',
-      title: 'DIAGNOSTICS',
-      subtitle: 'Mock clinic readout',
-      icon: 'pulse-outline',
-      color: '#b5a4ff',
-      onPress: () => setStatus('Diagnostics complete. No critical alerts found.'),
-    },
-    {
-      key: 'exit',
-      title: 'EXIT',
-      subtitle: 'Return to home',
-      icon: 'arrow-back-outline',
-      color: '#88b5ff',
-      onPress: () => router.replace('/(tabs)'),
+      disabled: busy,
+      onPress: () =>
+        runTimed(
+          'Deep Purge',
+          90,
+          async () => {
+            await careAction('clean');
+            await careAction('rest');
+          },
+          'Deep Purge complete. Hygiene and stability restored.'
+        ),
     },
   ];
 
@@ -59,12 +76,14 @@ export default function ClinicRoom() {
       title="CLINIC"
       subtitle="SYSTEM RECOVERY"
       roomTag="HEALTH OVERSIGHT"
-      ambient="The clinic is a support room for stabilizing rough runs. Full systems can connect item-based recovery later." 
+      ambient="Use clinic passes to stabilize rough cycles and recover from intense care loops."
       sceneTint="rgba(20,66,58,0.2)"
       accent="#8fffd4"
       statusLine={status}
-      actions={actions}
+      timerLine={timerLine}
+      primaryActions={primaryActions}
+      onExit={() => router.replace('/(tabs)')}
+      onShop={() => router.push('/(tabs)/shop')}
     />
   );
 }
-

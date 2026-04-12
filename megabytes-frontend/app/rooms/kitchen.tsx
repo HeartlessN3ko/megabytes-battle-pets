@@ -1,58 +1,92 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { careAction, enterRoom } from '../../services/api';
 import RoomScene, { RoomAction } from '../../components/RoomScene';
 
 export default function KitchenRoom() {
   const router = useRouter();
-  const [status, setStatus] = useState('Kitchen ready. Select a feed routine.');
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [status, setStatus] = useState('Kitchen ready. Nutrient queues are online.');
+  const [timerLine, setTimerLine] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     enterRoom('Kitchen', 1).catch(() => {});
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
+  const runTimed = useCallback(async (label: string, seconds: number, work: () => Promise<void>, doneText: string) => {
+    if (busy) return;
+    setBusy(true);
+    setStatus(`${label} started.`);
 
-  const runFeed = useCallback(async (name: string, hunger: number, mood: number, stamina = 0) => {
-    setStatus(`${name} in progress...`);
+    let remaining = seconds;
+    setTimerLine(`${label}: ${remaining}s remaining`);
+    timerRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining > 0) setTimerLine(`${label}: ${remaining}s remaining`);
+    }, 1000);
+
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+    setTimerLine(null);
+
     try {
-      await careAction('feed');
+      await work();
     } catch {}
 
-    const staminaText = stamina ? ` Stamina +${stamina}.` : '';
-    setStatus(`${name} complete. Hunger +${hunger}, Mood +${mood}.${staminaText}`);
-  }, []);
+    setStatus(doneText);
+    setBusy(false);
+  }, [busy]);
 
-  const actions: RoomAction[] = [
+  const primaryActions: [RoomAction, RoomAction] = [
     {
-      key: 'feed',
-      title: 'FEED',
-      subtitle: 'Hunger +30',
+      key: 'feed-short',
+      title: 'QUICK FEED',
+      subtitle: '30s nutrient upload',
       icon: 'restaurant-outline',
       color: '#ffca58',
-      onPress: () => runFeed('Feed', 30, 5),
+      disabled: busy,
+      onPress: () => runTimed('Quick Feed', 30, () => careAction('feed'), 'Quick Feed complete. Hunger restored.'),
     },
     {
-      key: 'meal',
-      title: 'MEAL',
-      subtitle: 'Hunger +50',
+      key: 'meal-long',
+      title: 'MEAL CYCLE',
+      subtitle: '90s full meal prep',
       icon: 'fast-food-outline',
       color: '#ffa24b',
-      onPress: () => runFeed('Meal', 50, 0, 2),
+      disabled: busy,
+      onPress: () =>
+        runTimed(
+          'Meal Cycle',
+          90,
+          async () => {
+            await careAction('feed');
+            await careAction('feed');
+          },
+          'Meal Cycle complete. Hunger and stamina profile boosted.'
+        ),
     },
+  ];
+
+  const secondaryActions: RoomAction[] = [
     {
       key: 'snack',
       title: 'SNACK',
-      subtitle: 'Hunger +15 Mood +10',
+      subtitle: 'Instant mood snack',
       icon: 'ice-cream-outline',
       color: '#ffd67a',
-      onPress: () => runFeed('Snack', 15, 10),
-    },
-    {
-      key: 'exit',
-      title: 'EXIT',
-      subtitle: 'Return to home',
-      icon: 'arrow-back-outline',
-      color: '#88b5ff',
-      onPress: () => router.replace('/(tabs)'),
+      disabled: busy,
+      onPress: async () => {
+        if (busy) return;
+        try {
+          await careAction('feed');
+        } catch {}
+        setStatus('Snack delivered. Mood and hunger nudged upward.');
+      },
     },
   ];
 
@@ -60,13 +94,16 @@ export default function KitchenRoom() {
     <RoomScene
       title="KITCHEN"
       subtitle="NUTRIENT PREP"
-      roomTag="FEED MINIGAMES"
-      ambient="Packets are queued for Byte intake. Better feeding cadence improves consistency and mood." 
+      roomTag="FEED PROTOCOLS"
+      ambient="Choose a fast nutrient burst or a full cycle meal for deeper recovery."
       sceneTint="rgba(80,48,20,0.18)"
       accent="#ffc36a"
       statusLine={status}
-      actions={actions}
+      timerLine={timerLine}
+      primaryActions={primaryActions}
+      secondaryActions={secondaryActions}
+      onExit={() => router.replace('/(tabs)')}
+      onShop={() => router.push('/(tabs)/shop')}
     />
   );
 }
-

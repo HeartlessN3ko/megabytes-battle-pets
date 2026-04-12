@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { careAction, getByte, getPlayer, trainStat } from '../../services/api';
+import { getByte, getPlayer, praiseByte, scoldByte } from '../../services/api';
 import { useEvolution } from '../../context/EvolutionContext';
 
 const { width, height } = Dimensions.get('window');
@@ -26,11 +26,11 @@ const SPRITES: Record<number, any> = {
   2: require('../../assets/bytes/stage2.png'),
 };
 
-const CARE_ACTIONS = [
-  { key: 'feed', label: 'FEED', icon: 'restaurant-outline', color: '#ffc84a' },
-  { key: 'clean', label: 'CLEAN', icon: 'water-outline', color: '#45d4ff' },
-  { key: 'train', label: 'TRAIN', icon: 'barbell-outline', color: '#bf6cff' },
-  { key: 'rest', label: 'REST', icon: 'bed-outline', color: '#6c93ff' },
+const HOME_ACTIONS = [
+  { key: 'interact', label: 'INTERACT', icon: 'sparkles-outline', color: '#ffc84a' },
+  { key: 'praise', label: 'PRAISE', icon: 'thumbs-up-outline', color: '#45d4ff' },
+  { key: 'scold', label: 'SCOLD', icon: 'alert-circle-outline', color: '#bf6cff' },
+  { key: 'clean', label: 'CLEAN', icon: 'layers-outline', color: '#6c93ff' },
 ];
 
 const ROOM_MENU = [
@@ -40,10 +40,7 @@ const ROOM_MENU = [
   { key: 'training', title: 'TRAINING', subtitle: 'Stat drills', icon: 'barbell-outline', route: '/rooms/training-center', color: '#d48fff' },
   { key: 'clinic', title: 'CLINIC', subtitle: 'Recovery support', icon: 'medkit-outline', route: '/rooms/clinic', color: '#8deac7' },
   { key: 'play', title: 'PLAY ROOM', subtitle: 'Mood support', icon: 'game-controller-outline', route: '/rooms/play-room', color: '#ff8dd2' },
-  { key: 'market', title: 'SHOP', subtitle: 'Items and rooms', icon: 'cart-outline', route: '/(tabs)/shop', color: '#5bdd7e' },
-  { key: 'battle', title: 'BATTLE', subtitle: 'Deploy Byte', icon: 'flash-outline', route: '/(tabs)/battle', color: '#ff6f7b' },
-  { key: 'pageant', title: 'PAGEANT', subtitle: 'Mock review', icon: 'trophy-outline', route: '/(tabs)/pageant', color: '#ff7acc' },
-  { key: 'options', title: 'OPTIONS', subtitle: 'Achievements and gallery', icon: 'settings-outline', route: '/(tabs)/collection', color: '#79b8ff' },
+  { key: 'market', title: 'SHOP', subtitle: 'Marketplace', icon: 'cart-outline', route: '/(tabs)/shop', color: '#5bdd7e' },
 ];
 
 function NeedPips({ value, color }: { value: number; color: string }) {
@@ -61,7 +58,6 @@ function StatsModal({ visible, onClose, byteData }: { visible: boolean; onClose:
   const byte = byteData?.byte;
   const stats = byte?.stats || {};
   const needs = byte?.needs || {};
-
   const statKeys = ['Power', 'Speed', 'Defense', 'Special', 'Stamina', 'Accuracy'];
   const needKeys = ['Hunger', 'Bandwidth', 'Mood', 'Hygiene', 'Social', 'Fun'];
 
@@ -105,27 +101,23 @@ function StatsModal({ visible, onClose, byteData }: { visible: boolean; onClose:
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { stage, recordFeed, recordClean, advanceStage } = useEvolution();
-  const atFinalStage = stage >= 2;
+  const { stage } = useEvolution();
 
   const roamX = useRef(new Animated.Value(0)).current;
   const roamY = useRef(new Animated.Value(0)).current;
   const hoverY = useRef(new Animated.Value(0)).current;
   const breathe = useRef(new Animated.Value(1)).current;
   const tapScale = useRef(new Animated.Value(1)).current;
-  const whiteFlash = useRef(new Animated.Value(0)).current;
   const drawerAnim = useRef(new Animated.Value(height)).current;
+  const stickyUntilRef = useRef(0);
 
   const [byteData, setByteData] = useState<any>(null);
   const [playerData, setPlayerData] = useState<any>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
-  const [statusText, setStatusText] = useState('Byte is active and exploring.');
-  const [evolutionPromptOpen, setEvolutionPromptOpen] = useState(false);
-  const [evolutionToast, setEvolutionToast] = useState<string | null>(null);
-  const [evolvingNow, setEvolvingNow] = useState(false);
-  const [pendingEvolution, setPendingEvolution] = useState(false);
+  const [statusText, setStatusText] = useState('BYTE is scanning the network.');
   const [transitionBusy, setTransitionBusy] = useState(false);
+  const [clutter, setClutter] = useState(0);
 
   const petSprite = SPRITES[stage] ?? SPRITES[2];
   const needs = byteData?.byte?.needs || {
@@ -137,19 +129,71 @@ export default function HomeScreen() {
     Mood: 80,
   };
 
+  const clutterPenalty = Math.min(10, clutter * 2);
+  const effectiveMood = Math.max(0, (needs.Mood || 0) - clutterPenalty);
+
+  const clutterLabel = useMemo(() => {
+    if (clutter >= 5) return 'Crowded';
+    if (clutter >= 3) return 'Messy';
+    if (clutter >= 1) return 'Minor clutter';
+    return 'Clean';
+  }, [clutter]);
+
   const refreshData = useCallback(async () => {
     try {
       const [b, p] = await Promise.all([getByte(), getPlayer()]);
       setByteData(b);
       setPlayerData(p);
     } catch {
-      setStatusText('Sync issue. Retrying on next action.');
+      setStatusText('Sync issue detected. Retrying on next refresh.');
     }
   }, []);
+
+  const setTransientStatus = useCallback((message: string, holdMs = 3400) => {
+    stickyUntilRef.current = Date.now() + holdMs;
+    setStatusText(message);
+  }, []);
+
+  const randomThought = useCallback(() => {
+    const byteName = byteData?.byte?.name || 'BYTE';
+    const thoughts = [
+      `${byteName} is wandering the network corridors.`,
+      `${byteName} is scanning packets for hidden memes.`,
+      `${byteName} is exploring old data archives.`,
+      `${byteName} is chasing signal ghosts in the uplink.`,
+      `${byteName} is mapping new routes through cyberspace.`,
+      `${byteName} is watching debug windows like a movie.`,
+    ];
+    const pick = thoughts[Math.floor(Math.random() * thoughts.length)];
+    if (clutter >= 3) return `${pick} Home looks ${clutterLabel.toLowerCase()}.`;
+    return pick;
+  }, [byteData?.byte?.name, clutter, clutterLabel]);
 
   useEffect(() => {
     refreshData();
   }, [refreshData]);
+
+  useEffect(() => {
+    const thoughtTicker = setInterval(() => {
+      if (Date.now() >= stickyUntilRef.current) {
+        setStatusText(randomThought());
+      }
+    }, 5200);
+
+    return () => clearInterval(thoughtTicker);
+  }, [randomThought]);
+
+  useEffect(() => {
+    const clutterTicker = setInterval(() => {
+      const hygieneLow = (needs.Hygiene || 0) < 40;
+      const spawnChance = hygieneLow ? 0.45 : 0.14;
+      if (Math.random() < spawnChance) {
+        setClutter((prev) => Math.min(5, prev + 1));
+      }
+    }, 18000);
+
+    return () => clearInterval(clutterTicker);
+  }, [needs.Hygiene]);
 
   useEffect(() => {
     let active = true;
@@ -210,83 +254,48 @@ export default function HomeScreen() {
     [openDrawer]
   );
 
-  const beginEvolutionPrompt = useCallback(() => {
-    if (atFinalStage || evolvingNow) return;
-    setPendingEvolution(true);
-    setEvolutionPromptOpen(true);
-    setStatusText('Evolution is ready. Confirm when you want to proceed.');
-  }, [atFinalStage, evolvingNow]);
+  const handleHomeAction = useCallback(async (key: string) => {
+    if (transitionBusy) return;
 
-  const triggerEvolution = useCallback(() => {
-    if (atFinalStage || evolvingNow || !pendingEvolution) return;
+    if (key === 'clean') {
+      setClutter(0);
+      setTransientStatus('Home cleanup complete. Clutter removed.', 2600);
+      return;
+    }
 
-    const nextStage = Math.min(stage + 1, 2);
-    const evolvedName = byteData?.byte?.name || 'Your Byte';
+    if (key === 'interact') {
+      setTransientStatus('You pinged BYTE. It replied with a happy chirp.', 2600);
+      return;
+    }
 
-    setEvolutionPromptOpen(false);
-    setEvolvingNow(true);
-    setTransitionBusy(true);
-
-    Animated.sequence([
-      Animated.delay(420),
-      Animated.timing(whiteFlash, { toValue: 1, duration: 700, useNativeDriver: true }),
-      Animated.delay(520),
-      Animated.timing(whiteFlash, { toValue: 0, duration: 1000, useNativeDriver: true }),
-    ]).start(() => {
-      advanceStage();
-      setPendingEvolution(false);
-      setEvolutionToast(`${evolvedName} has evolved to Stage ${nextStage + 1}.`);
-      setStatusText('Evolution complete. Stats and growth profile updated.');
-      setEvolvingNow(false);
-      setTransitionBusy(false);
-      setTimeout(() => setEvolutionToast(null), 2800);
-      refreshData();
-    });
-  }, [advanceStage, atFinalStage, byteData?.byte?.name, evolvingNow, pendingEvolution, refreshData, stage, whiteFlash]);
-
-  const handleCareAction = useCallback(
-    async (key: string) => {
-      if (transitionBusy) return;
-
+    if (key === 'praise') {
       try {
-        if (key === 'feed') {
-          setStatusText('Feeding protocol running...');
-          await careAction('feed');
-          const evo = recordFeed();
-          if (evo.evolved) beginEvolutionPrompt();
-        } else if (key === 'clean') {
-          setStatusText('Cleanup protocol running...');
-          await careAction('clean');
-          const evo = recordClean();
-          if (evo.evolved) beginEvolutionPrompt();
-        } else if (key === 'rest') {
-          setStatusText('Sleep mode engaged...');
-          await careAction('rest');
-        } else if (key === 'train') {
-          setStatusText('Training simulation complete.');
-          await trainStat('Power', 'good');
-        }
-      } catch {
-        setStatusText('Action completed in demo mode. Sync update pending.');
-      }
+        await praiseByte();
+      } catch {}
+      setTransientStatus('Praise logged. BYTE mood and social confidence increased.', 2800);
+      return;
+    }
 
-      await refreshData();
-    },
-    [beginEvolutionPrompt, recordClean, recordFeed, refreshData, transitionBusy]
-  );
+    if (key === 'scold') {
+      try {
+        await scoldByte();
+      } catch {}
+      setTransientStatus('Scold logged. BYTE is re-evaluating behavior routines.', 2800);
+    }
+  }, [setTransientStatus, transitionBusy]);
 
   const handleRoomOpen = useCallback(
     (route: string) => {
       if (transitionBusy) return;
       setTransitionBusy(true);
       closeDrawer();
-      setStatusText('Loading room...');
+      setTransientStatus('Loading room interface...', 1200);
       setTimeout(() => {
         router.push(route as any);
         setTransitionBusy(false);
       }, 220);
     },
-    [closeDrawer, router, transitionBusy]
+    [closeDrawer, router, setTransientStatus, transitionBusy]
   );
 
   const handleByteTap = useCallback(() => {
@@ -294,18 +303,17 @@ export default function HomeScreen() {
       Animated.timing(tapScale, { toValue: 0.92, duration: 90, useNativeDriver: true }),
       Animated.spring(tapScale, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
-    setStatusText('Byte acknowledges your ping.');
-  }, [tapScale]);
+    setTransientStatus('BYTE is humming while it explores...', 2000);
+  }, [setTransientStatus, tapScale]);
 
   const currency = playerData?.byteBits ?? 0;
-  const moodVal = needs.Mood || 0;
-  const moodLabel = moodVal >= 75 ? 'Happy' : moodVal >= 40 ? 'Stable' : 'Needs care';
+  const moodLabel = effectiveMood >= 75 ? 'Happy' : effectiveMood >= 40 ? 'Stable' : 'Needs care';
   const byteName = byteData?.byte?.name || 'BYTE';
 
   const NEED_SUMMARY = [
     { label: 'HEALTH', color: '#ff4f66', val: needs.Hunger || 0 },
     { label: 'ENERGY', color: '#52e58f', val: needs.Bandwidth || 0 },
-    { label: 'MOOD', color: '#b87cff', val: needs.Mood || 0 },
+    { label: 'MOOD', color: '#b87cff', val: effectiveMood },
     { label: 'HYGIENE', color: '#ffba47', val: needs.Hygiene || 0 },
   ];
 
@@ -330,15 +338,18 @@ export default function HomeScreen() {
               </View>
             ))}
           </View>
+
+          <TouchableOpacity style={styles.statsFab} onPress={() => setStatsOpen(true)} activeOpacity={0.85}>
+            <Ionicons name="stats-chart-outline" size={16} color="#8fd9ff" />
+            <Text style={styles.statsFabText}>STATS</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.field}>
           <Animated.View
             style={[
               styles.byteStage,
-              {
-                transform: [{ translateX: roamX }, { translateY: roamY }, { translateY: hoverY }, { scale: breathe }, { scale: tapScale }],
-              },
+              { transform: [{ translateX: roamX }, { translateY: roamY }, { translateY: hoverY }, { scale: breathe }, { scale: tapScale }] },
             ]}
           >
             <TouchableOpacity onPress={handleByteTap} activeOpacity={1}>
@@ -351,18 +362,12 @@ export default function HomeScreen() {
           <View style={styles.statusDot} />
           <Text style={styles.statusText}>{statusText}</Text>
           <Text style={styles.statusMood}>{byteName} - {moodLabel}</Text>
+          <Text style={styles.statusClutter}>Home: {clutterLabel}</Text>
         </View>
 
-        {pendingEvolution && !atFinalStage && (
-          <TouchableOpacity style={styles.evolveReadyBtn} onPress={() => setEvolutionPromptOpen(true)} activeOpacity={0.86}>
-            <Ionicons name="sparkles-outline" size={15} color="#ffe566" />
-            <Text style={styles.evolveReadyText}>EVOLVE READY</Text>
-          </TouchableOpacity>
-        )}
-
         <View style={styles.careActionsRow}>
-          {CARE_ACTIONS.map((item) => (
-            <TouchableOpacity key={item.key} style={styles.careBtn} onPress={() => handleCareAction(item.key)} activeOpacity={0.86}>
+          {HOME_ACTIONS.map((item) => (
+            <TouchableOpacity key={item.key} style={styles.careBtn} onPress={() => handleHomeAction(item.key)} activeOpacity={0.86}>
               <View style={[styles.careBtnIcon, { borderColor: `${item.color}99`, backgroundColor: `${item.color}22` }]}>
                 <Ionicons name={item.icon as any} size={18} color={item.color} />
               </View>
@@ -374,7 +379,7 @@ export default function HomeScreen() {
         <View style={styles.swipeZone} {...swipeResponder.panHandlers}>
           <TouchableOpacity onPress={openDrawer} activeOpacity={0.8} style={styles.swipePrompt}>
             <Ionicons name="chevron-up" size={16} color="#72ceff" />
-            <Text style={styles.swipeLabel}>SWIPE UP TO CHANGE ROOMS</Text>
+            <Text style={styles.swipeLabel}>SWIPE UP FOR ROOMS</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -385,7 +390,7 @@ export default function HomeScreen() {
             <TouchableOpacity activeOpacity={1} onPress={() => {}}>
               <View style={styles.drawerHandle} />
               <Text style={styles.drawerTitle}>ROOM NAVIGATION</Text>
-              <Text style={styles.drawerSub}>SELECT A ROOM</Text>
+              <Text style={styles.drawerSub}>ROOMS AND SHOP</Text>
               <View style={styles.roomGrid}>
                 {ROOM_MENU.map((room) => (
                   <TouchableOpacity key={room.key} style={styles.roomBtn} onPress={() => handleRoomOpen(room.route)} activeOpacity={0.82}>
@@ -398,9 +403,6 @@ export default function HomeScreen() {
                 ))}
               </View>
               <View style={styles.drawerFooter}>
-                <TouchableOpacity style={styles.drawerStats} onPress={() => setStatsOpen(true)} activeOpacity={0.85}>
-                  <Text style={styles.drawerStatsText}>VIEW STATS</Text>
-                </TouchableOpacity>
                 <TouchableOpacity style={styles.drawerClose} onPress={closeDrawer} activeOpacity={0.85}>
                   <Text style={styles.drawerCloseText}>CLOSE</Text>
                 </TouchableOpacity>
@@ -411,30 +413,6 @@ export default function HomeScreen() {
       )}
 
       <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} byteData={byteData} />
-      <Animated.View style={[styles.whiteFlash, { opacity: whiteFlash }]} pointerEvents="none" />
-
-      <Modal visible={evolutionPromptOpen} transparent animationType="fade">
-        <TouchableOpacity style={styles.modalBg} onPress={() => setEvolutionPromptOpen(false)} activeOpacity={1}>
-          <TouchableOpacity activeOpacity={1} style={styles.evolveCard}>
-            <Text style={styles.evolveTitle}>EVOLUTION READY</Text>
-            <Text style={styles.evolveBody}>Your Byte is ready to evolve. Proceed now?</Text>
-            <View style={styles.evolveActions}>
-              <TouchableOpacity style={styles.evolveNoBtn} onPress={() => setEvolutionPromptOpen(false)} activeOpacity={0.8}>
-                <Text style={styles.evolveNoText}>NOT YET</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.evolveYesBtn} onPress={triggerEvolution} activeOpacity={0.8}>
-                <Text style={styles.evolveYesText}>EVOLVE</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      {evolutionToast && (
-        <View style={styles.evolveToast}>
-          <Text style={styles.evolveToastText}>{evolutionToast}</Text>
-        </View>
-      )}
     </ImageBackground>
   );
 }
@@ -442,7 +420,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   bg: { flex: 1, width: '100%', height: '100%' },
   safe: { flex: 1 },
-  topBar: { flexDirection: 'row', gap: 8, paddingHorizontal: 10, paddingTop: 8 },
+  topBar: { flexDirection: 'row', gap: 8, paddingHorizontal: 10, paddingTop: 8, alignItems: 'stretch' },
   currencyBlock: {
     backgroundColor: 'rgba(9,14,52,0.75)',
     borderRadius: 12,
@@ -451,7 +429,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     gap: 2,
-    minWidth: 102,
+    minWidth: 96,
   },
   currencyRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   currencyVal: { color: '#fff', fontWeight: '800', fontSize: 15 },
@@ -468,6 +446,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 7,
   },
+  statsFab: {
+    width: 62,
+    backgroundColor: 'rgba(9,14,52,0.75)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(109,190,255,0.26)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  statsFabText: { color: '#8fd9ff', fontSize: 9.5, fontWeight: '800', letterSpacing: 0.7 },
   needChip: { width: '48%', gap: 2 },
   needChipLabel: { color: 'rgba(230,245,255,0.8)', fontSize: 8, letterSpacing: 1, fontWeight: '700' },
   pipRow: { flexDirection: 'row', gap: 2 },
@@ -488,22 +477,9 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   statusDot: { width: 7, height: 7, borderRadius: 99, backgroundColor: '#5dff93' },
-  statusText: { flex: 1, color: 'rgba(255,255,255,0.82)', fontSize: 11.5, fontWeight: '600' },
-  statusMood: { color: '#7bd9ff', fontSize: 10.5, fontWeight: '700' },
-  evolveReadyBtn: {
-    marginHorizontal: 14,
-    marginTop: 8,
-    backgroundColor: 'rgba(80,64,20,0.9)',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,229,102,0.55)',
-    paddingVertical: 9,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 6,
-  },
-  evolveReadyText: { color: '#ffe566', fontSize: 11, fontWeight: '900', letterSpacing: 1.6 },
+  statusText: { flex: 1, color: 'rgba(255,255,255,0.82)', fontSize: 11.2, fontWeight: '600' },
+  statusMood: { color: '#7bd9ff', fontSize: 10.2, fontWeight: '700' },
+  statusClutter: { color: 'rgba(255,202,132,0.84)', fontSize: 9.8, fontWeight: '700' },
   careActionsRow: { marginTop: 8, marginHorizontal: 10, flexDirection: 'row', gap: 6, justifyContent: 'space-between' },
   careBtn: {
     flex: 1,
@@ -550,16 +526,6 @@ const styles = StyleSheet.create({
   roomTitle: { color: '#dff1ff', fontSize: 11, letterSpacing: 1.1, fontWeight: '800' },
   roomSub: { color: 'rgba(255,255,255,0.55)', fontSize: 9.5 },
   drawerFooter: { marginTop: 14, flexDirection: 'row', gap: 10 },
-  drawerStats: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 11,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(104,192,255,0.35)',
-    backgroundColor: 'rgba(26,36,88,0.72)',
-  },
-  drawerStatsText: { color: '#8fd9ff', fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
   drawerClose: {
     flex: 1,
     alignItems: 'center',
@@ -569,7 +535,6 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.18)',
   },
   drawerCloseText: { color: 'rgba(255,255,255,0.56)', fontSize: 11, fontWeight: '800', letterSpacing: 1.4 },
-  whiteFlash: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#fff' },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,20,0.88)', justifyContent: 'flex-end', alignItems: 'center' },
   statsCard: {
     backgroundColor: 'rgba(6,14,48,0.98)',
@@ -591,49 +556,4 @@ const styles = StyleSheet.create({
   statsVal: { color: '#fff', fontSize: 11, fontWeight: '700', width: 26, textAlign: 'right' },
   statsClose: { marginTop: 12, alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
   statsCloseText: { color: 'rgba(255,255,255,0.55)', fontSize: 12, letterSpacing: 2, fontWeight: '700' },
-  evolveCard: {
-    backgroundColor: 'rgba(8,20,60,0.98)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(80,160,255,0.3)',
-    padding: 24,
-    width: width * 0.82,
-    gap: 14,
-  },
-  evolveTitle: { color: '#ffe566', fontSize: 16, fontWeight: '900', letterSpacing: 2 },
-  evolveBody: { color: 'rgba(255,255,255,0.8)', fontSize: 14, lineHeight: 21 },
-  evolveActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  evolveNoBtn: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  evolveNoText: { color: 'rgba(255,255,255,0.8)', fontSize: 11, fontWeight: '800', letterSpacing: 1.4 },
-  evolveYesBtn: {
-    flex: 1,
-    backgroundColor: 'rgba(255,229,102,0.22)',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,229,102,0.55)',
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  evolveYesText: { color: '#ffe566', fontSize: 11, fontWeight: '900', letterSpacing: 1.4 },
-  evolveToast: {
-    position: 'absolute',
-    left: 18,
-    right: 18,
-    top: 90,
-    backgroundColor: 'rgba(6,14,48,0.95)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,229,102,0.45)',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  evolveToastText: { color: '#ffe566', fontSize: 13, fontWeight: '800', textAlign: 'center', letterSpacing: 0.5 },
 });

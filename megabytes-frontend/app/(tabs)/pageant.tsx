@@ -62,8 +62,9 @@ export default function PageantScreen() {
         if (Array.isArray(board) && board.length > 0) {
           setLeaderTop(`${board[0]?.name || 'Unknown'} Lv.${board[0]?.level || 1}`);
         }
-      } catch {
-        setReview('Could not sync Byte stats. Pageant is in local demo mode.');
+      } catch (err: any) {
+        const msg = err?.message || '';
+        setReview(msg.toLowerCase().includes('waking up') ? 'Server is waking up... pageant sync will resume shortly.' : 'Could not sync Byte stats. Pageant is in local demo mode.');
       }
     })();
   }, []);

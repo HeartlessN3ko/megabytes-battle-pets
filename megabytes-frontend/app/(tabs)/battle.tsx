@@ -87,6 +87,8 @@ export default function BattleScreen() {
   const busyRef       = useRef(false);
   const damageId      = useRef(0);
   const biasedMoveRef = useRef<number | null>(null);
+  const rngSeedRef    = useRef(1337 + stage * 101);
+  const turnRef       = useRef(0);
 
   const [playerHp, setPlayerHp]     = useState(PLAYER_MAX_HP);
   const [enemyHp, setEnemyHp]       = useState(ENEMY.maxHp);
@@ -97,6 +99,12 @@ export default function BattleScreen() {
   const [earnedBits, setEarnedBits] = useState(0);
   const [returningHome, setReturningHome] = useState(false);
   const [battleId, setBattleId] = useState<string | null>(null);
+
+  const nextRand = useCallback(() => {
+    // Deterministic LCG for repeatable demo battle outcomes.
+    rngSeedRef.current = (rngSeedRef.current * 1664525 + 1013904223) % 4294967296;
+    return rngSeedRef.current / 4294967296;
+  }, []);
 
   const addDamage = useCallback((value: number, side: 'left'|'right') => {
     const id = damageId.current++;
@@ -189,24 +197,34 @@ export default function BattleScreen() {
     Animated.timing(timerAnim, { toValue: 0, duration: 60000, useNativeDriver: false }).start();
   }, []);
 
+  useEffect(() => {
+    const killSwitch = setTimeout(() => {
+      if (battleOverRef.current) return;
+      const won = playerHpRef.current >= enemyHpRef.current;
+      setLog('Battle timeout reached. Resolving by remaining integrity.');
+      endBattle(won);
+    }, 70000);
+    return () => clearTimeout(killSwitch);
+  }, [endBattle]);
+
   // Player auto-attack every 3s
   useEffect(() => {
     const interval = setInterval(async () => {
       if (busyRef.current || battleOverRef.current) return;
       busyRef.current = true;
 
-      const moveIdx = biasedMoveRef.current !== null ? biasedMoveRef.current : Math.floor(Math.random() * PLAYER_MOVES.length);
+      const moveIdx = biasedMoveRef.current !== null ? biasedMoveRef.current : Math.floor(nextRand() * PLAYER_MOVES.length);
       biasedMoveRef.current = null;
       setBiasedMove(null);
       const move = PLAYER_MOVES[moveIdx];
 
-      const hitRoll = Math.random();
+      const hitRoll = nextRand();
       if (hitRoll < 0.85) {
         setLog(`MissingNo uses ${move.name}! ${rnd(PLAYER_LOGS)}`);
         if (move.type === 'projectile') await fireballAttack();
         else await lunge(playerX, 1);
 
-        const dmg = move.power + Math.floor(Math.random() * 10);
+        const dmg = move.power + Math.floor(nextRand() * 10);
         addDamage(dmg, 'right');
         const next = Math.max(0, enemyHpRef.current - dmg);
         enemyHpRef.current = next;
@@ -220,7 +238,7 @@ export default function BattleScreen() {
       busyRef.current = false;
     }, 3000);
     return () => clearInterval(interval);
-  }, []);
+  }, [addDamage, endBattle, enemyHpAnim, fireballAttack, lunge, nextRand, playerX]);
 
   // Enemy auto-attack every 4.5s
   useEffect(() => {
@@ -228,11 +246,12 @@ export default function BattleScreen() {
       if (busyRef.current || battleOverRef.current) return;
       busyRef.current = true;
 
-      const move = rnd(ENEMY.moves);
+      const move = ENEMY.moves[turnRef.current % ENEMY.moves.length];
+      turnRef.current += 1;
       setLog(`${ENEMY.name} uses ${move}! ${rnd(ENEMY_LOGS)}`);
       await lunge(enemyX, -1);
 
-      const dmg = Math.floor(Math.random() * 15) + 8;
+      const dmg = Math.floor(nextRand() * 15) + 8;
       addDamage(dmg, 'left');
       const next = Math.max(0, playerHpRef.current - dmg);
       playerHpRef.current = next;
@@ -243,7 +262,7 @@ export default function BattleScreen() {
       busyRef.current = false;
     }, 4500);
     return () => clearInterval(interval);
-  }, []);
+  }, [addDamage, endBattle, enemyX, lunge, nextRand, playerHpAnim]);
 
   const handleBiasMove = (idx: number) => {
     if (battleOverRef.current) return;

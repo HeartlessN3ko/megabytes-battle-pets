@@ -152,8 +152,13 @@ export default function HomeScreen() {
       const [b, p] = await Promise.all([getByte(), getPlayer()]);
       setByteData(b);
       setPlayerData(p);
-    } catch {
-      setStatusText('Sync issue detected. Retrying on next refresh.');
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (msg.toLowerCase().includes('waking up')) {
+        setStatusText('Server is waking up... retrying shortly.');
+      } else {
+        setStatusText('Sync issue detected. Retrying on next refresh.');
+      }
     }
   }, []);
 

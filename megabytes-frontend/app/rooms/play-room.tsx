@@ -1,6 +1,6 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { enterRoom, praiseByte } from '../../services/api';
+import { enterRoom, interactByte } from '../../services/api';
 import RoomScene, { RoomAction } from '../../components/RoomScene';
 
 export default function PlayRoom() {
@@ -49,7 +49,7 @@ export default function PlayRoom() {
       icon: 'game-controller-outline',
       color: '#ff93e2',
       disabled: busy,
-      onPress: () => runTimed('Quick Play', 30, () => praiseByte(), 'Quick Play complete. Mood and social drive improved.'),
+      onPress: () => runTimed('Quick Play', 30, () => interactByte(), 'Quick Play complete. Mood and social drive improved.'),
     },
     {
       key: 'play-long',
@@ -63,8 +63,8 @@ export default function PlayRoom() {
           'Play Session',
           90,
           async () => {
-            await praiseByte();
-            await praiseByte();
+            await interactByte();
+            await interactByte();
           },
           'Play Session complete. Byte is energized and socially engaged.'
         ),
@@ -87,3 +87,4 @@ export default function PlayRoom() {
     />
   );
 }
+

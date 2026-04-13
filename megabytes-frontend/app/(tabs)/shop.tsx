@@ -32,10 +32,11 @@ export default function ShopScreen() {
       setBits(player?.byteBits || 0);
       setOwnedItems(player?.unlockedItems || []);
       setStatus('Shop synchronized.');
-    } catch {
+    } catch (err: any) {
       setItems(FALLBACK_ITEMS);
       setOwnedItems([]);
-      setStatus('Shop running in local fallback mode.');
+      const msg = err?.message || '';
+      setStatus(msg.toLowerCase().includes('waking up') ? 'Server is waking up... shop will sync soon.' : 'Shop running in local fallback mode.');
     }
   }, []);
 

@@ -13,13 +13,14 @@ function sleep(ms) {
 }
 
 function shouldRetry(method, status) {
-  if (method !== 'GET') return false;
-  return [408, 425, 429, 500, 502, 503, 504].includes(status);
+  if (method === 'GET') return [408, 425, 429, 500, 502, 503, 504].includes(status);
+  // Safe retries for transient deploy/cold-start failures.
+  return [502, 503, 504].includes(status);
 }
 
 async function request(method, path, body) {
   const url = `${BASE_URL}${path}`;
-  const attempts = method === 'GET' ? 3 : 1;
+  const attempts = method === 'GET' ? 3 : 2;
   let lastError = null;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -60,6 +61,11 @@ async function request(method, path, body) {
         continue;
       }
       const detail = err?.message || 'Request failed';
+      const renderColdStart =
+        [502, 503, 504].includes(status) && BASE_URL.includes('onrender.com');
+      if (renderColdStart) {
+        err.message = 'Server is waking up. Please retry in a few seconds.';
+      }
       console.error(`[API] ${method} ${path} failed (${BASE_URL}):`, detail);
       throw err;
     }

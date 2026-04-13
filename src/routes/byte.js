@@ -309,4 +309,26 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+// PATCH /api/byte/:id/demo-stage
+router.patch('/:id/demo-stage', async (req, res) => {
+  try {
+    const requested = Number(req.body?.stage);
+    if (!Number.isFinite(requested)) {
+      return res.status(400).json({ error: 'stage must be a number' });
+    }
+
+    const stage = Math.max(0, Math.min(2, Math.floor(requested)));
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    byte.evolutionStage = stage;
+    byte.isEgg = stage === 0;
+    await byte.save();
+
+    res.json({ evolutionStage: byte.evolutionStage, isEgg: byte.isEgg });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

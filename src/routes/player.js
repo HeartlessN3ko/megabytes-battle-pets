@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const Player  = require('../models/Player');
+const Byte    = require('../models/Byte');
 
 const router = express.Router();
 // TODO: add auth middleware to protected routes
@@ -74,6 +75,77 @@ router.get('/:id/inventory', async (req, res) => {
     const player = await Player.findById(req.params.id)
       .select('unlockedRooms unlockedItems unlockedMoves activePassiveRooms');
     res.json(player);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/player/:id/reset-demo
+router.post('/:id/reset-demo', async (req, res) => {
+  try {
+    const { byteId } = req.body || {};
+    const player = await Player.findById(req.params.id);
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+
+    player.byteBits = 0;
+    player.dailyIncome = 0;
+    player.totalGenerations = 0;
+    player.achievements = [];
+    player.arenaRecord = { wins: 0, losses: 0 };
+    player.minigamePlaysToday = 0;
+
+    await player.save();
+
+    let byte = null;
+    if (byteId) {
+      byte = await Byte.findById(byteId);
+    } else if (player.activeByteSlots?.length > 0) {
+      byte = await Byte.findById(player.activeByteSlots[0]);
+    }
+
+    if (byte) {
+      byte.evolutionStage = 0;
+      byte.isEgg = true;
+      byte.level = 1;
+      byte.xp = 0;
+      byte.corruption = 0;
+      byte.trainingSessionsToday = 0;
+      byte.lastNeedsUpdate = new Date();
+      byte.stats = {
+        Power: 10, Speed: 10, Defense: 10, Stamina: 10, Special: 10, Accuracy: 10
+      };
+      byte.needs = {
+        Hunger: 100, Bandwidth: 100, Hygiene: 100, Social: 100, Fun: 100, Mood: 100
+      };
+      byte.behaviorMetrics = {
+        loginFrequency: 0,
+        sessionGapTime: 0,
+        recoveryDelayTime: 0,
+        feedRatio: 0,
+        cleanDelayTime: 0,
+        needResponseTime: 0,
+        tapFrequency: 0,
+        nonRewardCheckins: 0,
+        roomTimeDistribution: {},
+        lowEnergyTrainingCount: 0,
+        statFocusDistribution: {},
+        sessionLength: 0,
+        timeOfDayPattern: {},
+        playVsTrainRatio: 0,
+        restEnforcementRate: 0,
+        praiseCount: 0,
+        scoldCount: 0,
+        moodRecoveryTime: 0
+      };
+      await byte.save();
+    }
+
+    res.json({
+      ok: true,
+      playerId: player._id,
+      byteId: byte?._id || null,
+      evolutionStage: byte?.evolutionStage ?? null
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

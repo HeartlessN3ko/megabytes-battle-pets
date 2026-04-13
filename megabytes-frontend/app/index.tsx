@@ -4,11 +4,13 @@ import {
   StyleSheet, Animated, Dimensions, StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useEvolution } from '../context/EvolutionContext';
 
 const { width, height } = Dimensions.get('window');
 
 export default function SplashScreen() {
   const router    = useRouter();
+  const { stage, hydrated } = useEvolution();
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeIn    = useRef(new Animated.Value(0)).current;
   const logoY     = useRef(new Animated.Value(-30)).current;
@@ -29,7 +31,8 @@ export default function SplashScreen() {
 
   const handleStart = () => {
     Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
-      router.replace('/egg');
+      const destination = stage > 0 ? '/(tabs)' : '/egg';
+      router.replace(destination as any);
     });
   };
 
@@ -51,7 +54,7 @@ export default function SplashScreen() {
 
         <TouchableOpacity onPress={handleStart} activeOpacity={0.8} style={styles.startWrap}>
           <Animated.Text style={[styles.pressStart, { opacity: pulseAnim }]}>
-            PRESS START
+            {hydrated ? 'PRESS START' : 'SYNCING...'}
           </Animated.Text>
         </TouchableOpacity>
 

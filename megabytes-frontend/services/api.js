@@ -80,11 +80,14 @@ export const praiseByte = () => request('POST', `/api/byte/${BYTE_ID}/praise`);
 export const scoldByte = () => request('POST', `/api/byte/${BYTE_ID}/scold`);
 export const interactByte = () => request('POST', `/api/byte/${BYTE_ID}/interact`);
 export const homeCleanByte = () => request('POST', `/api/byte/${BYTE_ID}/home-clean`);
+export const setDemoStage = (stage) => request('PATCH', `/api/byte/${BYTE_ID}/demo-stage`, { stage });
 
 // Player
 export const getPlayer = () => request('GET', `/api/player/${PLAYER_ID}`);
 
 export const getCurrency = () => request('GET', `/api/player/${PLAYER_ID}/currency`);
+export const resetDemoData = () =>
+  request('POST', `/api/player/${PLAYER_ID}/reset-demo`, { byteId: BYTE_ID });
 
 // Battle
 export const startBattle = (mode = 'ai') =>

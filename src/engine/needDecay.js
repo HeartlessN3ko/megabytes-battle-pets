@@ -6,6 +6,7 @@
  */
 
 const NEEDS = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'];
+const MAX_DECAY_WINDOW_HOURS = 1;
 
 // Base loss per hour to drain 100 → 0 over 72 hours
 const BASE_LOSS_PER_HOUR = 100 / 72; // ≈ 1.389
@@ -60,7 +61,8 @@ function calcNeedLoss(hoursElapsed) {
  */
 function applyDecay(needs, lastNeedsUpdate, now = new Date()) {
   const msElapsed = now - new Date(lastNeedsUpdate);
-  const hoursElapsed = msElapsed / (1000 * 60 * 60);
+  const rawHoursElapsed = msElapsed / (1000 * 60 * 60);
+  const hoursElapsed = Math.min(rawHoursElapsed, MAX_DECAY_WINDOW_HOURS);
 
   if (hoursElapsed < 0.01) return { needs, lastNeedsUpdate }; // too short to bother
 

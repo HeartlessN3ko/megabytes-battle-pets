@@ -3,11 +3,14 @@
 // Stage 0 = egg, 1 = stage1, 2 = stage2
 
 import React, { createContext, useContext, useState, useCallback } from 'react';
+import { useEffect } from 'react';
+import { getByte, setDemoStage } from '../services/api';
 
 type Stage = 0 | 1 | 2;
 
 interface EvolutionContextType {
   stage: Stage;
+  hydrated: boolean;
   feedCount: number;
   cleanCount: number;
   battleCount: number;
@@ -15,18 +18,62 @@ interface EvolutionContextType {
   recordClean: () => { evolved: boolean };
   recordBattle: () => { evolved: boolean };
   advanceStage: () => void;
+  resetEvolutionProgress: () => Promise<void>;
 }
 
 const EvolutionContext = createContext<EvolutionContextType | null>(null);
 
 export function EvolutionProvider({ children }: { children: React.ReactNode }) {
   const [stage, setStage]         = useState<Stage>(0);
+  const [hydrated, setHydrated] = useState(false);
   const [feedCount, setFeedCount] = useState(0);
   const [cleanCount, setCleanCount] = useState(0);
   const [battleCount, setBattleCount] = useState(0);
 
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const data = await getByte();
+        const apiStage = Number(data?.byte?.evolutionStage ?? 0);
+        const clamped = Math.max(0, Math.min(2, Math.floor(apiStage))) as Stage;
+        if (mounted) {
+          setStage(clamped);
+        }
+      } catch {
+        // Keep default local stage when API is unavailable.
+      } finally {
+        if (mounted) setHydrated(true);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const advanceStage = useCallback(() => {
-    setStage(prev => Math.min(2, prev + 1) as Stage);
+    setStage((prev) => {
+      const next = Math.min(2, prev + 1) as Stage;
+      if (next !== prev) {
+        setFeedCount(0);
+        setCleanCount(0);
+        setBattleCount(0);
+        setDemoStage(next).catch(() => {});
+      }
+      return next;
+    });
+  }, []);
+
+  const resetEvolutionProgress = useCallback(async () => {
+    setStage(0);
+    setFeedCount(0);
+    setCleanCount(0);
+    setBattleCount(0);
+    try {
+      await setDemoStage(0);
+    } catch {
+      // Backend reset route may have already handled this.
+    }
   }, []);
 
   // Egg → Stage 1: Feed 3x + Clean 1x
@@ -60,8 +107,8 @@ export function EvolutionProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <EvolutionContext.Provider value={{
-      stage, feedCount, cleanCount, battleCount,
-      recordFeed, recordClean, recordBattle, advanceStage,
+      stage, hydrated, feedCount, cleanCount, battleCount,
+      recordFeed, recordClean, recordBattle, advanceStage, resetEvolutionProgress,
     }}>
       {children}
     </EvolutionContext.Provider>

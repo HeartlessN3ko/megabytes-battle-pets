@@ -142,6 +142,11 @@ export default function HomeScreen() {
     return 'Clean';
   }, [clutter]);
 
+  const clutterVisuals = useMemo(() => {
+    const icons = ['🧦', '📦', '🧻', '🧴', '🗑️'];
+    return Array.from({ length: clutter }, (_, i) => icons[i % icons.length]);
+  }, [clutter]);
+
   const refreshData = useCallback(async () => {
     try {
       const [b, p] = await Promise.all([getByte(), getPlayer()]);
@@ -160,15 +165,15 @@ export default function HomeScreen() {
   const randomThought = useCallback(() => {
     const byteName = byteData?.byte?.name || 'BYTE';
     const thoughts = [
-      `${byteName} is wandering the network corridors.`,
-      `${byteName} is scanning packets for hidden memes.`,
-      `${byteName} is exploring old data archives.`,
-      `${byteName} is chasing signal ghosts in the uplink.`,
-      `${byteName} is mapping new routes through cyberspace.`,
-      `${byteName} is watching debug windows like a movie.`,
+      `${byteName} is wandering.`,
+      `${byteName} is scanning packets.`,
+      `${byteName} is exploring.`,
+      `${byteName} is chasing signal ghosts.`,
+      `${byteName} is mapping routes.`,
+      `${byteName} is watching memes.`,
     ];
     const pick = thoughts[Math.floor(Math.random() * thoughts.length)];
-    if (clutter >= 3) return `${pick} Home looks ${clutterLabel.toLowerCase()}.`;
+    if (clutter >= 3) return `${pick} Home is ${clutterLabel.toLowerCase()}.`;
     return pick;
   }, [byteData?.byte?.name, clutter, clutterLabel]);
 
@@ -370,6 +375,23 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.field}>
+          <View style={styles.clutterLayer} pointerEvents="none">
+            {clutterVisuals.map((icon, i) => (
+              <Text
+                key={`clutter-${i}`}
+                style={[
+                  styles.clutterIcon,
+                  {
+                    left: 16 + ((i * 57) % Math.max(120, width - 80)),
+                    bottom: 6 + ((i % 2) * 18),
+                  },
+                ]}
+              >
+                {icon}
+              </Text>
+            ))}
+          </View>
+
           <Animated.View
             style={[
               styles.byteStage,
@@ -384,9 +406,8 @@ export default function HomeScreen() {
 
         <View style={styles.statusCardSolo}>
           <View style={styles.statusDot} />
-          <Text style={styles.statusText}>{statusText}</Text>
+          <Text style={styles.statusText} numberOfLines={1} ellipsizeMode="tail">{statusText}</Text>
           <Text style={styles.statusMood}>{byteName} - {moodLabel}</Text>
-          <Text style={styles.statusClutter}>Home: {clutterLabel}</Text>
         </View>
 
         <View style={styles.careActionsRow}>
@@ -486,6 +507,19 @@ const styles = StyleSheet.create({
   pipRow: { flexDirection: 'row', gap: 2 },
   pip: { width: 8, height: 6, borderRadius: 2 },
   field: { flex: 1, justifyContent: 'center', alignItems: 'center', position: 'relative' },
+  clutterLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 78,
+    zIndex: 1,
+  },
+  clutterIcon: {
+    position: 'absolute',
+    fontSize: 19,
+    opacity: 0.9,
+  },
   byteStage: { position: 'absolute', bottom: 10, zIndex: 2 },
   byteSprite: { width: width * 0.3, height: width * 0.3 },
   statusCardSolo: {
@@ -494,16 +528,15 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(111,198,255,0.24)',
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  statusDot: { width: 7, height: 7, borderRadius: 99, backgroundColor: '#5dff93' },
-  statusText: { flex: 1, color: 'rgba(255,255,255,0.82)', fontSize: 11.2, fontWeight: '600' },
-  statusMood: { color: '#7bd9ff', fontSize: 10.2, fontWeight: '700' },
-  statusClutter: { color: 'rgba(255,202,132,0.84)', fontSize: 9.8, fontWeight: '700' },
+  statusDot: { width: 6, height: 6, borderRadius: 99, backgroundColor: '#5dff93' },
+  statusText: { flex: 1, color: 'rgba(255,255,255,0.82)', fontSize: 10.2, fontWeight: '600' },
+  statusMood: { color: '#7bd9ff', fontSize: 9.2, fontWeight: '700' },
   careActionsRow: { marginTop: 8, marginHorizontal: 10, flexDirection: 'row', gap: 6, justifyContent: 'space-between' },
   careBtn: {
     flex: 1,

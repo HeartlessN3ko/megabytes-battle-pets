@@ -1,7 +1,7 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ImageBackground, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getByte } from '../../services/api';
+import { enterPageant, getByte, getPageantLeaderboard, submitPageantScore } from '../../services/api';
 
 function grade(v: number) {
   if (v >= 85) return 'S';
@@ -13,6 +13,8 @@ function grade(v: number) {
 
 export default function PageantScreen() {
   const [byteData, setByteData] = useState<any>(null);
+  const [lastResult, setLastResult] = useState<any>(null);
+  const [leaderTop, setLeaderTop] = useState<string>('-');
   const [review, setReview] = useState('Run a mock pageant review to evaluate your Byte profile.');
 
   const runReview = useCallback(() => {
@@ -29,10 +31,25 @@ export default function PageantScreen() {
       { key: 'Stability', val: stabilityScore },
     ].sort((a, b) => b.val - a.val)[0];
 
-    setReview(
-      `${byteData?.byte?.name || 'Your Byte'} received a ${grade((styleScore + presenceScore + stabilityScore) / 3)} review. ` +
-        `Best category: ${top.key} (${top.val}). Keep mood high and hygiene stable before the next showcase.`
-    );
+    const avg = Math.round((styleScore + presenceScore + stabilityScore) / 3);
+    const placement = avg >= 85 ? 'first' : avg >= 70 ? 'second' : avg >= 55 ? 'third' : 'participation';
+
+    const baseReview =
+      `${byteData?.byte?.name || 'Your Byte'} received a ${grade(avg)} review. ` +
+      `Best category: ${top.key} (${top.val}). Keep mood high and hygiene stable before the next showcase.`;
+
+    setReview(baseReview);
+
+    (async () => {
+      try {
+        await enterPageant();
+        const result = await submitPageantScore(placement, top.key.toLowerCase());
+        setLastResult(result);
+        setReview(`${baseReview} Placement: ${placement.toUpperCase()} (+${result?.earned || 0} BB, +${result?.xpGain || 0} XP).`);
+      } catch {
+        // Keep local mock review when backend is unavailable.
+      }
+    })();
   }, [byteData]);
 
   useEffect(() => {
@@ -40,6 +57,11 @@ export default function PageantScreen() {
       try {
         const data = await getByte();
         setByteData(data);
+
+        const board = await getPageantLeaderboard();
+        if (Array.isArray(board) && board.length > 0) {
+          setLeaderTop(`${board[0]?.name || 'Unknown'} Lv.${board[0]?.level || 1}`);
+        }
       } catch {
         setReview('Could not sync Byte stats. Pageant is in local demo mode.');
       }
@@ -75,6 +97,12 @@ export default function PageantScreen() {
 
         <View style={styles.reviewCard}>
           <Text style={styles.reviewText}>{review}</Text>
+          {lastResult ? <Text style={styles.resultText}>Last reward: +{lastResult.earned} BB, +{lastResult.xpGain} XP</Text> : null}
+        </View>
+
+        <View style={styles.leaderCard}>
+          <Text style={styles.leaderTitle}>LEADERBOARD TOP</Text>
+          <Text style={styles.leaderValue}>{leaderTop}</Text>
         </View>
 
         <TouchableOpacity style={styles.btn} onPress={runReview} activeOpacity={0.85}>
@@ -114,6 +142,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   reviewText: { color: '#d8efff', fontSize: 12, lineHeight: 18 },
+  resultText: { color: '#9bffbf', fontSize: 11, marginTop: 10, fontWeight: '700' },
+  leaderCard: {
+    marginTop: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(120,195,255,0.3)',
+    backgroundColor: 'rgba(8,18,62,0.84)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  leaderTitle: { color: 'rgba(208,232,255,0.72)', fontSize: 10.5, letterSpacing: 1 },
+  leaderValue: { color: '#fff', fontSize: 11.5, fontWeight: '800' },
   btn: {
     marginTop: 12,
     borderRadius: 10,

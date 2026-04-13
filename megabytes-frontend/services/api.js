@@ -94,6 +94,8 @@ export const startBattle = (mode = 'ai') =>
   request('POST', '/api/battle/start', { byteId: BYTE_ID, mode });
 
 export const getBattle = (battleId) => request('GET', `/api/battle/${battleId}`);
+export const cheerBattle = (battleId) => request('POST', `/api/battle/${battleId}/cheer`);
+export const suggestBattleUlt = (battleId) => request('POST', `/api/battle/${battleId}/ult`);
 
 // Economy
 export const getBalance = () => request('GET', `/api/economy/balance/${PLAYER_ID}`);
@@ -107,3 +109,9 @@ export const getShopItems = () => request('GET', '/api/shop/items');
 export const getShopRooms = () => request('GET', '/api/shop/rooms');
 export const buyItem = (itemId) => request('POST', '/api/shop/buy/item', { playerId: PLAYER_ID, itemId });
 export const consumeItem = (itemId) => request('POST', '/api/shop/use/item', { playerId: PLAYER_ID, byteId: BYTE_ID, itemId });
+
+// Pageant
+export const enterPageant = () => request('POST', '/api/pageant/enter', { byteId: BYTE_ID });
+export const submitPageantScore = (placement, performanceResult = 'stable') =>
+  request('POST', '/api/pageant/score', { byteId: BYTE_ID, performanceResult, placement });
+export const getPageantLeaderboard = () => request('GET', '/api/pageant/leaderboard');

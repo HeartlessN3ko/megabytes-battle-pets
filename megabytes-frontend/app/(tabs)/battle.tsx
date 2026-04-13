@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { startBattle } from '../../services/api';
+import { cheerBattle, getBattle, startBattle, suggestBattleUlt } from '../../services/api';
 import { useEvolution } from '../../context/EvolutionContext';
 
 const { width, height } = Dimensions.get('window');
@@ -96,6 +96,7 @@ export default function BattleScreen() {
   const [biasedMove, setBiasedMove] = useState<number | null>(null);
   const [earnedBits, setEarnedBits] = useState(0);
   const [returningHome, setReturningHome] = useState(false);
+  const [battleId, setBattleId] = useState<string | null>(null);
 
   const addDamage = useCallback((value: number, side: 'left'|'right') => {
     const id = damageId.current++;
@@ -144,9 +145,17 @@ export default function BattleScreen() {
       // Call backend
       try {
         const res = await startBattle('ai');
+        setBattleId(res?.battleId || null);
         setEarnedBits(res.earned || 34);
+        if (res?.battleId) {
+          try {
+            await getBattle(res.battleId);
+          } catch {}
+        }
+        setLog(`Battle synced. Winner: ${res?.winner || 'A'}.`);
       } catch {
         setEarnedBits(34);
+        setLog('Battle ended in local fallback mode.');
       }
       // Record battle for evolution
       recordBattle();
@@ -168,7 +177,7 @@ export default function BattleScreen() {
       overlayOp.setValue(0);
       restoreBattleState();
       setReturningHome(false);
-      router.replace('/');
+      router.replace('/(tabs)');
     }, 450);
   }, [overlayOp, restoreBattleState, returningHome, router]);
 
@@ -324,10 +333,31 @@ export default function BattleScreen() {
 
         <View style={styles.controls}>
           {[
-            { label: '✳️ Cheer',       cb: () => setLog(rnd(CHEER_LOGS)) },
+            {
+              label: '✳️ Cheer',
+              cb: async () => {
+                setLog(rnd(CHEER_LOGS));
+                if (battleId) {
+                  try {
+                    const res = await cheerBattle(battleId);
+                    setLog(`Cheer sent. Crowd energy ${res?.cheers || 1}.`);
+                  } catch {}
+                }
+              },
+            },
             { label: '🗡️ Taunt',       cb: () => setLog(rnd(TAUNT_LOGS)) },
-            { label: '⚡ Suggest Ult', cb: () => setLog('MissingNo is charging up something big...') },
-            { label: '🎒 Items',        cb: () => setLog('No items available yet.') },
+            {
+              label: '⚡ Suggest Ult',
+              cb: async () => {
+                setLog('MissingNo is charging up something big...');
+                if (battleId) {
+                  try {
+                    await suggestBattleUlt(battleId);
+                  } catch {}
+                }
+              },
+            },
+            { label: '🎒 Items', cb: () => router.push('/(tabs)/shop') },
           ].map(btn => (
             <TouchableOpacity key={btn.label} style={styles.controlBtn} onPress={btn.cb} activeOpacity={0.7}>
               <Text style={styles.controlLabel}>{btn.label}</Text>

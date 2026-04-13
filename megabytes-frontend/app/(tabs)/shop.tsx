@@ -22,6 +22,7 @@ const FALLBACK_ITEMS = [
 export default function ShopScreen() {
   const [items, setItems] = useState<any[]>([]);
   const [bits, setBits] = useState(0);
+  const [ownedItems, setOwnedItems] = useState<string[]>([]);
   const [status, setStatus] = useState('Loading shop inventory...');
 
   const load = useCallback(async () => {
@@ -29,9 +30,11 @@ export default function ShopScreen() {
       const [shopItems, player] = await Promise.all([getShopItems(), getPlayer()]);
       setItems(Array.isArray(shopItems) && shopItems.length ? shopItems : FALLBACK_ITEMS);
       setBits(player?.byteBits || 0);
+      setOwnedItems(player?.unlockedItems || []);
       setStatus('Shop synchronized.');
     } catch {
       setItems(FALLBACK_ITEMS);
+      setOwnedItems([]);
       setStatus('Shop running in local fallback mode.');
     }
   }, []);
@@ -43,6 +46,10 @@ export default function ShopScreen() {
   const affordableCount = useMemo(() => items.filter((i) => bits >= (i.cost || 0)).length, [bits, items]);
 
   const handleBuy = useCallback(async (itemId: string, cost: number) => {
+    if (ownedItems.includes(itemId)) {
+      setStatus(`${itemId} already in inventory.`);
+      return;
+    }
     if (bits < cost) {
       setStatus('Not enough ByteBits for that item.');
       return;
@@ -51,23 +58,29 @@ export default function ShopScreen() {
     setStatus(`Purchasing ${itemId}...`);
     try {
       await buyItem(itemId);
-      setStatus(`${itemId} purchased.`);
+      setOwnedItems((prev) => [...prev, itemId]);
+      setStatus(`${itemId} purchased and added to inventory.`);
     } catch {
       setStatus(`${itemId} purchased in demo mode.`);
     }
 
     setBits((prev) => Math.max(0, prev - cost));
-  }, [bits]);
+  }, [bits, ownedItems]);
 
   const handleUse = useCallback(async (itemId: string) => {
+    if (!ownedItems.includes(itemId)) {
+      setStatus(`You don't own ${itemId} yet.`);
+      return;
+    }
     setStatus(`Using ${itemId}...`);
     try {
       await consumeItem(itemId);
-      setStatus(`${itemId} used successfully.`);
+      setOwnedItems((prev) => prev.filter((id) => id !== itemId));
+      setStatus(`${itemId} used successfully and removed from inventory.`);
     } catch {
       setStatus(`${itemId} usage mocked for demo flow.`);
     }
-  }, []);
+  }, [ownedItems]);
 
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
@@ -92,6 +105,7 @@ export default function ShopScreen() {
             const name = item.name || item.id;
             const desc = item.description || 'System item.';
             const itemId = item.id;
+            const owned = ownedItems.includes(itemId);
 
             return (
               <View key={itemId} style={styles.itemCard}>
@@ -100,17 +114,23 @@ export default function ShopScreen() {
                   <Text style={styles.itemCost}>{cost} BB</Text>
                 </View>
                 <Text style={styles.itemId}>{itemId}</Text>
+                {owned ? <Text style={styles.ownedTag}>IN INVENTORY</Text> : null}
                 <Text style={styles.itemDesc}>{desc}</Text>
                 <View style={styles.itemActions}>
                   <TouchableOpacity
-                    style={[styles.buyBtn, !canBuy && styles.buyBtnDisabled]}
+                    style={[styles.buyBtn, (!canBuy || owned) && styles.buyBtnDisabled]}
                     onPress={() => handleBuy(itemId, cost)}
                     activeOpacity={0.85}
-                    disabled={!canBuy}
+                    disabled={!canBuy || owned}
                   >
-                    <Text style={styles.buyText}>{canBuy ? 'BUY' : 'LOCKED'}</Text>
+                    <Text style={styles.buyText}>{owned ? 'OWNED' : canBuy ? 'BUY' : 'LOCKED'}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.useBtn} onPress={() => handleUse(itemId)} activeOpacity={0.85}>
+                  <TouchableOpacity
+                    style={[styles.useBtn, !owned && styles.buyBtnDisabled]}
+                    onPress={() => handleUse(itemId)}
+                    activeOpacity={0.85}
+                    disabled={!owned}
+                  >
                     <Text style={styles.useText}>USE</Text>
                   </TouchableOpacity>
                 </View>
@@ -167,6 +187,7 @@ const styles = StyleSheet.create({
   itemName: { color: '#fff', fontSize: 13, fontWeight: '800' },
   itemCost: { color: '#ffd45a', fontSize: 12, fontWeight: '800' },
   itemId: { color: 'rgba(188,220,255,0.64)', fontSize: 10 },
+  ownedTag: { color: '#9bffbf', fontSize: 10, fontWeight: '800', letterSpacing: 1.2 },
   itemDesc: { color: 'rgba(220,240,255,0.8)', fontSize: 11 },
   itemActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
   buyBtn: {

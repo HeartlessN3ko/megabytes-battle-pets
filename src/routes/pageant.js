@@ -27,8 +27,9 @@ router.post('/score', async (req, res) => {
     const { byteId, performanceResult, placement } = req.body;
     // placement: 'first' | 'second' | 'third' | 'participation'
     const byte   = await Byte.findById(byteId);
+    if (!byte) return res.status(404).json({ error: 'Byte not found' });
     const player = await Player.findById(byte.ownerId);
-    if (!byte || !player) return res.status(404).json({ error: 'Not found' });
+    if (!player) return res.status(404).json({ error: 'Player not found' });
 
     const reward = economyEngine.PAGEANT_REWARDS[placement] || economyEngine.PAGEANT_REWARDS.participation;
     const { added } = economyEngine.applyIncome(player.dailyIncome, reward);

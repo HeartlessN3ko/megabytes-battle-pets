@@ -93,6 +93,8 @@ router.post('/:id/reset-demo', async (req, res) => {
     player.achievements = [];
     player.arenaRecord = { wins: 0, losses: 0 };
     player.minigamePlaysToday = 0;
+    player.unlockedItems = [];
+    player.activePassiveRooms = [];
 
     await player.save();
 

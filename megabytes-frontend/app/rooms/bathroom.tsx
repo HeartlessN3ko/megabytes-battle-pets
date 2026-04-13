@@ -106,6 +106,7 @@ export default function BathroomRoom() {
       ambient="Use quick clean for short upkeep and deep clean for full restoration runs."
       sceneTint="rgba(20,52,82,0.2)"
       accent="#78deff"
+      backgroundSource={require('../../assets/backgrounds/bathroom.png')}
       statusLine={status}
       timerLine={timerLine}
       primaryActions={primaryActions}

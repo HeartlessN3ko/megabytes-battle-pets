@@ -98,6 +98,7 @@ export default function KitchenRoom() {
       ambient="Choose a fast nutrient burst or a full cycle meal for deeper recovery."
       sceneTint="rgba(80,48,20,0.18)"
       accent="#ffc36a"
+      backgroundSource={require('../../assets/backgrounds/kitchenroom.png')}
       statusLine={status}
       timerLine={timerLine}
       primaryActions={primaryActions}

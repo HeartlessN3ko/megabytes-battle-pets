@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { getByte, getPlayer, homeCleanByte, praiseByte, scoldByte } from '../../services/api';
 import { getHomeClutterClearedAt } from '../../services/homeRuntimeState';
+import { initSfx, playSfx } from '../../services/sfx';
 import { useEvolution } from '../../context/EvolutionContext';
 
 const { width, height } = Dimensions.get('window');
@@ -184,6 +185,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     refreshData();
+    initSfx().catch(() => {});
   }, [refreshData]);
 
   useFocusEffect(
@@ -260,6 +262,7 @@ export default function HomeScreen() {
   const openDrawer = useCallback(() => {
     if (drawerOpen || transitionBusy) return;
     setDrawerOpen(true);
+    playSfx('menu', 0.7);
     Animated.spring(drawerAnim, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }).start();
   }, [drawerAnim, drawerOpen, transitionBusy]);
 
@@ -287,11 +290,13 @@ export default function HomeScreen() {
       } catch {}
       setClutter(0);
       await refreshData();
+      playSfx('positive', 0.75);
       setTransientStatus('Home cleanup complete. Clutter removed.', 2600);
       return;
     }
 
     if (key === 'inventory') {
+      playSfx('menu', 0.75);
       setTransientStatus('Opening inventory...', 1200);
       router.push('/(tabs)/inventory');
       return;
@@ -302,6 +307,7 @@ export default function HomeScreen() {
         await praiseByte();
       } catch {}
       await refreshData();
+      playSfx('yes', 0.8);
       setTransientStatus('Praise logged. BYTE mood and social confidence increased.', 2800);
       return;
     }
@@ -311,6 +317,7 @@ export default function HomeScreen() {
         await scoldByte();
       } catch {}
       await refreshData();
+      playSfx('no', 0.8);
       setTransientStatus('Scold logged. BYTE is re-evaluating behavior routines.', 2800);
     }
   }, [refreshData, router, setTransientStatus, transitionBusy]);
@@ -334,6 +341,7 @@ export default function HomeScreen() {
       Animated.timing(tapScale, { toValue: 0.92, duration: 90, useNativeDriver: true }),
       Animated.spring(tapScale, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
+    playSfx(Math.random() > 0.5 ? 'chirp1' : 'chirp2', 0.75);
     setTransientStatus('BYTE is humming while it explores...', 2000);
   }, [setTransientStatus, tapScale]);
 

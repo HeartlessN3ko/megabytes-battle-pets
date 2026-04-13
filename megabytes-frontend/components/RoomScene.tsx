@@ -25,6 +25,7 @@ interface RoomSceneProps {
   accent: string;
   statusLine: string;
   timerLine?: string | null;
+  backgroundSource?: any;
   primaryActions: [RoomAction, RoomAction];
   secondaryActions?: RoomAction[];
   onExit: () => void;
@@ -40,6 +41,7 @@ export default function RoomScene({
   accent,
   statusLine,
   timerLine,
+  backgroundSource,
   primaryActions,
   secondaryActions = [],
   onExit,
@@ -93,7 +95,7 @@ export default function RoomScene({
   }, [bobY, breathe, driftX, driftY]);
 
   return (
-    <ImageBackground source={require('../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={backgroundSource || require('../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={[styles.sceneTint, { backgroundColor: sceneTint }]} />

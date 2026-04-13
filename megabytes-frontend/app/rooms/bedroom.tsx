@@ -95,6 +95,7 @@ export default function BedroomRoom() {
       ambient="Use short rests for quick recovery or deep cycle sleep for stronger restoration."
       sceneTint="rgba(36,28,74,0.22)"
       accent="#9f9cff"
+      backgroundSource={require('../../assets/backgrounds/bedroom.png')}
       statusLine={status}
       timerLine={timerLine}
       primaryActions={primaryActions}

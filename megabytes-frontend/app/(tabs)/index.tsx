@@ -15,7 +15,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { getByte, getPlayer, praiseByte, scoldByte } from '../../services/api';
+import { useFocusEffect } from '@react-navigation/native';
+import { getByte, getPlayer, homeCleanByte, interactByte, praiseByte, scoldByte } from '../../services/api';
+import { getHomeClutterClearedAt } from '../../services/homeRuntimeState';
 import { useEvolution } from '../../context/EvolutionContext';
 
 const { width, height } = Dimensions.get('window');
@@ -110,6 +112,7 @@ export default function HomeScreen() {
   const tapScale = useRef(new Animated.Value(1)).current;
   const drawerAnim = useRef(new Animated.Value(height)).current;
   const stickyUntilRef = useRef(0);
+  const clutterSyncRef = useRef(0);
 
   const [byteData, setByteData] = useState<any>(null);
   const [playerData, setPlayerData] = useState<any>(null);
@@ -172,6 +175,17 @@ export default function HomeScreen() {
   useEffect(() => {
     refreshData();
   }, [refreshData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const clearedAt = getHomeClutterClearedAt();
+      if (clearedAt > clutterSyncRef.current) {
+        clutterSyncRef.current = clearedAt;
+        setClutter(0);
+        setTransientStatus('Clutter was cleared in another room. Home is clean.', 2300);
+      }
+    }, [setTransientStatus])
+  );
 
   useEffect(() => {
     const thoughtTicker = setInterval(() => {
@@ -258,12 +272,20 @@ export default function HomeScreen() {
     if (transitionBusy) return;
 
     if (key === 'clean') {
+      try {
+        await homeCleanByte();
+      } catch {}
       setClutter(0);
+      await refreshData();
       setTransientStatus('Home cleanup complete. Clutter removed.', 2600);
       return;
     }
 
     if (key === 'interact') {
+      try {
+        await interactByte();
+      } catch {}
+      await refreshData();
       setTransientStatus('You pinged BYTE. It replied with a happy chirp.', 2600);
       return;
     }
@@ -272,6 +294,7 @@ export default function HomeScreen() {
       try {
         await praiseByte();
       } catch {}
+      await refreshData();
       setTransientStatus('Praise logged. BYTE mood and social confidence increased.', 2800);
       return;
     }
@@ -280,9 +303,10 @@ export default function HomeScreen() {
       try {
         await scoldByte();
       } catch {}
+      await refreshData();
       setTransientStatus('Scold logged. BYTE is re-evaluating behavior routines.', 2800);
     }
-  }, [setTransientStatus, transitionBusy]);
+  }, [refreshData, setTransientStatus, transitionBusy]);
 
   const handleRoomOpen = useCallback(
     (route: string) => {

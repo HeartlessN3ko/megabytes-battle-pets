@@ -12,6 +12,10 @@ const economyEngine   = require('../engine/economyEngine');
 const router = express.Router();
 // TODO: add auth middleware
 
+function clampNeed(value) {
+  return Math.max(0, Math.min(100, value));
+}
+
 // GET /api/byte/:id — returns byte with decayed needs + computed stats
 router.get('/:id', async (req, res) => {
   try {
@@ -182,10 +186,21 @@ router.patch('/:id/loadout', async (req, res) => {
 router.post('/:id/praise', async (req, res) => {
   try {
     const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    byte.needs.Mood = clampNeed((byte.needs.Mood || 0) + 10);
+    byte.needs.Social = clampNeed((byte.needs.Social || 0) + 5);
+
     const metrics = behaviorTracker.recordInteraction(byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics, 'praise');
     byte.behaviorMetrics = metrics;
     await byte.save();
-    res.json({ praiseCount: byte.behaviorMetrics.praiseCount });
+    res.json({
+      praiseCount: byte.behaviorMetrics.praiseCount,
+      needs: {
+        Mood: byte.needs.Mood,
+        Social: byte.needs.Social
+      }
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -195,10 +210,75 @@ router.post('/:id/praise', async (req, res) => {
 router.post('/:id/scold', async (req, res) => {
   try {
     const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    byte.needs.Mood = clampNeed((byte.needs.Mood || 0) - 10);
+
     const metrics = behaviorTracker.recordInteraction(byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics, 'scold');
     byte.behaviorMetrics = metrics;
     await byte.save();
-    res.json({ scoldCount: byte.behaviorMetrics.scoldCount });
+    res.json({
+      scoldCount: byte.behaviorMetrics.scoldCount,
+      needs: {
+        Mood: byte.needs.Mood
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/byte/:id/interact
+router.post('/:id/interact', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    byte.needs.Fun = clampNeed((byte.needs.Fun || 0) + 10);
+    byte.needs.Social = clampNeed((byte.needs.Social || 0) + 5);
+    byte.needs.Mood = clampNeed((byte.needs.Mood || 0) + 5);
+
+    const metrics = behaviorTracker.recordInteraction(
+      byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics,
+      'interact'
+    );
+    byte.behaviorMetrics = metrics;
+    await byte.save();
+
+    res.json({
+      tapFrequency: byte.behaviorMetrics.tapFrequency,
+      nonRewardCheckins: byte.behaviorMetrics.nonRewardCheckins,
+      needs: {
+        Fun: byte.needs.Fun,
+        Social: byte.needs.Social,
+        Mood: byte.needs.Mood
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/byte/:id/home-clean
+router.post('/:id/home-clean', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    // Home clean only clears room clutter in the frontend layer.
+    // Record as a light clean interaction without restoring Hygiene.
+    const metrics = behaviorTracker.recordCare(
+      byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics,
+      'clean',
+      byte.needs.Hygiene || 100
+    );
+    byte.behaviorMetrics = metrics;
+    await byte.save();
+
+    res.json({
+      cleanDelayTime: byte.behaviorMetrics.cleanDelayTime,
+      needResponseTime: byte.behaviorMetrics.needResponseTime
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

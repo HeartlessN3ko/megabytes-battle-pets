@@ -1,7 +1,8 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { careAction, enterRoom } from '../../services/api';
 import RoomScene, { RoomAction } from '../../components/RoomScene';
+import { markHomeClutterCleared } from '../../services/homeRuntimeState';
 
 export default function BathroomRoom() {
   const router = useRouter();
@@ -50,22 +51,32 @@ export default function BathroomRoom() {
       icon: 'water-outline',
       color: '#53daff',
       disabled: busy,
-      onPress: () => runTimed('Clean Sweep', 30, () => careAction('clean'), 'Clean Sweep complete. Hygiene improved and clutter cleared.'),
+      onPress: () =>
+        runTimed(
+          'Clean Sweep',
+          30,
+          async () => {
+            await careAction('clean');
+            markHomeClutterCleared();
+          },
+          'Clean Sweep complete. Hygiene improved and clutter cleared.'
+        ),
     },
     {
       key: 'clean-long',
       title: 'DEEP CLEAN',
-      subtitle: '90s intensive clean',
+      subtitle: '60s intensive clean',
       icon: 'sparkles-outline',
       color: '#8ce9ff',
       disabled: busy,
       onPress: () =>
         runTimed(
           'Deep Clean',
-          90,
+          60,
           async () => {
             await careAction('clean');
             await careAction('clean');
+            markHomeClutterCleared();
           },
           'Deep Clean complete. Hygiene up, corruption pressure reduced.'
         ),
@@ -104,3 +115,4 @@ export default function BathroomRoom() {
     />
   );
 }
+

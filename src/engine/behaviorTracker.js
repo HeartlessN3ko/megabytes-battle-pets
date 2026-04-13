@@ -91,6 +91,10 @@ function recordInteraction(metrics, type) {
   const m = { ...metrics };
   if (type === 'praise') m.praiseCount = (m.praiseCount || 0) + 1;
   if (type === 'scold')  m.scoldCount  = (m.scoldCount  || 0) + 1;
+  if (type === 'interact') {
+    m.tapFrequency = (m.tapFrequency || 0) + 1;
+    m.nonRewardCheckins = (m.nonRewardCheckins || 0) + 1;
+  }
   return m;
 }
 

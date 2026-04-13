@@ -90,6 +90,7 @@ export const setDemoStage = (stage) => request('PATCH', `/api/byte/${BYTE_ID}/de
 
 // Player
 export const getPlayer = () => request('GET', `/api/player/${PLAYER_ID}`);
+export const getInventory = () => request('GET', `/api/player/${PLAYER_ID}/inventory`);
 
 export const getCurrency = () => request('GET', `/api/player/${PLAYER_ID}/currency`);
 export const resetDemoData = () =>

@@ -29,7 +29,7 @@ const SPRITES: Record<number, any> = {
 };
 
 const HOME_ACTIONS = [
-  { key: 'items', label: 'ITEMS', icon: 'cube-outline', color: '#ffc84a' },
+  { key: 'inventory', label: 'INVENTORY', icon: 'cube-outline', color: '#ffc84a' },
   { key: 'praise', label: 'PRAISE', icon: 'thumbs-up-outline', color: '#45d4ff' },
   { key: 'scold', label: 'SCOLD', icon: 'alert-circle-outline', color: '#bf6cff' },
   { key: 'clean', label: 'CLEAN', icon: 'layers-outline', color: '#6c93ff' },
@@ -291,9 +291,9 @@ export default function HomeScreen() {
       return;
     }
 
-    if (key === 'items') {
-      setTransientStatus('Opening item bag and shop access...', 1400);
-      router.push('/(tabs)/shop');
+    if (key === 'inventory') {
+      setTransientStatus('Opening inventory...', 1200);
+      router.push('/(tabs)/inventory');
       return;
     }
 

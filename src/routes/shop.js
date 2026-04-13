@@ -39,6 +39,29 @@ function findCatalogItem(itemId) {
   return SHOP_ITEMS.find((i) => i.id === itemId) || null;
 }
 
+function getInventoryCount(player, itemId) {
+  const list = Array.isArray(player.itemInventory) ? player.itemInventory : [];
+  const entry = list.find((e) => e.itemId === itemId);
+  return Number(entry?.quantity || 0);
+}
+
+function setInventoryCount(player, itemId, qty) {
+  const safeQty = Math.max(0, Number(qty || 0));
+  if (!Array.isArray(player.itemInventory)) {
+    player.itemInventory = [];
+  }
+  const idx = player.itemInventory.findIndex((e) => e.itemId === itemId);
+  if (idx === -1) {
+    if (safeQty > 0) player.itemInventory.push({ itemId, quantity: safeQty });
+    return;
+  }
+  if (safeQty <= 0) {
+    player.itemInventory.splice(idx, 1);
+    return;
+  }
+  player.itemInventory[idx].quantity = safeQty;
+}
+
 // GET /api/shop/items
 router.get('/items', async (req, res) => {
   try {
@@ -74,10 +97,16 @@ router.post('/buy/item', async (req, res) => {
     if (player.byteBits < cost) return res.status(400).json({ error: 'Insufficient byte.bits' });
 
     player.byteBits -= cost;
+    const currentQty = getInventoryCount(player, itemId);
+    setInventoryCount(player, itemId, currentQty + 1);
     player.unlockedItems.addToSet(itemId);
     await player.save();
 
-    res.json({ purchased: itemId, byteBitsRemaining: player.byteBits });
+    res.json({
+      purchased: itemId,
+      byteBitsRemaining: player.byteBits,
+      quantity: getInventoryCount(player, itemId)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -131,7 +160,13 @@ router.post('/use/item', async (req, res) => {
     const { playerId, byteId, itemId } = req.body;
     const [player, byte] = await Promise.all([Player.findById(playerId), Byte.findById(byteId)]);
     if (!player || !byte) return res.status(404).json({ error: 'Not found' });
-    if (!player.unlockedItems.includes(itemId)) return res.status(400).json({ error: 'Item not in inventory' });
+    let currentQty = getInventoryCount(player, itemId);
+    if (currentQty <= 0 && player.unlockedItems.includes(itemId)) {
+      // Backfill legacy inventory entries.
+      currentQty = 1;
+      setInventoryCount(player, itemId, 1);
+    }
+    if (currentQty <= 0) return res.status(400).json({ error: 'Item not in inventory' });
 
     let item = await Item.findOne({ id: itemId });
     if (!item) item = findCatalogItem(itemId);
@@ -155,11 +190,17 @@ router.post('/use/item', async (req, res) => {
       effects.push(`effect_applied:${item.appliesEffect}`);
     }
 
-    player.unlockedItems = player.unlockedItems.filter((i) => i !== itemId);
+    setInventoryCount(player, itemId, currentQty - 1);
+    const remaining = getInventoryCount(player, itemId);
+    if (remaining <= 0) {
+      player.unlockedItems = player.unlockedItems.filter((i) => i !== itemId);
+    } else {
+      player.unlockedItems.addToSet(itemId);
+    }
 
     await byte.save();
     await player.save();
-    res.json({ itemUsed: itemId, effects });
+    res.json({ itemUsed: itemId, effects, quantityRemaining: remaining });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

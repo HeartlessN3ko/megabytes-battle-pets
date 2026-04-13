@@ -1,5 +1,10 @@
 const mongoose = require('mongoose');
 
+const InventoryItemSchema = new mongoose.Schema({
+  itemId: { type: String, required: true },
+  quantity: { type: Number, default: 0, min: 0 }
+}, { _id: false });
+
 const PlayerSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true, trim: true },
   email:    { type: String, required: true, unique: true, lowercase: true },
@@ -17,6 +22,7 @@ const PlayerSchema = new mongoose.Schema({
   // Unlocked content
   unlockedRooms:   { type: [String], default: ['Bedroom', 'Kitchen', 'Bathroom', 'Training_Center'] },
   unlockedItems:   { type: [String], default: [] },
+  itemInventory:   { type: [InventoryItemSchema], default: [] },
   unlockedMoves:   { type: [String], default: ['basic_ping.py'] },
 
   // Active passive rooms (max 2)

@@ -25,6 +25,7 @@ export default function TabLayout() {
       <Tabs.Screen name="pageant" options={{ title: 'Pageant', tabBarIcon: ({ color }) => <TabIcon name="trophy-outline" color={color} /> }} />
       <Tabs.Screen name="collection" options={{ title: 'Options', tabBarIcon: ({ color }) => <TabIcon name="settings-outline" color={color} /> }} />
       <Tabs.Screen name="shop" options={{ title: 'Shop', tabBarIcon: ({ color }) => <TabIcon name="cart-outline" color={color} /> }} />
+      <Tabs.Screen name="inventory" options={{ href: null }} />
     </Tabs>
   );
 }

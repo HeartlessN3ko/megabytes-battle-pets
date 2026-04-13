@@ -73,7 +73,7 @@ router.get('/:id/currency', async (req, res) => {
 router.get('/:id/inventory', async (req, res) => {
   try {
     const player = await Player.findById(req.params.id)
-      .select('unlockedRooms unlockedItems unlockedMoves activePassiveRooms');
+      .select('unlockedRooms unlockedItems itemInventory unlockedMoves activePassiveRooms');
     res.json(player);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -94,6 +94,7 @@ router.post('/:id/reset-demo', async (req, res) => {
     player.arenaRecord = { wins: 0, losses: 0 };
     player.minigamePlaysToday = 0;
     player.unlockedItems = [];
+    player.itemInventory = [];
     player.activePassiveRooms = [];
 
     await player.save();

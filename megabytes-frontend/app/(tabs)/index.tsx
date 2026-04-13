@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { getByte, getPlayer, homeCleanByte, interactByte, praiseByte, scoldByte } from '../../services/api';
+import { getByte, getPlayer, homeCleanByte, praiseByte, scoldByte } from '../../services/api';
 import { getHomeClutterClearedAt } from '../../services/homeRuntimeState';
 import { useEvolution } from '../../context/EvolutionContext';
 
@@ -29,7 +29,7 @@ const SPRITES: Record<number, any> = {
 };
 
 const HOME_ACTIONS = [
-  { key: 'interact', label: 'INTERACT', icon: 'sparkles-outline', color: '#ffc84a' },
+  { key: 'items', label: 'ITEMS', icon: 'cube-outline', color: '#ffc84a' },
   { key: 'praise', label: 'PRAISE', icon: 'thumbs-up-outline', color: '#45d4ff' },
   { key: 'scold', label: 'SCOLD', icon: 'alert-circle-outline', color: '#bf6cff' },
   { key: 'clean', label: 'CLEAN', icon: 'layers-outline', color: '#6c93ff' },
@@ -286,12 +286,9 @@ export default function HomeScreen() {
       return;
     }
 
-    if (key === 'interact') {
-      try {
-        await interactByte();
-      } catch {}
-      await refreshData();
-      setTransientStatus('You pinged BYTE. It replied with a happy chirp.', 2600);
+    if (key === 'items') {
+      setTransientStatus('Opening item bag and shop access...', 1400);
+      router.push('/(tabs)/shop');
       return;
     }
 
@@ -311,7 +308,7 @@ export default function HomeScreen() {
       await refreshData();
       setTransientStatus('Scold logged. BYTE is re-evaluating behavior routines.', 2800);
     }
-  }, [refreshData, setTransientStatus, transitionBusy]);
+  }, [refreshData, router, setTransientStatus, transitionBusy]);
 
   const handleRoomOpen = useCallback(
     (route: string) => {
@@ -374,6 +371,12 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
+        <View style={styles.statusCardSolo}>
+          <View style={styles.statusDot} />
+          <Text style={styles.statusText} numberOfLines={1} ellipsizeMode="tail">{statusText}</Text>
+          <Text style={styles.statusMood}>{byteName} - {moodLabel}</Text>
+        </View>
+
         <View style={styles.field}>
           <View style={styles.clutterLayer} pointerEvents="none">
             {clutterVisuals.map((icon, i) => (
@@ -402,12 +405,6 @@ export default function HomeScreen() {
               <Image source={petSprite} style={styles.byteSprite} resizeMode="contain" />
             </TouchableOpacity>
           </Animated.View>
-        </View>
-
-        <View style={styles.statusCardSolo}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText} numberOfLines={1} ellipsizeMode="tail">{statusText}</Text>
-          <Text style={styles.statusMood}>{byteName} - {moodLabel}</Text>
         </View>
 
         <View style={styles.careActionsRow}>
@@ -506,7 +503,7 @@ const styles = StyleSheet.create({
   needChipLabel: { color: 'rgba(230,245,255,0.8)', fontSize: 8, letterSpacing: 1, fontWeight: '700' },
   pipRow: { flexDirection: 'row', gap: 2 },
   pip: { width: 8, height: 6, borderRadius: 2 },
-  field: { flex: 1, justifyContent: 'center', alignItems: 'center', position: 'relative' },
+  field: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', position: 'relative', paddingBottom: 16 },
   clutterLayer: {
     position: 'absolute',
     left: 0,
@@ -520,10 +517,11 @@ const styles = StyleSheet.create({
     fontSize: 19,
     opacity: 0.9,
   },
-  byteStage: { position: 'absolute', bottom: 10, zIndex: 2 },
+  byteStage: { position: 'absolute', bottom: 12, zIndex: 2 },
   byteSprite: { width: width * 0.3, height: width * 0.3 },
   statusCardSolo: {
     marginHorizontal: 14,
+    marginTop: 8,
     backgroundColor: 'rgba(10,15,52,0.84)',
     borderRadius: 12,
     borderWidth: 1,
@@ -537,7 +535,7 @@ const styles = StyleSheet.create({
   statusDot: { width: 6, height: 6, borderRadius: 99, backgroundColor: '#5dff93' },
   statusText: { flex: 1, color: 'rgba(255,255,255,0.82)', fontSize: 10.2, fontWeight: '600' },
   statusMood: { color: '#7bd9ff', fontSize: 9.2, fontWeight: '700' },
-  careActionsRow: { marginTop: 8, marginHorizontal: 10, flexDirection: 'row', gap: 6, justifyContent: 'space-between' },
+  careActionsRow: { marginTop: 10, marginHorizontal: 10, flexDirection: 'row', gap: 6, justifyContent: 'space-between' },
   careBtn: {
     flex: 1,
     alignItems: 'center',

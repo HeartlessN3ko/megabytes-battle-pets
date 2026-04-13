@@ -14,7 +14,7 @@ const DEMO_ACHIEVEMENTS = [
 
 export default function OptionsScreen() {
   const router = useRouter();
-  const { resetEvolutionProgress } = useEvolution();
+  const { resetEvolutionProgress, reloadFromServer } = useEvolution();
   const [achievements, setAchievements] = useState<string[]>([]);
   const [audioOn, setAudioOn] = useState(true);
   const [notificationsOn, setNotificationsOn] = useState(true);
@@ -53,8 +53,9 @@ export default function OptionsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await resetDemoData();
-              await resetEvolutionProgress();
+              const reset = await resetDemoData();
+              await resetEvolutionProgress(Number(reset?.evolutionStage ?? 0));
+              await reloadFromServer();
               setAchievements([]);
               router.replace('/egg');
             } catch (err: any) {

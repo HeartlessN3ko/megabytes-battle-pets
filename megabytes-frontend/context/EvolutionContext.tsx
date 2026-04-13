@@ -18,7 +18,8 @@ interface EvolutionContextType {
   recordClean: () => { evolved: boolean };
   recordBattle: () => { evolved: boolean };
   advanceStage: () => void;
-  resetEvolutionProgress: () => Promise<void>;
+  resetEvolutionProgress: (forcedStage?: number) => Promise<void>;
+  reloadFromServer: () => Promise<void>;
 }
 
 const EvolutionContext = createContext<EvolutionContextType | null>(null);
@@ -30,16 +31,27 @@ export function EvolutionProvider({ children }: { children: React.ReactNode }) {
   const [cleanCount, setCleanCount] = useState(0);
   const [battleCount, setBattleCount] = useState(0);
 
+  const applyStage = useCallback((nextStage: number) => {
+    const clamped = Math.max(0, Math.min(2, Math.floor(nextStage))) as Stage;
+    setStage(clamped);
+    setFeedCount(0);
+    setCleanCount(0);
+    setBattleCount(0);
+  }, []);
+
+  const reloadFromServer = useCallback(async () => {
+    const data = await getByte();
+    const apiStage = Number(data?.byte?.evolutionStage ?? 0);
+    applyStage(apiStage);
+  }, [applyStage]);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
         const data = await getByte();
         const apiStage = Number(data?.byte?.evolutionStage ?? 0);
-        const clamped = Math.max(0, Math.min(2, Math.floor(apiStage))) as Stage;
-        if (mounted) {
-          setStage(clamped);
-        }
+        if (mounted) applyStage(apiStage);
       } catch {
         // Keep default local stage when API is unavailable.
       } finally {
@@ -49,7 +61,7 @@ export function EvolutionProvider({ children }: { children: React.ReactNode }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [applyStage]);
 
   const advanceStage = useCallback(() => {
     setStage((prev) => {
@@ -64,17 +76,14 @@ export function EvolutionProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const resetEvolutionProgress = useCallback(async () => {
-    setStage(0);
-    setFeedCount(0);
-    setCleanCount(0);
-    setBattleCount(0);
+  const resetEvolutionProgress = useCallback(async (forcedStage = 0) => {
+    applyStage(forcedStage);
     try {
-      await setDemoStage(0);
+      await setDemoStage(forcedStage);
     } catch {
       // Backend reset route may have already handled this.
     }
-  }, []);
+  }, [applyStage]);
 
   // Egg → Stage 1: Feed 3x + Clean 1x
   const recordFeed = useCallback(() => {
@@ -108,7 +117,7 @@ export function EvolutionProvider({ children }: { children: React.ReactNode }) {
   return (
     <EvolutionContext.Provider value={{
       stage, hydrated, feedCount, cleanCount, battleCount,
-      recordFeed, recordClean, recordBattle, advanceStage, resetEvolutionProgress,
+      recordFeed, recordClean, recordBattle, advanceStage, resetEvolutionProgress, reloadFromServer,
     }}>
       {children}
     </EvolutionContext.Provider>

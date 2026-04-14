@@ -1,102 +1,78 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { careAction, enterRoom } from '../../services/api';
-import RoomScene, { RoomAction } from '../../components/RoomScene';
-import { markHomeClutterCleared } from '../../services/homeRuntimeState';
+import RoomScene, { RoomAction, RoomResultWindow } from '../../components/RoomScene';
+import { consumePendingMiniGameResult } from '../../services/minigameRuntime';
 
 export default function BathroomRoom() {
   const router = useRouter();
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [status, setStatus] = useState('Bathroom diagnostics online. Hygiene bay is ready.');
-  const [timerLine, setTimerLine] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [resultWindow, setResultWindow] = useState<RoomResultWindow | null>(null);
 
   useEffect(() => {
     enterRoom('Bathroom', 1).catch(() => {});
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
   }, []);
 
-  const runTimed = useCallback(async (label: string, seconds: number, work: () => Promise<void>, doneText: string) => {
-    if (busy) return;
-    setBusy(true);
-    setStatus(`${label} started.`);
-
-    let remaining = seconds;
-    setTimerLine(`${label}: ${remaining}s remaining`);
-    timerRef.current = setInterval(() => {
-      remaining -= 1;
-      if (remaining > 0) setTimerLine(`${label}: ${remaining}s remaining`);
-    }, 1000);
-
-    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
-    setTimerLine(null);
-
-    try {
-      await work();
-    } catch {}
-
-    setStatus(doneText);
-    setBusy(false);
-  }, [busy]);
+  useFocusEffect(
+    React.useCallback(() => {
+      const result = consumePendingMiniGameResult('bathroom');
+      if (!result) return;
+      setStatus(result.summary);
+      setResultWindow({
+        title: `${result.title} - ${result.grade.toUpperCase()}`,
+        body: result.summary,
+        byteBits: result.byteBits,
+        skillGain: result.skillGain,
+        energyCost: result.energyCost,
+        cooldownSeconds: result.cooldownSeconds,
+      });
+    }, [])
+  );
 
   const primaryActions: [RoomAction, RoomAction] = [
     {
       key: 'clean-short',
       title: 'CLEAN SWEEP',
-      subtitle: '30s quick clean',
+      subtitle: 'Quick clean program',
       icon: 'water-outline',
       color: '#53daff',
-      disabled: busy,
-      onPress: () =>
-        runTimed(
-          'Clean Sweep',
-          30,
-          async () => {
-            await careAction('clean');
-            markHomeClutterCleared();
-          },
-          'Clean Sweep complete. Hygiene improved and clutter cleared.'
-        ),
+      disabled: false,
+      programLabel: 'Running cleanup program...',
+      programMs: 1450,
+      onPress: () => {
+        setStatus('Cleanup routine complete. Quick hygiene pass applied.');
+        careAction('clean')
+          .then((result) => {
+            setResultWindow({
+              title: 'RUN CLEANUP COMPLETE',
+              body: 'Quick cleanup finished. Surface clutter cleared and hygiene restored a little.',
+              byteBits: Number(result?.earned || 0),
+            });
+          })
+          .catch(() => {
+            setResultWindow({
+              title: 'RUN CLEANUP INCOMPLETE',
+              body: 'Cleanup program failed to sync. Try again in a moment.',
+            });
+          });
+      },
     },
     {
       key: 'clean-long',
       title: 'DEEP CLEAN',
-      subtitle: '60s intensive clean',
+      subtitle: 'Launch deep-clean minigame',
       icon: 'sparkles-outline',
       color: '#8ce9ff',
-      disabled: busy,
-      onPress: () =>
-        runTimed(
-          'Deep Clean',
-          60,
-          async () => {
-            await careAction('clean');
-            await careAction('clean');
-            markHomeClutterCleared();
-          },
-          'Deep Clean complete. Hygiene up, corruption pressure reduced.'
-        ),
-    },
-  ];
-
-  const secondaryActions: RoomAction[] = [
-    {
-      key: 'polish',
-      title: 'POLISH',
-      subtitle: 'Instant mood polish',
-      icon: 'color-wand-outline',
-      color: '#8fb8ff',
-      disabled: busy,
-      onPress: async () => {
-        if (busy) return;
-        setStatus('Polish routine complete. Byte looks refreshed.');
+      disabled: false,
+      onPress: () => {
+        setStatus('Deep-clean minigame ready.');
+        router.push({ pathname: '/minigames/[id]', params: { id: 'run-cleanup', variant: 'long', room: 'bathroom' } });
       },
     },
   ];
+
+  const secondaryActions: RoomAction[] = [];
 
   return (
     <RoomScene
@@ -108,12 +84,14 @@ export default function BathroomRoom() {
       accent="#78deff"
       backgroundSource={require('../../assets/backgrounds/bathroom.png')}
       statusLine={status}
-      timerLine={timerLine}
       primaryActions={primaryActions}
       secondaryActions={secondaryActions}
+      resultWindow={resultWindow}
+      onDismissResultWindow={() => setResultWindow(null)}
       onExit={() => router.replace('/(tabs)')}
-      onShop={() => router.push('/(tabs)/shop')}
     />
   );
 }
+
+
 

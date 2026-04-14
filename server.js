@@ -22,6 +22,8 @@ app.use('/api/byte',     require('./src/routes/byte'));
 app.use('/api/battle',   require('./src/routes/battle'));
 app.use('/api/pageant',  require('./src/routes/pageant'));
 app.use('/api/shop',     require('./src/routes/shop'));
+app.use('/api/marketplace', require('./src/routes/marketplace'));
+app.use('/api/inbox', require('./src/routes/inbox'));
 app.use('/api/economy',  require('./src/routes/economy'));
 app.use('/api/rooms',    require('./src/routes/rooms'));
 

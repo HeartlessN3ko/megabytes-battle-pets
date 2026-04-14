@@ -3,9 +3,9 @@ const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const Player  = require('../models/Player');
 const Byte    = require('../models/Byte');
+const { optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
-// TODO: add auth middleware to protected routes
 
 // POST /api/player/register
 router.post('/register', async (req, res) => {
@@ -35,7 +35,7 @@ router.post('/login', async (req, res) => {
 });
 
 // GET /api/player/:id
-router.get('/:id', async (req, res) => {
+router.get('/:id', optionalAuth, async (req, res) => {
   try {
     const player = await Player.findById(req.params.id).select('-passwordHash');
     if (!player) return res.status(404).json({ error: 'Not found' });
@@ -46,7 +46,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // PATCH /api/player/:id/settings
-router.patch('/:id/settings', async (req, res) => {
+router.patch('/:id/settings', optionalAuth, async (req, res) => {
   try {
     const player = await Player.findByIdAndUpdate(
       req.params.id,
@@ -60,7 +60,7 @@ router.patch('/:id/settings', async (req, res) => {
 });
 
 // GET /api/player/:id/currency
-router.get('/:id/currency', async (req, res) => {
+router.get('/:id/currency', optionalAuth, async (req, res) => {
   try {
     const player = await Player.findById(req.params.id).select('byteBits dailyIncome');
     res.json({ byteBits: player.byteBits, dailyIncome: player.dailyIncome });
@@ -70,7 +70,7 @@ router.get('/:id/currency', async (req, res) => {
 });
 
 // GET /api/player/:id/inventory
-router.get('/:id/inventory', async (req, res) => {
+router.get('/:id/inventory', optionalAuth, async (req, res) => {
   try {
     const player = await Player.findById(req.params.id)
       .select('unlockedRooms unlockedItems itemInventory unlockedMoves activePassiveRooms');
@@ -81,7 +81,7 @@ router.get('/:id/inventory', async (req, res) => {
 });
 
 // POST /api/player/:id/reset-demo
-router.post('/:id/reset-demo', async (req, res) => {
+router.post('/:id/reset-demo', optionalAuth, async (req, res) => {
   try {
     const { byteId } = req.body || {};
     const player = await Player.findById(req.params.id);
@@ -96,6 +96,8 @@ router.post('/:id/reset-demo', async (req, res) => {
     player.unlockedItems = [];
     player.itemInventory = [];
     player.activePassiveRooms = [];
+    // Reset slots to only the demo byte — removes stale test bytes
+    if (byteId) player.activeByteSlots = [byteId];
 
     await player.save();
 
@@ -112,6 +114,7 @@ router.post('/:id/reset-demo', async (req, res) => {
       byte.level = 1;
       byte.xp = 0;
       byte.corruption = 0;
+      byte.isDevByte = true;   // Missingno — skips death/legacy, keeps demo rates
       byte.trainingSessionsToday = 0;
       byte.lastNeedsUpdate = new Date();
       byte.stats = {

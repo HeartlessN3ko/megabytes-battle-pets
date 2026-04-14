@@ -18,13 +18,39 @@
   { id: 'comfort_pack.pkg', name: 'Comfort Pack', type: 'recovery', cost: 35, restoreNeeds: { Mood: 15, Hygiene: 15, Hunger: 10, Bandwidth: -5 }, description: 'Balanced care bundle.' },
   { id: 'recovery_bundle.pkg', name: 'Recovery Bundle', type: 'recovery', cost: 38, restoreNeeds: { Hunger: 20, Bandwidth: 20, Mood: -10 }, description: 'Emergency recovery set.' },
 
-  { id: 'fire_core.pkg', name: 'Fire Core', type: 'evolution', cost: 75, unlocksStage: 'element', description: 'Element progression core.' },
-  { id: 'water_core.pkg', name: 'Water Core', type: 'evolution', cost: 75, unlocksStage: 'element', description: 'Element progression core.' },
+  { id: 'fire_evo_core.pkg', name: 'Fire Evo Core', type: 'evolution', cost: 75, unlocksStage: 'element', description: 'Element progression core.' },
+  { id: 'water_evo_core.pkg', name: 'Water Evo Core', type: 'evolution', cost: 75, unlocksStage: 'element', description: 'Element progression core.' },
   { id: 'wing_module.pkg', name: 'Wing Module', type: 'evolution', cost: 120, unlocksStage: 'feature', description: 'Feature progression module.' },
   { id: 'battlepatch.exe', name: 'Battle Patch', type: 'evolution', cost: 250, unlocksStage: 'branch', description: 'Battle branch lock item.' },
 
   { id: 'fire_amp.sys', name: 'Fire Amplifier', type: 'stat_boost', cost: 60, useType: 'battle_only', description: 'Temporary fire damage boost.' },
   { id: 'null_field.pkg', name: 'Null Field', type: 'utility', cost: 150, useType: 'battle_only', description: 'Temporarily nullifies elemental bonuses.' },
+
+  // Move-teach and combat ability items (phase 1 implementation placeholders from MD specs)
+  { id: 'fire_core.pkg', name: 'Fire Core Teach Pack', type: 'move_teach', cost: 80, teachesMove: ['fireball.py', 'flame_wall.sys'], description: 'Teaches core fire move set.' },
+  { id: 'water_core.pkg', name: 'Water Core Teach Pack', type: 'move_teach', cost: 80, teachesMove: ['aqua_blast.py', 'flow_state.sys'], description: 'Teaches core water move set.' },
+  { id: 'earth_core.pkg', name: 'Earth Core Teach Pack', type: 'move_teach', cost: 85, teachesMove: ['rock_crash.py', 'fortify_shell.sys'], description: 'Teaches core earth move set.' },
+  { id: 'air_core.pkg', name: 'Air Core Teach Pack', type: 'move_teach', cost: 80, teachesMove: ['air_slash.py', 'haste_wind.sys'], description: 'Teaches core air move set.' },
+  { id: 'electric_core.pkg', name: 'Electric Core Teach Pack', type: 'move_teach', cost: 85, teachesMove: ['shock_burst.py', 'overclock.sys'], description: 'Teaches core electric move set.' },
+  { id: 'nature_core.pkg', name: 'Nature Core Teach Pack', type: 'move_teach', cost: 80, teachesMove: ['vine_whip.py', 'growth_bloom.sys'], description: 'Teaches core nature move set.' },
+  { id: 'shadow_core.pkg', name: 'Shadow Core Teach Pack', type: 'move_teach', cost: 90, teachesMove: ['shadow_strike.py', 'weaken_signal.dll'], description: 'Teaches core shadow move set.' },
+  { id: 'holy_core.pkg', name: 'Holy Core Teach Pack', type: 'move_teach', cost: 90, teachesMove: ['light_beam.py', 'bless_up.sys'], description: 'Teaches core holy move set.' },
+  { id: 'combat_core.pkg', name: 'Combat Core Teach Pack', type: 'move_teach', cost: 95, teachesMove: ['guard_break.dll', 'focus_stance.sys'], description: 'Teaches neutral combat utility moves.' },
+  { id: 'ult_unlock.pkg', name: 'Ult Unlock Pack', type: 'move_teach', cost: 120, teachesMove: ['Inferno.exe'], description: 'Unlocks a first ultimate option for testing.' },
+  { id: 'hybrid_key_alpha.pkg', name: 'Hybrid Key Alpha', type: 'move_teach', cost: 130, teachesMove: ['inferno_chain.py'], description: 'Unlocks a hybrid move prototype.' },
+  { id: 'hybrid_key_beta.pkg', name: 'Hybrid Key Beta', type: 'move_teach', cost: 130, teachesMove: ['thunder_lock.exe'], description: 'Unlocks an alternate hybrid move prototype.' },
+  { id: 'rewrite_kernel.pkg', name: 'Rewrite Kernel', type: 'utility', cost: 90, useType: 'overworld_only', description: 'Placeholder reroll utility for learned move refresh.' },
+  { id: 'swap_protocol.pkg', name: 'Swap Protocol', type: 'utility', cost: 70, useType: 'overworld_only', description: 'Placeholder loadout swap helper.' },
+  { id: 'ult_boost.sys', name: 'Ult Boost', type: 'stat_boost', cost: 110, useType: 'battle_only', appliesEffect: 'special_up.sys', description: 'Temporary ult scaling boost placeholder.' },
+  { id: 'ult_reset.pkg', name: 'Ult Reset', type: 'clutch', cost: 140, useType: 'battle_only', description: 'Placeholder second-cast unlock token.' },
+  { id: 'passive_seed.pkg', name: 'Passive Seed', type: 'utility', cost: 115, useType: 'overworld_only', description: 'Placeholder random passive grant token.' },
+  { id: 'passive_override.pkg', name: 'Passive Override', type: 'utility', cost: 160, useType: 'overworld_only', description: 'Placeholder passive replacement token.' },
+  { id: 'cleanse_patch.pkg', name: 'Cleanse Patch', type: 'move_teach', cost: 60, teachesMove: ['refresh_stream.bin'], description: 'Teaches cleanse utility move.' },
+  { id: 'regen_patch.pkg', name: 'Regen Patch', type: 'move_teach', cost: 60, teachesMove: ['healing_sap.bin'], description: 'Teaches regen utility move.' },
+  { id: 'disrupt_patch.pkg', name: 'Disrupt Patch', type: 'move_teach', cost: 60, teachesMove: ['circuit_break.dll'], description: 'Teaches disruption debuff move.' },
+  { id: 'burst_override.pkg', name: 'Burst Override', type: 'clutch', cost: 95, useType: 'battle_only', description: 'Placeholder: next move crit override.' },
+  { id: 'precision_lock.pkg', name: 'Precision Lock', type: 'clutch', cost: 80, useType: 'battle_only', description: 'Placeholder: next move cannot miss.' },
+  { id: 'panic_patch.pkg', name: 'Panic Patch', type: 'clutch', cost: 100, useType: 'battle_only', description: 'Placeholder: auto-heal at low HP.' },
 ];
 
 const SHOP_ROOMS = [

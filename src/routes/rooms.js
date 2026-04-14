@@ -4,9 +4,10 @@ const Player = require('../models/Player');
 const behaviorTracker = require('../engine/behaviorTracker');
 const Byte = require('../models/Byte');
 const { SHOP_ROOMS } = require('../data/shopCatalog');
+const { optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
-// TODO: add auth middleware
+router.use(optionalAuth);
 
 async function getAllRooms() {
   const dbRooms = await Room.find({});

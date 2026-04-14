@@ -34,7 +34,7 @@ const DEFAULT_PROFILE = { damage: 0.5, buff: 0.2, debuff: 0.2, ult: 0.1, ultThre
  * @param {boolean} playerSuggestedUlt — player pressed "Suggest Ult"
  * @returns {string}           — move ID
  */
-function chooseMove(actor, target, playerSuggestedUlt = false) {
+function chooseMove(actor, target, playerSuggestedUlt = false, movesMap = {}) {
   const profile = TEMPERAMENT_PROFILES[actor.temperament] || DEFAULT_PROFILE;
 
   // Unstable: fully random pick
@@ -75,7 +75,7 @@ function chooseMove(actor, target, playerSuggestedUlt = false) {
   }
 
   // Pick from equipped moves using weighted random
-  const moveFunctions = getMoveFunction(actor.equippedMoves);
+  const moveFunctions = getMoveFunction(actor.equippedMoves, movesMap);
   const weights = moveFunctions.map(fn => profile[fn] || 0.2);
   const chosen = weightedRandom(actor.equippedMoves, weights);
 
@@ -104,9 +104,15 @@ function getUltCompliance(temperament) {
  * In production, this would look up the move from the registry.
  * For now we return 'damage' as the safe default — replace with DB lookup.
  */
-function getMoveFunction(moveIds) {
-  // TODO: resolve from Move collection at battle init and pass in
-  return moveIds.map(() => 'damage');
+function getMoveFunction(moveIds, movesMap = {}) {
+  return moveIds.map((moveId) => {
+    const fn = String(movesMap?.[moveId]?.function || 'Damage').toLowerCase();
+    if (fn === 'buff') return 'buff';
+    if (fn === 'debuff') return 'debuff';
+    if (fn === 'status') return 'debuff';
+    if (fn === 'utility') return 'buff';
+    return 'damage';
+  });
 }
 
 /**

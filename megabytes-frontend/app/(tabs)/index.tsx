@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import {
   Animated,
@@ -7,6 +7,7 @@ import {
   ImageBackground,
   Modal,
   PanResponder,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -16,25 +17,46 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { getByte, getPlayer, homeCleanByte, praiseByte, scoldByte } from '../../services/api';
-import { getHomeClutterClearedAt } from '../../services/homeRuntimeState';
+import { earnCurrency, getPlayer, praiseByte, scoldByte, syncByte } from '../../services/api';
+import { getHomeClutterClearedAt, loadHomeClutterCount, saveHomeClutterCount } from '../../services/homeRuntimeState';
 import { initSfx, playSfx } from '../../services/sfx';
 import { useEvolution } from '../../context/EvolutionContext';
+import { useActionGate } from '../../hooks/useActionGate';
+import { useDemoMode } from '../../hooks/useDemoMode';
+import { getDemoSpeedLabel } from '../../services/demoSession';
+import { generateByteThought } from '../../services/byteThoughts';
+import { resolveByteSprite } from '../../services/byteSprites';
+import HomeRoomStage from '../../components/HomeRoomStage';
 
 const { width, height } = Dimensions.get('window');
 
-const SPRITES: Record<number, any> = {
-  0: require('../../assets/bytes/egg.png'),
-  1: require('../../assets/bytes/stage1.png'),
-  2: require('../../assets/bytes/stage2.png'),
+const CORRUPTION_TIER_COLOR: Record<string, string> = {
+  none: '#888888', light: '#ffe666', medium: '#ff9c44', heavy: '#ff6060', critical: '#bf44ff',
 };
 
 const HOME_ACTIONS = [
   { key: 'inventory', label: 'INVENTORY', icon: 'cube-outline', color: '#ffc84a' },
   { key: 'praise', label: 'PRAISE', icon: 'thumbs-up-outline', color: '#45d4ff' },
   { key: 'scold', label: 'SCOLD', icon: 'alert-circle-outline', color: '#bf6cff' },
-  { key: 'clean', label: 'CLEAN', icon: 'layers-outline', color: '#6c93ff' },
+  { key: 'stats', label: 'STATS', icon: 'stats-chart-outline', color: '#6c93ff' },
 ];
+
+const TOP_MENU = [
+  { key: 'profile', label: 'PROFILE', icon: 'person-circle-outline', route: '/(tabs)/profile' },
+  { key: 'inbox', label: 'INBOX', icon: 'mail-open-outline', route: '/(tabs)/inbox' },
+  { key: 'events', label: 'EVENTS', icon: 'sparkles-outline', route: '/(tabs)/events' },
+  { key: 'settings', label: 'SETTINGS', icon: 'settings-outline', route: '/(tabs)/collection' },
+];
+
+const CLUTTER_SPRITES = [
+  require('../../assets/images/clutter1.png'),
+  require('../../assets/images/clutter2.png'),
+];
+
+function xpRequired(level: number) {
+  if (level <= 50) return 50 * level;
+  return 50 * Math.pow(level, 2);
+}
 
 const ROOM_MENU = [
   { key: 'kitchen', title: 'KITCHEN', subtitle: 'Feed and meals', icon: 'restaurant-outline', route: '/rooms/kitchen', color: '#ffcb58' },
@@ -43,7 +65,7 @@ const ROOM_MENU = [
   { key: 'training', title: 'TRAINING', subtitle: 'Stat drills', icon: 'barbell-outline', route: '/rooms/training-center', color: '#d48fff' },
   { key: 'clinic', title: 'CLINIC', subtitle: 'Recovery support', icon: 'medkit-outline', route: '/rooms/clinic', color: '#8deac7' },
   { key: 'play', title: 'PLAY ROOM', subtitle: 'Mood support', icon: 'game-controller-outline', route: '/rooms/play-room', color: '#ff8dd2' },
-  { key: 'market', title: 'SHOP', subtitle: 'Marketplace', icon: 'cart-outline', route: '/(tabs)/shop', color: '#5bdd7e' },
+  { key: 'market', title: 'MARKETPLACE', subtitle: 'Auctions and buy-now', icon: 'pricetags-outline', route: '/(tabs)/marketplace', color: '#5bdd7e' },
 ];
 
 function NeedPips({ value, color }: { value: number; color: string }) {
@@ -57,12 +79,120 @@ function NeedPips({ value, color }: { value: number; color: string }) {
   );
 }
 
-function StatsModal({ visible, onClose, byteData }: { visible: boolean; onClose: () => void; byteData: any }) {
+function formatAge(ms: number) {
+  if (!Number.isFinite(ms) || ms <= 0) return '0m';
+  const totalMinutes = Math.floor(ms / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function FloatingReward({
+  text,
+  left,
+  bottom,
+  onDone,
+}: {
+  text: string;
+  left: number;
+  bottom: number;
+  onDone: () => void;
+}) {
+  const rise = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 130, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ]),
+      Animated.timing(rise, { toValue: -64, duration: 980, useNativeDriver: true }),
+    ]).start(() => onDone());
+  }, [onDone, opacity, rise]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.rewardPopup, { left, bottom, opacity, transform: [{ translateY: rise }] }]}
+    >
+      <Text style={styles.rewardPopupText}>{text}</Text>
+    </Animated.View>
+  );
+}
+
+function ActionBurst({
+  type,
+  onDone,
+}: {
+  type: 'praise' | 'scold';
+  onDone: () => void;
+}) {
+  const p0 = useRef(new Animated.Value(0)).current;
+  const p1 = useRef(new Animated.Value(0)).current;
+  const p2 = useRef(new Animated.Value(0)).current;
+  const p3 = useRef(new Animated.Value(0)).current;
+  const particles = [p0, p1, p2, p3];
+  const glyph = type === 'praise' ? '💗' : '💢';
+
+  useEffect(() => {
+    const anims = [p0, p1, p2, p3].map((p) =>
+      Animated.timing(p, { toValue: 1, duration: 760, useNativeDriver: true })
+    );
+    Animated.stagger(90, anims).start(() => onDone());
+  }, [onDone, p0, p1, p2, p3]);
+
+  return (
+    <View pointerEvents="none" style={styles.burstLayer}>
+      {particles.map((p, idx) => {
+        const xOffset = idx % 2 === 0 ? -22 - idx * 8 : 20 + idx * 7;
+        const yTravel = p.interpolate({ inputRange: [0, 1], outputRange: [0, -60 - idx * 12] });
+        const op = p.interpolate({ inputRange: [0, 0.2, 1], outputRange: [0, 1, 0] });
+        const wiggle = p.interpolate({ inputRange: [0, 1], outputRange: ['-10deg', '10deg'] });
+        return (
+          <Animated.Text
+            key={`${type}-${idx}`}
+            style={[
+              styles.burstGlyph,
+              { opacity: op, transform: [{ translateX: xOffset }, { translateY: yTravel }, { rotate: wiggle }] },
+            ]}
+          >
+            {glyph}
+          </Animated.Text>
+        );
+      })}
+    </View>
+  );
+}
+
+function StatsModal({ visible, onClose, byteData, playerData }: { visible: boolean; onClose: () => void; byteData: any; playerData: any }) {
   const byte = byteData?.byte;
   const stats = byte?.stats || {};
   const needs = byte?.needs || {};
   const statKeys = ['Power', 'Speed', 'Defense', 'Special', 'Stamina', 'Accuracy'];
   const needKeys = ['Hunger', 'Bandwidth', 'Mood', 'Hygiene', 'Social', 'Fun'];
+  const moves = Array.isArray(byte?.equippedMoves) ? byte.equippedMoves : [];
+  const wins = Number(playerData?.arenaRecord?.wins || 0);
+  const losses = Number(playerData?.arenaRecord?.losses || 0);
+  const bornAtMs = byte?.bornAt ? new Date(byte.bornAt).getTime() : Date.now();
+  const age = formatAge(Date.now() - bornAtMs);
+  const shape = byte?.shape || 'Pending';
+  const animal = byte?.animal || 'Pending';
+  const feature = byte?.feature || 'Pending';
+  const element = byte?.element || 'Normal';
+  const temperament = byte?.temperament || 'Pending';
+  const branch = byte?.branch || 'Pending';
+  const corruptionTier = (byteData?.corruptionTier || byte?.corruptionTier || 'none') as string;
+  const corruptionColor = CORRUPTION_TIER_COLOR[corruptionTier] || '#888888';
+  const passive = byte?.equippedPassive || 'None';
+  const ult = byte?.equippedUlt || 'None';
+  const gateLevel = 10;
+  const levelReady = Number(byte?.level || 1) >= gateLevel;
+  const avgNeed = Math.round((Number(needs.Hunger || 0) + Number(needs.Bandwidth || 0) + Number(needs.Hygiene || 0) + Number(needs.Social || 0) + Number(needs.Fun || 0) + Number(needs.Mood || 0)) / 6);
+  const careReady = avgNeed >= 65;
+  const evolutionReadiness = levelReady && careReady ? 'READY' : levelReady ? 'PARTIAL' : 'NOT READY';
 
   return (
     <Modal visible={visible} transparent animationType="slide">
@@ -71,27 +201,66 @@ function StatsModal({ visible, onClose, byteData }: { visible: boolean; onClose:
           <Text style={styles.statsTitle}>SYSTEM REPORT</Text>
           <Text style={styles.statsName}>{byte?.name || 'Byte'} Lv.{byte?.level || 1}</Text>
 
-          <Text style={styles.statsSection}>STATS</Text>
-          {statKeys.map((k) => (
-            <View key={k} style={styles.statsRow}>
-              <Text style={styles.statsKey}>{k.toUpperCase()}</Text>
-              <View style={styles.statsBarTrack}>
-                <View style={[styles.statsBarFill, { width: `${Math.min(100, stats[k] || 0)}%` }]} />
-              </View>
-              <Text style={styles.statsVal}>{Math.round(stats[k] || 0)}</Text>
+          <ScrollView style={styles.statsScroll} showsVerticalScrollIndicator={false}>
+            <Text style={styles.statsSection}>PROFILE</Text>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>STAGE</Text><Text style={styles.kvVal}>{Number(byte?.evolutionStage || 0) + 1}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>LEVEL / XP</Text><Text style={styles.kvVal}>{Number(byte?.level || 1)} / {Number(byte?.xp || 0)}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>ELEMENT</Text><Text style={styles.kvVal}>{element}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>TEMPERAMENT</Text><Text style={styles.kvVal}>{temperament}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>BRANCH</Text><Text style={styles.kvVal}>{branch}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>SHAPE / ANIMAL</Text><Text style={styles.kvVal}>{shape} / {animal}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>FEATURE</Text><Text style={styles.kvVal}>{feature}</Text></View>
+            <View style={styles.kvRow}>
+              <Text style={styles.kvKey}>CORRUPTION</Text>
+              <Text style={[styles.kvVal, { color: corruptionColor }]}>
+                {Math.round(Number(byte?.corruption || 0))} — {corruptionTier.toUpperCase()}
+              </Text>
             </View>
-          ))}
+            <View style={styles.kvRow}><Text style={styles.kvKey}>TIME ALIVE</Text><Text style={styles.kvVal}>{age}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>GENERATION</Text><Text style={styles.kvVal}>{Number(byte?.generation || 1)}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>EVOLUTION READINESS</Text><Text style={styles.kvVal}>{evolutionReadiness}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>LEVEL GATE</Text><Text style={styles.kvVal}>{Number(byte?.level || 1)} / {gateLevel}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>CARE READINESS</Text><Text style={styles.kvVal}>Avg Need {avgNeed}</Text></View>
 
-          <Text style={styles.statsSection}>NEEDS</Text>
-          {needKeys.map((k) => (
-            <View key={k} style={styles.statsRow}>
-              <Text style={styles.statsKey}>{k.toUpperCase()}</Text>
-              <View style={styles.statsBarTrack}>
-                <View style={[styles.statsBarFill, { width: `${Math.min(100, needs[k] || 0)}%`, backgroundColor: '#8de2ff' }]} />
+            <Text style={styles.statsSection}>LOADOUT</Text>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>MOVES</Text><Text style={styles.kvVal}>{moves.length ? moves.join(', ') : 'None'}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>ULT</Text><Text style={styles.kvVal}>{ult}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>PASSIVE</Text><Text style={styles.kvVal}>{passive}</Text></View>
+
+            <Text style={styles.statsSection}>STATS</Text>
+            {statKeys.map((k) => (
+              <View key={k} style={styles.statsRow}>
+                <Text style={styles.statsKey}>{k.toUpperCase()}</Text>
+                <View style={styles.statsBarTrack}>
+                  <View style={[styles.statsBarFill, { width: `${Math.min(100, stats[k] || 0)}%` }]} />
+                </View>
+                <Text style={styles.statsVal}>{Math.round(stats[k] || 0)}</Text>
               </View>
-              <Text style={styles.statsVal}>{Math.round(needs[k] || 0)}</Text>
-            </View>
-          ))}
+            ))}
+
+            <Text style={styles.statsSection}>NEEDS</Text>
+            {needKeys.map((k) => (
+              <View key={k} style={styles.statsRow}>
+                <Text style={styles.statsKey}>{k.toUpperCase()}</Text>
+                <View style={styles.statsBarTrack}>
+                  <View style={[styles.statsBarFill, { width: `${Math.min(100, needs[k] || 0)}%`, backgroundColor: '#8de2ff' }]} />
+                </View>
+                <Text style={styles.statsVal}>{Math.round(needs[k] || 0)}</Text>
+              </View>
+            ))}
+
+            <Text style={styles.statsSection}>BEHAVIOR</Text>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>PRAISE / SCOLD</Text><Text style={styles.kvVal}>{Number(byte?.behaviorMetrics?.praiseCount || 0)} / {Number(byte?.behaviorMetrics?.scoldCount || 0)}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>TAP CHECKINS</Text><Text style={styles.kvVal}>{Number(byte?.behaviorMetrics?.tapFrequency || 0)}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>NON-REWARD CHECKINS</Text><Text style={styles.kvVal}>{Number(byte?.behaviorMetrics?.nonRewardCheckins || 0)}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>PLAY/TRAIN RATIO</Text><Text style={styles.kvVal}>{Number(byte?.behaviorMetrics?.playVsTrainRatio || 0).toFixed(2)}</Text></View>
+
+            <Text style={styles.statsSection}>PLAYER SUMMARY</Text>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>BATTLES</Text><Text style={styles.kvVal}>{wins + losses}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>ARENA W/L</Text><Text style={styles.kvVal}>{wins} / {losses}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>ROOMS OWNED</Text><Text style={styles.kvVal}>{Array.isArray(playerData?.unlockedRooms) ? playerData.unlockedRooms.length : 0}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>ITEM TYPES OWNED</Text><Text style={styles.kvVal}>{Array.isArray(playerData?.itemInventory) ? playerData.itemInventory.length : 0}</Text></View>
+          </ScrollView>
 
           <TouchableOpacity style={styles.statsClose} onPress={onClose}>
             <Text style={styles.statsCloseText}>CLOSE</Text>
@@ -104,12 +273,16 @@ function StatsModal({ visible, onClose, byteData }: { visible: boolean; onClose:
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { stage } = useEvolution();
+  const { stage, reloadFromServer } = useEvolution();
+  const { demoMode, hydrated: demoHydrated, enableDemoMode } = useDemoMode();
+  const { isLocked, runAction } = useActionGate(700);
 
   const roamX = useRef(new Animated.Value(0)).current;
   const roamY = useRef(new Animated.Value(0)).current;
   const hoverY = useRef(new Animated.Value(0)).current;
   const breathe = useRef(new Animated.Value(1)).current;
+  const squish = useRef(new Animated.Value(0)).current;
+  const wobble = useRef(new Animated.Value(0)).current;
   const tapScale = useRef(new Animated.Value(1)).current;
   const drawerAnim = useRef(new Animated.Value(height)).current;
   const stickyUntilRef = useRef(0);
@@ -122,19 +295,29 @@ export default function HomeScreen() {
   const [statusText, setStatusText] = useState('BYTE is scanning the network.');
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [clutter, setClutter] = useState(0);
+  const [clutterNodes, setClutterNodes] = useState<{ id: string; sprite: any; left: number; bottom: number; size: number }[]>([]);
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
+  const [rewardPopups, setRewardPopups] = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
+  const [actionBursts, setActionBursts] = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
 
-  const petSprite = SPRITES[stage] ?? SPRITES[2];
-  const needs = byteData?.byte?.needs || {
-    Hunger: 80,
-    Bandwidth: 80,
-    Hygiene: 80,
-    Social: 80,
-    Fun: 80,
-    Mood: 80,
-  };
+  const needs = useMemo(
+    () =>
+      byteData?.byte?.needs || {
+        Hunger: 80,
+        Bandwidth: 80,
+        Hygiene: 80,
+        Social: 80,
+        Fun: 80,
+        Mood: 80,
+      },
+    [byteData?.byte?.needs]
+  );
+  const petSprite = resolveByteSprite(stage, { needs, preferAnimatedIdle: true });
 
-  const clutterPenalty = Math.min(10, clutter * 2);
+  const clutterPenalty = Math.min(24, clutter * 3);
   const effectiveMood = Math.max(0, (needs.Mood || 0) - clutterPenalty);
+  const demoLabel = getDemoSpeedLabel();
 
   const clutterLabel = useMemo(() => {
     if (clutter >= 5) return 'Crowded';
@@ -143,14 +326,30 @@ export default function HomeScreen() {
     return 'Clean';
   }, [clutter]);
 
-  const clutterVisuals = useMemo(() => {
-    const icons = ['🧦', '📦', '🧻', '🧴', '🗑️'];
-    return Array.from({ length: clutter }, (_, i) => icons[i % icons.length]);
+  useEffect(() => {
+    setClutterNodes((prev) => {
+      if (prev.length === clutter) return prev;
+      if (prev.length < clutter) {
+        const next = [...prev];
+        for (let i = prev.length; i < clutter; i += 1) {
+          const size = 132 + Math.random() * 78;
+          next.push({
+            id: `clutter-${Date.now()}-${i}`,
+            sprite: CLUTTER_SPRITES[Math.floor(Math.random() * CLUTTER_SPRITES.length)],
+            left: 4 + Math.random() * Math.max(10, width - size - 8),
+            bottom: -8 + Math.random() * 30,
+            size,
+          });
+        }
+        return next;
+      }
+      return prev.slice(0, clutter);
+    });
   }, [clutter]);
 
   const refreshData = useCallback(async () => {
     try {
-      const [b, p] = await Promise.all([getByte(), getPlayer()]);
+      const [b, p] = await Promise.all([syncByte(), getPlayer()]);
       setByteData(b);
       setPlayerData(p);
     } catch (err: any) {
@@ -169,42 +368,45 @@ export default function HomeScreen() {
   }, []);
 
   const randomThought = useCallback(() => {
-    const byteName = byteData?.byte?.name || 'BYTE';
-    const thoughts = [
-      `${byteName} is wandering.`,
-      `${byteName} is scanning packets.`,
-      `${byteName} is exploring.`,
-      `${byteName} is chasing signal ghosts.`,
-      `${byteName} is mapping routes.`,
-      `${byteName} is watching memes.`,
-    ];
-    const pick = thoughts[Math.floor(Math.random() * thoughts.length)];
-    if (clutter >= 3) return `${pick} Home is ${clutterLabel.toLowerCase()}.`;
-    return pick;
-  }, [byteData?.byte?.name, clutter, clutterLabel]);
+    const thought = generateByteThought({
+      byteName: byteData?.byte?.name || 'BYTE',
+      needs,
+      temperament: byteData?.byte?.temperament || null,
+      trainingSessionsToday: Number(byteData?.byte?.trainingSessionsToday || 0),
+      idleTicks: idleThoughtTicks,
+    });
+    if (clutter >= 3) return `${thought} Home is ${clutterLabel.toLowerCase()}.`;
+    return thought;
+  }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.byte?.trainingSessionsToday, clutter, clutterLabel, idleThoughtTicks, needs]);
 
   useEffect(() => {
-    refreshData();
     initSfx().catch(() => {});
-  }, [refreshData]);
+    loadHomeClutterCount().then((count) => setClutter(Math.max(0, Math.min(8, count)))).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    saveHomeClutterCount(clutter).catch(() => {});
+  }, [clutter]);
 
   useFocusEffect(
     useCallback(() => {
+      refreshData().catch(() => {});
       const clearedAt = getHomeClutterClearedAt();
       if (clearedAt > clutterSyncRef.current) {
         clutterSyncRef.current = clearedAt;
         setClutter(0);
         setTransientStatus('Clutter was cleared in another room. Home is clean.', 2300);
       }
-    }, [setTransientStatus])
+    }, [refreshData, setTransientStatus])
   );
 
   useEffect(() => {
     const thoughtTicker = setInterval(() => {
       if (Date.now() >= stickyUntilRef.current) {
         setStatusText(randomThought());
+        setIdleThoughtTicks((prev) => prev + 1);
       }
-    }, 5200);
+    }, 30000);
 
     return () => clearInterval(thoughtTicker);
   }, [randomThought]);
@@ -212,11 +414,11 @@ export default function HomeScreen() {
   useEffect(() => {
     const clutterTicker = setInterval(() => {
       const hygieneLow = (needs.Hygiene || 0) < 40;
-      const spawnChance = hygieneLow ? 0.45 : 0.14;
+      const spawnChance = hygieneLow ? 0.22 : 0.08;
       if (Math.random() < spawnChance) {
-        setClutter((prev) => Math.min(5, prev + 1));
+        setClutter((prev) => Math.min(8, prev + 1));
       }
-    }, 18000);
+    }, 30000);
 
     return () => clearInterval(clutterTicker);
   }, [needs.Hygiene]);
@@ -235,6 +437,20 @@ export default function HomeScreen() {
       Animated.sequence([
         Animated.timing(breathe, { toValue: 1.04, duration: 1700, useNativeDriver: true }),
         Animated.timing(breathe, { toValue: 1, duration: 1700, useNativeDriver: true }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(squish, { toValue: 1, duration: 180, useNativeDriver: true }),
+        Animated.timing(squish, { toValue: 0, duration: 1400, useNativeDriver: true }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(wobble, { toValue: 1, duration: 1700, useNativeDriver: true }),
+        Animated.timing(wobble, { toValue: -1, duration: 1700, useNativeDriver: true }),
       ])
     ).start();
 
@@ -257,7 +473,7 @@ export default function HomeScreen() {
     return () => {
       active = false;
     };
-  }, [breathe, hoverY, roamX, roamY]);
+  }, [breathe, hoverY, roamX, roamY, squish, wobble]);
 
   const openDrawer = useCallback(() => {
     if (drawerOpen || transitionBusy) return;
@@ -284,14 +500,9 @@ export default function HomeScreen() {
   const handleHomeAction = useCallback(async (key: string) => {
     if (transitionBusy) return;
 
-    if (key === 'clean') {
-      try {
-        await homeCleanByte();
-      } catch {}
-      setClutter(0);
-      await refreshData();
-      playSfx('positive', 0.75);
-      setTransientStatus('Home cleanup complete. Clutter removed.', 2600);
+    if (key === 'stats') {
+      setStatsOpen(true);
+      playSfx('menu', 0.7);
       return;
     }
 
@@ -308,6 +519,7 @@ export default function HomeScreen() {
       } catch {}
       await refreshData();
       playSfx('yes', 0.8);
+      setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'praise' }]);
       setTransientStatus('Praise logged. BYTE mood and social confidence increased.', 2800);
       return;
     }
@@ -318,9 +530,44 @@ export default function HomeScreen() {
       } catch {}
       await refreshData();
       playSfx('no', 0.8);
+      setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'scold' }]);
       setTransientStatus('Scold logged. BYTE is re-evaluating behavior routines.', 2800);
     }
   }, [refreshData, router, setTransientStatus, transitionBusy]);
+
+  const handleTopMenuNav = useCallback((route: string) => {
+    if (transitionBusy) return;
+    playSfx('menu', 0.6);
+    router.push(route as any);
+  }, [router, transitionBusy]);
+
+  const handleClutterTap = useCallback(async (id: string) => {
+    const tappedNode = clutterNodes.find((node) => node.id === id);
+    setClutterNodes((prev) => prev.filter((node) => node.id !== id));
+    setClutter((prev) => Math.max(0, prev - 1));
+    playSfx('tap', 0.45);
+
+    const award = 2 + Math.floor(Math.random() * 4);
+    setRewardPopups((prev) => [
+      ...prev,
+      {
+        id: `reward-${Date.now()}-${Math.random()}`,
+        text: `+${award} BB`,
+        left: Math.max(8, Math.min(width - 120, Number(tappedNode?.left || (width * 0.45)))),
+        bottom: Math.max(72, Number(tappedNode?.bottom || 72) + 40),
+      },
+    ]);
+    try {
+      await earnCurrency(award, 'home_clutter');
+      await refreshData();
+      setTransientStatus(`Clutter cleaned: +${award} ByteBits`, 1500);
+      setIdleThoughtTicks(0);
+    } catch {
+      setPlayerData((prev: any) => ({ ...(prev || {}), byteBits: Number(prev?.byteBits || 0) + award }));
+      setTransientStatus(`Clutter cleaned (offline): +${award} ByteBits`, 1500);
+      setIdleThoughtTicks(0);
+    }
+  }, [clutterNodes, refreshData, setTransientStatus]);
 
   const handleRoomOpen = useCallback(
     (route: string) => {
@@ -343,11 +590,35 @@ export default function HomeScreen() {
     ]).start();
     playSfx(Math.random() > 0.5 ? 'chirp1' : 'chirp2', 0.75);
     setTransientStatus('BYTE is humming while it explores...', 2000);
+    setIdleThoughtTicks(0);
   }, [setTransientStatus, tapScale]);
+
+  const handleEnableDemoMode = useCallback(async () => {
+    if (demoMode || demoBusy) return;
+    setDemoBusy(true);
+    setTransientStatus('Activating demo profile...', 1800);
+    try {
+      await enableDemoMode();
+      await Promise.all([refreshData(), reloadFromServer().catch(() => {})]);
+      playSfx('notify', 0.75);
+      setTransientStatus('Demo mode enabled. Accelerated testing profile active.', 2600);
+      setIdleThoughtTicks(0);
+    } finally {
+      setDemoBusy(false);
+    }
+  }, [demoBusy, demoMode, enableDemoMode, refreshData, reloadFromServer, setTransientStatus]);
 
   const currency = playerData?.byteBits ?? 0;
   const moodLabel = effectiveMood >= 75 ? 'Happy' : effectiveMood >= 40 ? 'Stable' : 'Needs care';
   const byteName = byteData?.byte?.name || 'BYTE';
+  const byteLevel = Number(byteData?.byte?.level || 1);
+  const currentXp = Number(byteData?.byte?.xp || 0);
+  const nextLevelXp = xpRequired(byteLevel + 1);
+  const prevLevelXp = xpRequired(Math.max(1, byteLevel));
+  const xpIntoLevel = Math.max(0, currentXp - prevLevelXp);
+  const xpSpan = Math.max(1, nextLevelXp - prevLevelXp);
+  const xpPercent = Math.max(0, Math.min(100, Math.round((xpIntoLevel / xpSpan) * 100)));
+  const evolutionHint = byteLevel < 10 ? `Stage gate in ${10 - byteLevel} level(s)` : 'Stage evolution options unlocked';
 
   const NEED_SUMMARY = [
     { label: 'HEALTH', color: '#ff4f66', val: needs.Hunger || 0 },
@@ -360,6 +631,20 @@ export default function HomeScreen() {
     <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <View style={styles.utilityBar}>
+          {TOP_MENU.map((item) => (
+            <TouchableOpacity
+              key={item.key}
+              style={styles.utilityBtn}
+              onPress={() => handleTopMenuNav(item.route)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name={item.icon as any} size={14} color="#b1e2ff" />
+              <Text style={styles.utilityText}>{item.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         <View style={styles.topBar}>
           <View style={styles.currencyBlock}>
             <View style={styles.currencyRow}>
@@ -376,53 +661,121 @@ export default function HomeScreen() {
                 <NeedPips value={n.val} color={n.color} />
               </View>
             ))}
+            <View style={styles.xpBlock}>
+              <View style={styles.xpRow}>
+                <Text style={styles.xpLabel}>XP</Text>
+                <Text style={styles.xpVal}>{xpIntoLevel}/{xpSpan}</Text>
+              </View>
+              <View style={styles.xpTrack}>
+                <View style={[styles.xpFill, { width: `${xpPercent}%` }]} />
+              </View>
+              <Text style={styles.xpHint}>{evolutionHint}</Text>
+            </View>
           </View>
-
-          <TouchableOpacity style={styles.statsFab} onPress={() => setStatsOpen(true)} activeOpacity={0.85}>
-            <Ionicons name="stats-chart-outline" size={16} color="#8fd9ff" />
-            <Text style={styles.statsFabText}>STATS</Text>
-          </TouchableOpacity>
         </View>
 
         <View style={styles.statusCardSolo}>
-          <View style={styles.statusDot} />
-          <Text style={styles.statusText} numberOfLines={1} ellipsizeMode="tail">{statusText}</Text>
-          <Text style={styles.statusMood}>{byteName} - {moodLabel}</Text>
+          <View style={styles.statusTopRow}>
+            <View style={styles.statusIdentity}>
+              <View style={styles.statusDot} />
+              <Text style={styles.statusName}>{byteName}</Text>
+            </View>
+            <Text style={styles.statusChip}>Lv.{byteLevel}</Text>
+            <Text style={styles.statusChip}>{moodLabel}</Text>
+            <Text style={styles.statusChip}>Stage {stage + 1}</Text>
+          </View>
+          <Text style={styles.statusTextWrap}>{statusText}</Text>
+        </View>
+
+        <View style={styles.demoRow}>
+          {demoMode && demoLabel ? (
+            <View style={styles.demoBadge}>
+              <Text style={styles.demoBadgeText}>{demoLabel}</Text>
+            </View>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.demoBtn, (demoMode || demoBusy || !demoHydrated) && styles.demoBtnDisabled]}
+            onPress={() => {
+              runAction('demo-enable', handleEnableDemoMode, 900);
+            }}
+            disabled={demoMode || demoBusy || !demoHydrated}
+            activeOpacity={0.86}
+          >
+            <Ionicons name="flash-outline" size={14} color={demoMode ? 'rgba(255,255,255,0.5)' : '#ffe18e'} />
+            <Text style={[styles.demoBtnText, demoMode && styles.demoBtnTextDisabled]}>
+              {demoMode ? 'DEMO ACTIVE' : 'ENABLE DEMO MODE'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.field}>
-          <View style={styles.clutterLayer} pointerEvents="none">
-            {clutterVisuals.map((icon, i) => (
-              <Text
-                key={`clutter-${i}`}
-                style={[
-                  styles.clutterIcon,
-                  {
-                    left: 16 + ((i * 57) % Math.max(120, width - 80)),
-                    bottom: 6 + ((i % 2) * 18),
-                  },
-                ]}
+          <HomeRoomStage />
+
+          <View style={styles.clutterLayer}>
+            {clutterNodes.map((node) => (
+              <TouchableOpacity
+                key={node.id}
+                style={[styles.clutterTouch, { left: node.left, bottom: node.bottom, width: node.size, height: node.size }]}
+                onPress={() => handleClutterTap(node.id)}
+                activeOpacity={0.8}
               >
-                {icon}
-              </Text>
+                <Image source={node.sprite} style={styles.clutterImg} resizeMode="contain" />
+              </TouchableOpacity>
             ))}
           </View>
 
           <Animated.View
             style={[
               styles.byteStage,
-              { transform: [{ translateX: roamX }, { translateY: roamY }, { translateY: hoverY }, { scale: breathe }, { scale: tapScale }] },
+              {
+                transform: [
+                  { translateX: roamX },
+                  { translateY: roamY },
+                  { translateY: hoverY },
+                  { rotate: wobble.interpolate({ inputRange: [-1, 1], outputRange: ['-2deg', '2deg'] }) },
+                  { scaleX: squish.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) },
+                  { scaleY: squish.interpolate({ inputRange: [0, 1], outputRange: [1, 0.93] }) },
+                  { scale: breathe },
+                  { scale: tapScale },
+                ],
+              },
             ]}
           >
             <TouchableOpacity onPress={handleByteTap} activeOpacity={1}>
               <Image source={petSprite} style={styles.byteSprite} resizeMode="contain" />
             </TouchableOpacity>
           </Animated.View>
+
+          {rewardPopups.map((popup) => (
+            <FloatingReward
+              key={popup.id}
+              text={popup.text}
+              left={popup.left}
+              bottom={popup.bottom}
+              onDone={() => setRewardPopups((prev) => prev.filter((entry) => entry.id !== popup.id))}
+            />
+          ))}
+
+          {actionBursts.map((burst) => (
+            <ActionBurst
+              key={burst.id}
+              type={burst.type}
+              onDone={() => setActionBursts((prev) => prev.filter((entry) => entry.id !== burst.id))}
+            />
+          ))}
         </View>
 
         <View style={styles.careActionsRow}>
           {HOME_ACTIONS.map((item) => (
-            <TouchableOpacity key={item.key} style={styles.careBtn} onPress={() => handleHomeAction(item.key)} activeOpacity={0.86}>
+            <TouchableOpacity
+              key={item.key}
+              style={[styles.careBtn, (transitionBusy || isLocked(`home:${item.key}`)) && styles.careBtnDisabled]}
+              onPress={() => {
+                runAction(`home:${item.key}`, () => handleHomeAction(item.key));
+              }}
+              activeOpacity={0.86}
+              disabled={transitionBusy || isLocked(`home:${item.key}`)}
+            >
               <View style={[styles.careBtnIcon, { borderColor: `${item.color}99`, backgroundColor: `${item.color}22` }]}>
                 <Ionicons name={item.icon as any} size={18} color={item.color} />
               </View>
@@ -432,7 +785,14 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.swipeZone} {...swipeResponder.panHandlers}>
-          <TouchableOpacity onPress={openDrawer} activeOpacity={0.8} style={styles.swipePrompt}>
+          <TouchableOpacity
+            onPress={() => {
+              runAction('drawer-open', openDrawer);
+            }}
+            activeOpacity={0.8}
+            style={styles.swipePrompt}
+            disabled={transitionBusy || isLocked('drawer-open')}
+          >
             <Ionicons name="chevron-up" size={16} color="#72ceff" />
             <Text style={styles.swipeLabel}>SWIPE UP FOR ROOMS</Text>
           </TouchableOpacity>
@@ -445,10 +805,18 @@ export default function HomeScreen() {
             <TouchableOpacity activeOpacity={1} onPress={() => {}}>
               <View style={styles.drawerHandle} />
               <Text style={styles.drawerTitle}>ROOM NAVIGATION</Text>
-              <Text style={styles.drawerSub}>ROOMS AND SHOP</Text>
+              <Text style={styles.drawerSub}>ROOMS AND SERVICES</Text>
               <View style={styles.roomGrid}>
                 {ROOM_MENU.map((room) => (
-                  <TouchableOpacity key={room.key} style={styles.roomBtn} onPress={() => handleRoomOpen(room.route)} activeOpacity={0.82}>
+                  <TouchableOpacity
+                    key={room.key}
+                    style={[styles.roomBtn, (transitionBusy || isLocked(`room:${room.key}`)) && styles.roomBtnDisabled]}
+                    onPress={() => {
+                      runAction(`room:${room.key}`, () => handleRoomOpen(room.route), 900);
+                    }}
+                    activeOpacity={0.82}
+                    disabled={transitionBusy || isLocked(`room:${room.key}`)}
+                  >
                     <View style={[styles.roomIcon, { borderColor: `${room.color}99`, backgroundColor: `${room.color}1e` }]}>
                       <Ionicons name={room.icon as any} size={18} color={room.color} />
                     </View>
@@ -467,7 +835,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
       )}
 
-      <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} byteData={byteData} />
+      <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} byteData={byteData} playerData={playerData} />
     </ImageBackground>
   );
 }
@@ -475,6 +843,25 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   bg: { flex: 1, width: '100%', height: '100%' },
   safe: { flex: 1 },
+  utilityBar: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingTop: 8,
+  },
+  utilityBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(109,190,255,0.25)',
+    backgroundColor: 'rgba(9,14,52,0.74)',
+    paddingVertical: 6,
+  },
+  utilityText: { color: '#b1e2ff', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
   topBar: { flexDirection: 'row', gap: 8, paddingHorizontal: 10, paddingTop: 8, alignItems: 'stretch' },
   currencyBlock: {
     backgroundColor: 'rgba(9,14,52,0.75)',
@@ -501,19 +888,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 7,
   },
-  statsFab: {
-    width: 62,
-    backgroundColor: 'rgba(9,14,52,0.75)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(109,190,255,0.26)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-  },
-  statsFabText: { color: '#8fd9ff', fontSize: 9.5, fontWeight: '800', letterSpacing: 0.7 },
   needChip: { width: '48%', gap: 2 },
   needChipLabel: { color: 'rgba(230,245,255,0.8)', fontSize: 8, letterSpacing: 1, fontWeight: '700' },
+  xpBlock: { width: '100%', marginTop: 4, gap: 3 },
+  xpRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  xpLabel: { color: '#8fd9ff', fontSize: 8.8, fontWeight: '800', letterSpacing: 1 },
+  xpVal: { color: 'rgba(235,246,255,0.88)', fontSize: 8.8, fontWeight: '700' },
+  xpTrack: { height: 6, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
+  xpFill: { height: 6, borderRadius: 4, backgroundColor: '#77d4ff' },
+  xpHint: { color: 'rgba(182,223,255,0.76)', fontSize: 8.5, fontWeight: '700' },
   pipRow: { flexDirection: 'row', gap: 2 },
   pip: { width: 8, height: 6, borderRadius: 2 },
   field: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', position: 'relative', paddingBottom: 16 },
@@ -522,13 +905,48 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 78,
+    height: 168,
     zIndex: 1,
   },
-  clutterIcon: {
+  clutterTouch: {
     position: 'absolute',
-    fontSize: 19,
-    opacity: 0.9,
+    zIndex: 3,
+  },
+  clutterImg: {
+    width: '100%',
+    height: '100%',
+    opacity: 0.96,
+  },
+  rewardPopup: {
+    position: 'absolute',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 9,
+    borderWidth: 1,
+    borderColor: 'rgba(255,212,90,0.7)',
+    backgroundColor: 'rgba(56,40,12,0.84)',
+    zIndex: 7,
+  },
+  rewardPopupText: {
+    color: '#ffe08d',
+    fontSize: 10.5,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+  },
+  burstLayer: {
+    position: 'absolute',
+    bottom: 56,
+    alignSelf: 'center',
+    width: 140,
+    height: 110,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    zIndex: 6,
+  },
+  burstGlyph: {
+    position: 'absolute',
+    bottom: 0,
+    fontSize: 20,
   },
   byteStage: { position: 'absolute', bottom: 12, zIndex: 2 },
   byteSprite: { width: width * 0.3, height: width * 0.3 },
@@ -539,15 +957,84 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(111,198,255,0.24)',
-    paddingHorizontal: 9,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  statusTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexWrap: 'wrap',
+  },
+  statusIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginRight: 2,
   },
   statusDot: { width: 6, height: 6, borderRadius: 99, backgroundColor: '#5dff93' },
-  statusText: { flex: 1, color: 'rgba(255,255,255,0.82)', fontSize: 10.2, fontWeight: '600' },
-  statusMood: { color: '#7bd9ff', fontSize: 9.2, fontWeight: '700' },
+  statusName: { color: '#e8f6ff', fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4 },
+  statusChip: {
+    color: '#7bd9ff',
+    fontSize: 9.2,
+    fontWeight: '700',
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: 'rgba(123,217,255,0.28)',
+    backgroundColor: 'rgba(20,54,88,0.56)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
+  statusTextWrap: { color: 'rgba(255,255,255,0.82)', fontSize: 10.2, fontWeight: '600', lineHeight: 15 },
+  demoRow: {
+    marginTop: 8,
+    marginHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  demoBadge: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,225,142,0.45)',
+    backgroundColor: 'rgba(78,58,18,0.7)',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  demoBadgeText: {
+    color: '#ffe08d',
+    fontSize: 9.4,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  demoBtn: {
+    minWidth: 140,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,225,142,0.52)',
+    backgroundColor: 'rgba(78,58,18,0.72)',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  demoBtnDisabled: {
+    opacity: 0.58,
+  },
+  demoBtnText: {
+    color: '#ffe08d',
+    fontSize: 9.6,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+  demoBtnTextDisabled: {
+    color: 'rgba(255,255,255,0.6)',
+  },
   careActionsRow: { marginTop: 10, marginHorizontal: 10, flexDirection: 'row', gap: 6, justifyContent: 'space-between' },
   careBtn: {
     flex: 1,
@@ -560,6 +1047,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     gap: 4,
   },
+  careBtnDisabled: { opacity: 0.58 },
   careBtnIcon: { width: 40, height: 40, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   careLabel: { color: 'rgba(220,236,255,0.84)', fontSize: 8, fontWeight: '800', letterSpacing: 0.7, textAlign: 'center' },
   swipeZone: { paddingTop: 6, paddingBottom: 8 },
@@ -590,6 +1078,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     gap: 4,
   },
+  roomBtnDisabled: { opacity: 0.56 },
   roomIcon: { width: 42, height: 42, borderRadius: 11, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 3 },
   roomTitle: { color: '#dff1ff', fontSize: 11, letterSpacing: 1.1, fontWeight: '800' },
   roomSub: { color: 'rgba(255,255,255,0.55)', fontSize: 9.5 },
@@ -616,7 +1105,11 @@ const styles = StyleSheet.create({
   },
   statsTitle: { color: '#7ec8ff', fontSize: 16, fontWeight: '900', letterSpacing: 2 },
   statsName: { color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 4 },
+  statsScroll: { maxHeight: 460 },
   statsSection: { color: 'rgba(255,255,255,0.35)', fontSize: 10, letterSpacing: 2, fontWeight: '700', marginTop: 8 },
+  kvRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 5 },
+  kvKey: { color: 'rgba(180,214,242,0.72)', fontSize: 9.6, fontWeight: '700', letterSpacing: 0.9, flex: 1 },
+  kvVal: { color: '#e3f3ff', fontSize: 9.8, fontWeight: '700', flex: 1, textAlign: 'right' },
   statsRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   statsKey: { color: 'rgba(255,255,255,0.55)', fontSize: 9, letterSpacing: 1, width: 66, fontWeight: '700' },
   statsBarTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.1)', overflow: 'hidden' },
@@ -625,3 +1118,4 @@ const styles = StyleSheet.create({
   statsClose: { marginTop: 12, alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
   statsCloseText: { color: 'rgba(255,255,255,0.55)', fontSize: 12, letterSpacing: 2, fontWeight: '700' },
 });
+

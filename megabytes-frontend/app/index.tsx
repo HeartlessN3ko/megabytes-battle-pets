@@ -5,12 +5,14 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useEvolution } from '../context/EvolutionContext';
+import { useDemoMode } from '../hooks/useDemoMode';
 
 const { width, height } = Dimensions.get('window');
 
 export default function SplashScreen() {
   const router    = useRouter();
   const { stage, hydrated } = useEvolution();
+  const { demoMode, hydrated: demoHydrated } = useDemoMode();
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeIn    = useRef(new Animated.Value(0)).current;
   const logoY     = useRef(new Animated.Value(-30)).current;
@@ -30,8 +32,9 @@ export default function SplashScreen() {
   }, []);
 
   const handleStart = () => {
+    if (!demoHydrated) return;
     Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
-      const destination = stage > 0 ? '/(tabs)' : '/egg';
+      const destination = demoMode || stage > 0 ? '/(tabs)' : '/egg';
       router.replace(destination as any);
     });
   };
@@ -54,13 +57,14 @@ export default function SplashScreen() {
 
         <TouchableOpacity onPress={handleStart} activeOpacity={0.8} style={styles.startWrap}>
           <Animated.Text style={[styles.pressStart, { opacity: pulseAnim }]}>
-            {hydrated ? 'PRESS START' : 'SYNCING...'}
+            {hydrated && demoHydrated ? 'PRESS START' : 'SYNCING...'}
           </Animated.Text>
         </TouchableOpacity>
 
         <View style={styles.infoBlock}>
           <View style={styles.scanlines} pointerEvents="none" />
           <Text style={styles.infoPrimary}>DEMO BUILD 1.5</Text>
+          {demoMode ? <Text style={styles.infoDemo}>DEMO PROFILE ACTIVE</Text> : null}
           <Text style={styles.infoSecondary}>VOIDWORKS INTERACTIVE</Text>
           <Text style={styles.infoSecondary}>INTERNAL SHOWCASE BRANCH</Text>
         </View>
@@ -118,6 +122,12 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 1.6,
     fontWeight: '600',
+  },
+  infoDemo: {
+    color: '#ffe082',
+    fontSize: 10,
+    letterSpacing: 1.6,
+    fontWeight: '800',
   },
 });
 

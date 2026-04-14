@@ -81,7 +81,7 @@ function calcOfflineReward(baseReward) {
 /**
  * Reset daily income tracking. Call at server midnight or per-user daily reset.
  */
-function resetDailyIncome(player) {
+function resetDailyIncome(_player) {
   return {
     dailyIncome: 0,
     lastDailyReset: new Date(),

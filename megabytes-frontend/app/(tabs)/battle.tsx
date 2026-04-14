@@ -1,62 +1,143 @@
-﻿import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, Image, TouchableOpacity, StyleSheet,
-  Animated, Dimensions, StatusBar, ImageBackground,
+  View,
+  Text,
+  Image,
+  TouchableOpacity,
+  StyleSheet,
+  Animated,
+  Dimensions,
+  StatusBar,
+  ImageBackground,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { cheerBattle, getBattle, startBattle, suggestBattleUlt } from '../../services/api';
+import { cheerBattle, getByte, getByteMoves, startBattle, suggestBattleUlt } from '../../services/api';
 import { useEvolution } from '../../context/EvolutionContext';
+import { resolveByteSprite } from '../../services/byteSprites';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
-// Flavor text pools
-const PLAYER_LOGS = [
+const CORRUPTION_TIER_COLOR: Record<string, string> = {
+  none: '#888888', light: '#ffe666', medium: '#ff9c44', heavy: '#ff6060', critical: '#bf44ff',
+};
+
+const PHYSICAL_LOGS = [
   'Byte slams forward with raw code force!',
   'Direct hit! No filters, just damage!',
   'A clean strike cuts through the data stream!',
-  'Hard-coded hit!',
+  'Impact registered! That one hurt!',
+  'Brute force override!',
+  'Collision detected!',
+  'Heavy packet transfer!',
   'Raw execution!',
+  'Hard-coded hit!',
+  'No optimization, just violence!',
 ];
-const ENEMY_LOGS = [
+const ELEMENTAL_LOGS = [
+  'Elemental protocols engaged!',
+  'System channels elemental data!',
+  'Element output surges!',
+  'Energy spikes across the grid!',
+  'Typed damage incoming!',
+  'Element sync achieved!',
+  'Overload imminent!',
+  'Digital element cascade!',
+  'Signal infused with power!',
+  'Elemental burst deployed!',
+];
+const STATUS_LOGS = [
   'Corrupting target processes!',
+  'Status applied!',
   'System disruption in progress!',
-  'Malware deployed!',
-  'Background interference detected!',
+  'Target flagged!',
   'Debilitating script injected!',
+  'Background interference detected!',
+  'Malware deployed!',
+  'Soft-lock attempt!',
+  'Behavior altered!',
+  'Status queue updated!',
 ];
-const HIT_LOGS   = ['Direct hit!', 'Clean connection!', 'Target struck!'];
-const MISS_LOGS  = ['Packet dropped!', 'Execution failed!', 'Attack missed!'];
-const LOW_HP     = ['WARNING: Integrity critical!', 'System near collapse!', 'Emergency state!'];
+const MOVE_FLAVOR: Record<string, string[]> = {
+  'fireball.py': ['A compressed fire packet launches!', 'Flame data erupts outward!', 'Heat spike detected!'],
+  'flame_wall.sys': ['Firewall deployed!', 'Barrier of heat stabilizes!', 'Thermal shield active!'],
+  'burn_stack.exe': ['Burn protocol stacking!', 'Heat damage accumulating!', 'Target overheating!'],
+  'heat_drain.dll': ['Thermal siphon initiated!', 'Energy draining via heat!', 'Target cooling down rapidly!'],
+  'ember_restore.bin': ['Residual heat restores integrity!', 'Warmth stabilizes Byte!', 'Recovery through combustion!'],
+  'inferno.exe': ['SYSTEM OVERHEAT MAXIMUM!', 'Inferno protocol unleashed!', 'Everything burns!'],
+  'aqua_blast.py': ['Pressurized stream fired!', 'Water data surges forward!', 'Impact through fluid force!'],
+  'flow_state.sys': ['Flow state achieved!', 'Smooth execution boost!', 'Latency reduced!'],
+  'soak_leak.exe': ['Target saturated!', 'Leaks forming!', 'Integrity compromised!'],
+  'pressure_sink.dll': ['Pressure drop initiated!', 'Crushing force applied!', 'Compression engaged!'],
+  'refresh_stream.bin': ['Cooling stream restores systems!', 'Data refreshed!', 'Clean cycle active!'],
+  'tsunami.sys': ['FULL WAVE DEPLOYED!', 'System flood imminent!', 'Overwhelming surge!'],
+};
+const VICTORY_LOGS = ['Target deleted!', 'Battle resolved!', 'System dominance achieved!'];
+const DEFEAT_LOGS = ['Byte crashed!', 'System failure!', 'Connection lost!'];
 const CHEER_LOGS = ["LET'S GO BYTE!", 'BOOST THAT DAMAGE!', 'YOU GOT THIS!'];
 const TAUNT_LOGS = ["That's your move?", 'Lagging hard!', 'Uninstall yourself!'];
 
-function rnd(arr: string[]) { return arr[Math.floor(Math.random() * arr.length)]; }
+function rnd(arr: string[]) {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
-const PLAYER_SPRITES: Record<number, any> = {
-  0: require('../../assets/bytes/egg.png'),
-  1: require('../../assets/bytes/stage1.png'),
-  2: require('../../assets/bytes/stage2.png'),
+function pickMoveFlavor(moveId: string | undefined, fn: string | undefined, isUlt = false) {
+  const key = String(moveId || '').toLowerCase();
+  if (MOVE_FLAVOR[key]) return rnd(MOVE_FLAVOR[key]);
+  if (isUlt) return rnd(ELEMENTAL_LOGS);
+  const kind = String(fn || 'Damage').toLowerCase();
+  if (kind === 'status' || kind === 'debuff') return rnd(STATUS_LOGS);
+  if (kind === 'buff' || kind === 'utility') return rnd(ELEMENTAL_LOGS);
+  return rnd(PHYSICAL_LOGS);
+}
+
+type MoveDef = {
+  id: string;
+  name?: string;
+  function?: string;
+  power?: number;
+  accuracy?: number;
+  isUlt?: boolean;
 };
 
-const PLAYER_MOVES = [
-  { key: 'fireball', name: 'Fireball', emoji: '🔥', power: 28, type: 'projectile' },
-  { key: 'tackle',   name: 'Tackle',   emoji: '💥', power: 18, type: 'lunge' },
-];
-const ENEMY = { name: 'AdwareMonster', level: 6, maxHp: 120, moves: ['Corrupt Blast', 'Slop Wave', 'Data Drain'] };
+// Default shell — replaced at mount with real backend opponent data from startBattle('ai').
+const DEFAULT_ENEMY_MOVES = ['Corrupt Blast', 'Slop Wave', 'Data Drain'];
+const INITIAL_ENEMY = { name: '...', level: 1, maxHp: 120, moves: DEFAULT_ENEMY_MOVES };
+
+// Tick pacing — matches backend BATTLE_DURATION (60 ticks / 60s).
+const TICK_MS = 1000;
+
+type BattleEvent = {
+  type: string;
+  actor?: string;
+  target?: string;
+  move?: string;
+  damage?: number;
+  heal?: number;
+  isUlt?: boolean;
+  effect?: string;
+  status?: string;
+  duration?: number;
+  passive?: string;
+};
+type BattleTick = { tick: number; events: BattleEvent[] };
 
 function DamageNumber({ value, side }: { value: number; side: 'left' | 'right' }) {
   const y = useRef(new Animated.Value(0)).current;
   const op = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(y,  { toValue: -70, duration: 1000, useNativeDriver: true }),
-      Animated.timing(op, { toValue: 0,   duration: 1000, useNativeDriver: true }),
+      Animated.timing(y, { toValue: -70, duration: 1000, useNativeDriver: true }),
+      Animated.timing(op, { toValue: 0, duration: 1000, useNativeDriver: true }),
     ]).start();
-  }, []);
+  }, [op, y]);
   return (
-    <Animated.Text style={[styles.damageNum,
-      { color: side === 'right' ? '#ff4422' : '#ff6644', transform: [{ translateY: y }], opacity: op }]}>
+    <Animated.Text
+      style={[
+        styles.damageNum,
+        { color: side === 'right' ? '#ff4422' : '#ff6644', transform: [{ translateY: y }], opacity: op },
+      ]}
+    >
       -{value}
     </Animated.Text>
   );
@@ -67,119 +148,199 @@ export default function BattleScreen() {
   const { stage, recordBattle } = useEvolution();
 
   const PLAYER_MAX_HP = 100;
-  const playerSprite  = PLAYER_SPRITES[stage] ?? PLAYER_SPRITES[2];
+  const [battleNeeds, setBattleNeeds] = useState<any>(null);
+  const playerSprite = resolveByteSprite(stage, { needs: battleNeeds, preferAnimatedIdle: false });
 
-  const playerHpAnim  = useRef(new Animated.Value(1)).current;
-  const enemyHpAnim   = useRef(new Animated.Value(1)).current;
-  const playerX       = useRef(new Animated.Value(0)).current;
-  const enemyX        = useRef(new Animated.Value(0)).current;
-  const enemyGlow     = useRef(new Animated.Value(0)).current;
-  const timerAnim     = useRef(new Animated.Value(1)).current;
-  const fireballX     = useRef(new Animated.Value(0)).current;
-  const fireballOp    = useRef(new Animated.Value(0)).current;
-  const enemyOp       = useRef(new Animated.Value(1)).current;
-  const overlayOp     = useRef(new Animated.Value(0)).current;
-  const whiteFlash    = useRef(new Animated.Value(0)).current;
+  const playerHpAnim = useRef(new Animated.Value(1)).current;
+  const enemyHpAnim = useRef(new Animated.Value(1)).current;
+  const playerX = useRef(new Animated.Value(0)).current;
+  const enemyX = useRef(new Animated.Value(0)).current;
+  const enemyGlow = useRef(new Animated.Value(0)).current;
+  const timerAnim = useRef(new Animated.Value(1)).current;
+  const fireballX = useRef(new Animated.Value(0)).current;
+  const fireballOp = useRef(new Animated.Value(0)).current;
+  const enemyOp = useRef(new Animated.Value(1)).current;
+  const overlayOp = useRef(new Animated.Value(0)).current;
 
-  const playerHpRef   = useRef(PLAYER_MAX_HP);
-  const enemyHpRef    = useRef(ENEMY.maxHp);
+  const [enemy, setEnemy] = useState(INITIAL_ENEMY);
+
+  const playerHpRef = useRef(PLAYER_MAX_HP);
+  const enemyHpRef = useRef(enemy.maxHp);
   const battleOverRef = useRef(false);
-  const busyRef       = useRef(false);
-  const damageId      = useRef(0);
-  const biasedMoveRef = useRef<number | null>(null);
-  const rngSeedRef    = useRef(1337 + stage * 101);
-  const turnRef       = useRef(0);
+  const damageId = useRef(0);
+  const ultUsedRef = useRef(false);
+  const queuedUltRef = useRef(false);
+  // Tick-log playback refs (backend-authoritative)
+  const battleLogRef = useRef<BattleTick[]>([]);
+  const selfByteIdRef = useRef<string>('');
+  const opponentByteIdRef = useRef<string>('');
+  const playbackCursorRef = useRef(0);
+  const playbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const battleResolvedRef = useRef<{ winner: 'A' | 'B' | 'draw'; earned: number } | null>(null);
 
-  const [playerHp, setPlayerHp]     = useState(PLAYER_MAX_HP);
-  const [enemyHp, setEnemyHp]       = useState(ENEMY.maxHp);
-  const [log, setLog]               = useState('Battle begins! MissingNo vs AdwareMonster!');
-  const [damages, setDamages]       = useState<{ id: number; value: number; side: 'left'|'right' }[]>([]);
-  const [victory, setVictory]       = useState<boolean | null>(null);
-  const [biasedMove, setBiasedMove] = useState<number | null>(null);
+  const [playerHp, setPlayerHp] = useState(PLAYER_MAX_HP);
+  const [enemyHp, setEnemyHp] = useState(enemy.maxHp);
+  const [log, setLog] = useState('Battle begins! MissingNo vs AdwareMonster!');
+  const [damages, setDamages] = useState<{ id: number; value: number; side: 'left' | 'right' }[]>([]);
+  const [victory, setVictory] = useState<boolean | null>(null);
   const [earnedBits, setEarnedBits] = useState(0);
   const [returningHome, setReturningHome] = useState(false);
   const [battleId, setBattleId] = useState<string | null>(null);
+  const [readinessText, setReadinessText] = useState('Readiness: syncing...');
+  const [corruptionDisplay, setCorruptionDisplay] = useState<{ value: number; tier: string } | null>(null);
 
-  const nextRand = useCallback(() => {
-    // Deterministic LCG for repeatable demo battle outcomes.
-    rngSeedRef.current = (rngSeedRef.current * 1664525 + 1013904223) % 4294967296;
-    return rngSeedRef.current / 4294967296;
-  }, []);
+  const [equippedMoves, setEquippedMoves] = useState<MoveDef[]>([
+    { id: 'fireball.py', name: 'Fireball', function: 'Damage', power: 28, accuracy: 0.88 },
+    { id: 'tackle.exe', name: 'Tackle', function: 'Damage', power: 18, accuracy: 0.93 },
+  ]);
+  const [equippedUlt, setEquippedUlt] = useState<MoveDef | null>(null);
+  const [equippedPassive, setEquippedPassive] = useState<string | null>(null);
 
-  const addDamage = useCallback((value: number, side: 'left'|'right') => {
+  const addDamage = useCallback((value: number, side: 'left' | 'right') => {
     const id = damageId.current++;
-    setDamages(d => [...d, { id, value, side }]);
-    setTimeout(() => setDamages(d => d.filter(x => x.id !== id)), 1100);
+    setDamages((d) => [...d, { id, value, side }]);
+    setTimeout(() => setDamages((d) => d.filter((x) => x.id !== id)), 1100);
   }, []);
 
-  const lunge = useCallback((anim: Animated.Value, dir: number): Promise<void> =>
-    new Promise(res => Animated.sequence([
-      Animated.timing(anim, { toValue: dir * width * 0.26, duration: 180, useNativeDriver: true }),
-      Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }),
-    ]).start(() => res())), []);
-
-  const fireballAttack = useCallback((): Promise<void> =>
-    new Promise(res => {
-      fireballX.setValue(0); fireballOp.setValue(1);
-      Animated.parallel([
-        Animated.timing(fireballX,  { toValue: width * 0.52, duration: 380, useNativeDriver: true }),
+  const lunge = useCallback(
+    (anim: Animated.Value, dir: number): Promise<void> =>
+      new Promise((res) =>
         Animated.sequence([
-          Animated.delay(300),
-          Animated.timing(fireballOp, { toValue: 0, duration: 100, useNativeDriver: true }),
-        ]),
-      ]).start(() => res());
-    }), []);
+          Animated.timing(anim, { toValue: dir * width * 0.26, duration: 180, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: true }),
+        ]).start(() => res())
+      ),
+    []
+  );
+
+  const projectileAttack = useCallback(
+    (): Promise<void> =>
+      new Promise((res) => {
+        fireballX.setValue(0);
+        fireballOp.setValue(1);
+        Animated.parallel([
+          Animated.timing(fireballX, { toValue: width * 0.52, duration: 380, useNativeDriver: true }),
+          Animated.sequence([
+            Animated.delay(300),
+            Animated.timing(fireballOp, { toValue: 0, duration: 100, useNativeDriver: true }),
+          ]),
+        ]).start(() => res());
+      }),
+    [fireballOp, fireballX]
+  );
 
   const restoreBattleState = useCallback(() => {
     playerHpRef.current = PLAYER_MAX_HP;
-    enemyHpRef.current  = ENEMY.maxHp;
+    enemyHpRef.current = enemy.maxHp;
     setPlayerHp(PLAYER_MAX_HP);
-    setEnemyHp(ENEMY.maxHp);
+    setEnemyHp(enemy.maxHp);
     playerHpAnim.setValue(1);
     enemyHpAnim.setValue(1);
     enemyOp.setValue(1);
-    busyRef.current = false;
     battleOverRef.current = false;
-    setLog('Battle begins! MissingNo vs AdwareMonster!');
-  }, [enemyHpAnim, enemyOp, playerHpAnim]);
-
-  const endBattle = useCallback(async (won: boolean) => {
-    battleOverRef.current = true;
-    setVictory(won);
-
-    if (won) {
-      // Fade enemy
-      Animated.timing(enemyOp, { toValue: 0, duration: 800, useNativeDriver: true }).start();
-      // Call backend
-      try {
-        const res = await startBattle('ai');
-        setBattleId(res?.battleId || null);
-        setEarnedBits(res.earned || 34);
-        if (res?.battleId) {
-          try {
-            await getBattle(res.battleId);
-          } catch {}
-        }
-        setLog(`Battle synced. Winner: ${res?.winner || 'A'}.`);
-      } catch {
-        setEarnedBits(34);
-        setLog('Battle ended in local fallback mode.');
-      }
-      // Record battle for evolution
-      recordBattle();
+    ultUsedRef.current = false;
+    queuedUltRef.current = false;
+    playbackCursorRef.current = 0;
+    battleResolvedRef.current = null;
+    if (playbackTimerRef.current) {
+      clearInterval(playbackTimerRef.current);
+      playbackTimerRef.current = null;
     }
+    setLog('Awaiting next battle...');
+  }, [enemy.maxHp, enemyHpAnim, enemyOp, playerHpAnim]);
 
-    setTimeout(() => {
-      Animated.timing(overlayOp, { toValue: 1, duration: 600, useNativeDriver: true }).start();
-    }, won ? 900 : 300);
-  }, [recordBattle]);
+  const loadBattleProfile = useCallback(async () => {
+    try {
+      const [data, byteData] = await Promise.all([getByteMoves(), getByte()]);
+      const availableMoves = Array.isArray(data?.availableMoves) ? data.availableMoves : [];
+      const availableUlts = Array.isArray(data?.availableUlts) ? data.availableUlts : [];
+      const eqMoveIds = Array.isArray(data?.equippedMoves) ? data.equippedMoves : [];
+      const byId = new Map<string, MoveDef>([...availableMoves, ...availableUlts].map((m: MoveDef) => [m.id, m]));
+
+      const resolvedMoves = eqMoveIds
+        .map((id: string) => byId.get(id))
+        .filter(Boolean)
+        .slice(0, 2) as MoveDef[];
+
+      if (resolvedMoves.length > 0) {
+        setEquippedMoves(
+          resolvedMoves.map((m) => ({
+            id: m.id,
+            name: m.name || m.id,
+            function: m.function || 'Damage',
+            power: Number(m.power || 20),
+            accuracy: Number(m.accuracy || 0.9),
+          }))
+        );
+      }
+
+      const ultId = data?.equippedUlt || null;
+      if (ultId && byId.has(ultId)) {
+        const ult = byId.get(ultId) as MoveDef;
+        setEquippedUlt({
+          id: ult.id,
+          name: ult.name || ult.id,
+          function: ult.function || 'Damage',
+          power: Number(ult.power || 40),
+          accuracy: Number(ult.accuracy || 0.85),
+          isUlt: true,
+        });
+      } else {
+        setEquippedUlt(null);
+      }
+
+      setEquippedPassive(data?.equippedPassive || null);
+
+      const needs = byteData?.byte?.needs || {};
+      setBattleNeeds(needs);
+      const tier = byteData?.corruptionTier || 'none';
+      setCorruptionDisplay({ value: Math.round(Number(byteData?.byte?.corruption || 0)), tier });
+      const avgNeed =
+        (Number(needs.Hunger || 0) +
+          Number(needs.Bandwidth || 0) +
+          Number(needs.Hygiene || 0) +
+          Number(needs.Social || 0) +
+          Number(needs.Fun || 0) +
+          Number(needs.Mood || 0)) /
+        6;
+      if (avgNeed >= 70) setReadinessText('Readiness: optimal');
+      else if (avgNeed >= 50) setReadinessText('Readiness: stable');
+      else if (avgNeed >= 35) setReadinessText('Readiness: strained');
+      else setReadinessText('Readiness: critical care needed');
+    } catch {
+      // Keep fallback move profile.
+      setReadinessText('Readiness: fallback profile');
+    }
+  }, []);
+
+  const endBattle = useCallback(
+    (won: boolean) => {
+      if (battleOverRef.current) return;
+      battleOverRef.current = true;
+      setVictory(won);
+      if (playbackTimerRef.current) {
+        clearInterval(playbackTimerRef.current);
+        playbackTimerRef.current = null;
+      }
+      if (won) {
+        setLog(rnd(VICTORY_LOGS));
+        Animated.timing(enemyOp, { toValue: 0, duration: 800, useNativeDriver: true }).start();
+        recordBattle();
+      } else {
+        setLog(rnd(DEFEAT_LOGS));
+      }
+      setTimeout(() => {
+        Animated.timing(overlayOp, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+      }, won ? 900 : 300);
+    },
+    [enemyOp, overlayOp, recordBattle]
+  );
 
   const handleVictoryTap = useCallback(() => {
     if (returningHome) return;
     setReturningHome(true);
     setLog('Finalizing battle results...');
 
-    // Let battle state settle before navigation so battle-end logic completes.
     setTimeout(() => {
       setVictory(null);
       overlayOp.setValue(0);
@@ -189,100 +350,231 @@ export default function BattleScreen() {
     }, 450);
   }, [overlayOp, restoreBattleState, returningHome, router]);
 
+  // Tick-log playback: consume each entry in battleLogRef, apply events to UI.
+  const playTick = useCallback((tickEntry: BattleTick) => {
+    if (!tickEntry || !Array.isArray(tickEntry.events)) return;
+    const selfId = selfByteIdRef.current;
+    const enemyName = enemy.name;
+    const enemyMax = Math.max(1, enemy.maxHp);
+    for (const ev of tickEntry.events) {
+      switch (ev.type) {
+        case 'damage': {
+          const dmg = Math.round(Number(ev.damage || 0));
+          const targetIsSelf = ev.target === selfId;
+          if (targetIsSelf) {
+            const next = Math.max(0, playerHpRef.current - dmg);
+            playerHpRef.current = next;
+            setPlayerHp(next);
+            Animated.timing(playerHpAnim, { toValue: next / PLAYER_MAX_HP, duration: 400, useNativeDriver: false }).start();
+            addDamage(dmg, 'left');
+            lunge(enemyX, -1);
+            setLog(`${enemyName} strikes${ev.isUlt ? ' with ULT' : ''}! -${dmg}`);
+          } else {
+            const next = Math.max(0, enemyHpRef.current - dmg);
+            enemyHpRef.current = next;
+            setEnemyHp(next);
+            Animated.timing(enemyHpAnim, { toValue: next / enemyMax, duration: 400, useNativeDriver: false }).start();
+            addDamage(dmg, 'right');
+            projectileAttack();
+            setLog(`${ev.isUlt ? 'ULT unleashed! ' : ''}${pickMoveFlavor(ev.move, 'Damage', ev.isUlt)} -${dmg}`);
+          }
+          break;
+        }
+        case 'miss':
+          setLog(`${ev.actor === selfId ? 'Your attack' : enemyName + "'s attack"} missed.`);
+          break;
+        case 'dodge':
+          setLog(`${ev.target === selfId ? 'You dodged' : enemyName + ' dodged'}! (${ev.passive || 'passive'})`);
+          break;
+        case 'hot':
+        case 'passive_heal': {
+          const heal = Math.round(Number(ev.heal || 0));
+          if (ev.target === selfId) {
+            const next = Math.min(PLAYER_MAX_HP, playerHpRef.current + heal);
+            playerHpRef.current = next;
+            setPlayerHp(next);
+            Animated.timing(playerHpAnim, { toValue: next / PLAYER_MAX_HP, duration: 220, useNativeDriver: false }).start();
+          } else {
+            const next = Math.min(enemyMax, enemyHpRef.current + heal);
+            enemyHpRef.current = next;
+            setEnemyHp(next);
+            Animated.timing(enemyHpAnim, { toValue: next / enemyMax, duration: 220, useNativeDriver: false }).start();
+          }
+          if (ev.type === 'passive_heal') setLog(`${ev.passive || 'Passive'} regen: +${heal}`);
+          break;
+        }
+        case 'dot': {
+          const dmg = Math.round(Number(ev.damage || 0));
+          if (ev.target === selfId) {
+            const next = Math.max(0, playerHpRef.current - dmg);
+            playerHpRef.current = next;
+            setPlayerHp(next);
+            Animated.timing(playerHpAnim, { toValue: next / PLAYER_MAX_HP, duration: 300, useNativeDriver: false }).start();
+            addDamage(dmg, 'left');
+          } else {
+            const next = Math.max(0, enemyHpRef.current - dmg);
+            enemyHpRef.current = next;
+            setEnemyHp(next);
+            Animated.timing(enemyHpAnim, { toValue: next / enemyMax, duration: 300, useNativeDriver: false }).start();
+            addDamage(dmg, 'right');
+          }
+          setLog('Status damage ticks.');
+          break;
+        }
+        case 'self_dot': {
+          const dmg = Math.round(Number(ev.damage || 0));
+          if (ev.actor === selfId) {
+            const next = Math.max(0, playerHpRef.current - dmg);
+            playerHpRef.current = next;
+            setPlayerHp(next);
+            Animated.timing(playerHpAnim, { toValue: next / PLAYER_MAX_HP, duration: 250, useNativeDriver: false }).start();
+          }
+          setLog(`Corrupt backlash: -${dmg}`);
+          break;
+        }
+        case 'status_applied':
+          setLog(`Status: ${ev.status || 'applied'} (${ev.duration || '?'}t)`);
+          break;
+        case 'buff':
+          setLog(`Buff applied: ${ev.effect || ''}`);
+          break;
+        case 'debuff':
+          setLog(`Debuff applied: ${ev.effect || ''}`);
+          break;
+        case 'cleanse':
+          setLog('Status cleansed.');
+          break;
+        case 'passive_buff':
+          setLog(`${ev.passive || 'Passive'} buff: ${ev.effect || ''}`);
+          break;
+        case 'shocked':
+          setLog(ev.actor === selfId ? 'Shocked!' : `${enemyName} shocked!`);
+          break;
+        case 'stunned':
+          setLog(ev.actor === selfId ? 'Stunned!' : `${enemyName} is stunned.`);
+          break;
+        case 'action_delay':
+          setLog('Hesitation delays action.');
+          break;
+        case 'confused_fail':
+          setLog('Confused — attack faltered.');
+          break;
+        case 'mercy_proc':
+          setLog('Mercy proc! Survived lethal blow.');
+          break;
+        default:
+          break;
+      }
+    }
+  }, [addDamage, enemy.maxHp, enemy.name, enemyHpAnim, enemyX, lunge, playerHpAnim, projectileAttack]);
+
+  // Mount: load loadout, run backend battle, start tick playback.
   useEffect(() => {
-    Animated.loop(Animated.sequence([
-      Animated.timing(enemyGlow, { toValue: 1, duration: 900, useNativeDriver: true }),
-      Animated.timing(enemyGlow, { toValue: 0, duration: 900, useNativeDriver: true }),
-    ])).start();
+    let cancelled = false;
+    loadBattleProfile().catch(() => {});
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(enemyGlow, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(enemyGlow, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
     Animated.timing(timerAnim, { toValue: 0, duration: 60000, useNativeDriver: false }).start();
+
+    (async () => {
+      try {
+        const res: any = await startBattle('ai');
+        if (cancelled) return;
+        const maxHpB = Math.round(Number(res?.maxHpB || 120));
+        const opp = res?.opponent || {};
+        setEnemy({
+          name: opp.name || 'Rogue.exe',
+          level: Number(opp.level || 1),
+          maxHp: maxHpB,
+          moves: Array.isArray(opp.equippedMoves) && opp.equippedMoves.length
+            ? opp.equippedMoves
+            : DEFAULT_ENEMY_MOVES,
+        });
+        enemyHpRef.current = maxHpB;
+        setEnemyHp(maxHpB);
+        selfByteIdRef.current = res?.self?.byteId || '';
+        opponentByteIdRef.current = opp.byteId || '';
+        setBattleId(res?.battleId || null);
+        battleLogRef.current = Array.isArray(res?.battleLog) ? res.battleLog : [];
+        battleResolvedRef.current = {
+          winner: (res?.winner as 'A' | 'B' | 'draw') || 'draw',
+          earned: Number(res?.earned || 0),
+        };
+        setEarnedBits(Number(res?.earned || 34));
+        setLog(`Battle begins! ${res?.self?.name || 'MissingNo'} vs ${opp.name || 'Rogue.exe'}!`);
+
+        playbackCursorRef.current = 0;
+        if (playbackTimerRef.current) clearInterval(playbackTimerRef.current);
+        playbackTimerRef.current = setInterval(() => {
+          if (battleOverRef.current) return;
+          const cursor = playbackCursorRef.current;
+          const logArr = battleLogRef.current;
+          if (cursor >= logArr.length) {
+            const resolved = battleResolvedRef.current;
+            endBattle(resolved ? resolved.winner === 'A' : playerHpRef.current >= enemyHpRef.current);
+            return;
+          }
+          playTick(logArr[cursor]);
+          playbackCursorRef.current = cursor + 1;
+        }, TICK_MS);
+      } catch {
+        if (cancelled) return;
+        setLog('Battle sync failed. Fallback mode.');
+        setEarnedBits(34);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (playbackTimerRef.current) {
+        clearInterval(playbackTimerRef.current);
+        playbackTimerRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Safety net — if playback hangs, force resolve from backend winner.
   useEffect(() => {
     const killSwitch = setTimeout(() => {
       if (battleOverRef.current) return;
-      const won = playerHpRef.current >= enemyHpRef.current;
-      setLog('Battle timeout reached. Resolving by remaining integrity.');
-      endBattle(won);
+      const resolved = battleResolvedRef.current;
+      setLog('Battle timeout. Resolving from backend result.');
+      endBattle(resolved ? resolved.winner === 'A' : playerHpRef.current >= enemyHpRef.current);
     }, 70000);
     return () => clearTimeout(killSwitch);
   }, [endBattle]);
 
-  // Player auto-attack every 3s
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      if (busyRef.current || battleOverRef.current) return;
-      busyRef.current = true;
-
-      const moveIdx = biasedMoveRef.current !== null ? biasedMoveRef.current : Math.floor(nextRand() * PLAYER_MOVES.length);
-      biasedMoveRef.current = null;
-      setBiasedMove(null);
-      const move = PLAYER_MOVES[moveIdx];
-
-      const hitRoll = nextRand();
-      if (hitRoll < 0.85) {
-        setLog(`MissingNo uses ${move.name}! ${rnd(PLAYER_LOGS)}`);
-        if (move.type === 'projectile') await fireballAttack();
-        else await lunge(playerX, 1);
-
-        const dmg = move.power + Math.floor(nextRand() * 10);
-        addDamage(dmg, 'right');
-        const next = Math.max(0, enemyHpRef.current - dmg);
-        enemyHpRef.current = next;
-        setEnemyHp(next);
-        Animated.timing(enemyHpAnim, { toValue: next / ENEMY.maxHp, duration: 400, useNativeDriver: false }).start();
-        if (next <= 0) { endBattle(true); busyRef.current = false; return; }
-        if (next < ENEMY.maxHp * 0.3) setLog(rnd(LOW_HP));
-      } else {
-        setLog(`MissingNo attacks! ${rnd(MISS_LOGS)}`);
-      }
-      busyRef.current = false;
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [addDamage, endBattle, enemyHpAnim, fireballAttack, lunge, nextRand, playerX]);
-
-  // Enemy auto-attack every 4.5s
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      if (busyRef.current || battleOverRef.current) return;
-      busyRef.current = true;
-
-      const move = ENEMY.moves[turnRef.current % ENEMY.moves.length];
-      turnRef.current += 1;
-      setLog(`${ENEMY.name} uses ${move}! ${rnd(ENEMY_LOGS)}`);
-      await lunge(enemyX, -1);
-
-      const dmg = Math.floor(nextRand() * 15) + 8;
-      addDamage(dmg, 'left');
-      const next = Math.max(0, playerHpRef.current - dmg);
-      playerHpRef.current = next;
-      setPlayerHp(next);
-      Animated.timing(playerHpAnim, { toValue: next / PLAYER_MAX_HP, duration: 400, useNativeDriver: false }).start();
-      if (next <= 0) { endBattle(false); busyRef.current = false; return; }
-      if (next < PLAYER_MAX_HP * 0.3) setLog(rnd(LOW_HP));
-      busyRef.current = false;
-    }, 4500);
-    return () => clearInterval(interval);
-  }, [addDamage, endBattle, enemyX, lunge, nextRand, playerHpAnim]);
-
-  const handleBiasMove = (idx: number) => {
-    if (battleOverRef.current) return;
-    biasedMoveRef.current = idx;
-    setBiasedMove(idx);
+  const queueUlt = async () => {
+    if (!equippedUlt || ultUsedRef.current) {
+      setLog('No ult available for this loadout.');
+      return;
+    }
+    queuedUltRef.current = true;
+    setLog(`Ult suggestion queued: ${equippedUlt.name || equippedUlt.id}.`);
+    if (battleId) {
+      try {
+        await suggestBattleUlt(battleId);
+      } catch {}
+    }
   };
 
-  const glowOp     = enemyGlow.interpolate({ inputRange: [0,1], outputRange: [0, 0.5] });
-  const pHpColor   = playerHpAnim.interpolate({ inputRange: [0,0.3,1], outputRange: ['#ff2222','#ffaa00','#44ff44'] });
-  const eHpColor   = enemyHpAnim.interpolate({ inputRange: [0,0.3,1], outputRange: ['#ff2222','#ffaa00','#ff6622'] });
-  const timerColor = timerAnim.interpolate({ inputRange: [0,0.3,1], outputRange: ['#ff2222','#ffaa00','#44aaff'] });
-  const pHpWidth   = playerHpAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
-  const eHpWidth   = enemyHpAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+  const glowOp = enemyGlow.interpolate({ inputRange: [0, 1], outputRange: [0, 0.5] });
+  const pHpColor = playerHpAnim.interpolate({ inputRange: [0, 0.3, 1], outputRange: ['#ff2222', '#ffaa00', '#44ff44'] });
+  const eHpColor = enemyHpAnim.interpolate({ inputRange: [0, 0.3, 1], outputRange: ['#ff2222', '#ffaa00', '#ff6622'] });
+  const timerColor = timerAnim.interpolate({ inputRange: [0, 0.3, 1], outputRange: ['#ff2222', '#ffaa00', '#44aaff'] });
+  const pHpWidth = playerHpAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+  const eHpWidth = enemyHpAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const timerWidth = timerAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
 
   return (
     <ImageBackground source={require('../../assets/backgrounds/battleground.png')} style={styles.bg} resizeMode="cover">
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
-      <SafeAreaView style={styles.safe} edges={['top','bottom']}>
-
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.timerTrack}>
           <Animated.View style={[styles.timerFill, { width: timerWidth, backgroundColor: timerColor }]} />
         </View>
@@ -296,12 +588,19 @@ export default function BattleScreen() {
             <Animated.View style={[styles.hpFill, { width: pHpWidth, backgroundColor: pHpColor }]} />
           </View>
           <View style={styles.hpRow}>
-            <Text style={styles.hpLabel}>{ENEMY.name} Lv.{ENEMY.level}</Text>
-            <Text style={styles.hpVal}>{enemyHp}/{ENEMY.maxHp}</Text>
+            <Text style={styles.hpLabel}>{enemy.name} Lv.{enemy.level}</Text>
+            <Text style={styles.hpVal}>{enemyHp}/{enemy.maxHp}</Text>
           </View>
           <View style={styles.hpTrack}>
             <Animated.View style={[styles.hpFill, { width: eHpWidth, backgroundColor: eHpColor }]} />
           </View>
+          <Text style={styles.passiveText}>Passive: {equippedPassive || 'None'} | Ult: {equippedUlt?.name || 'None'}</Text>
+          <Text style={styles.readinessText}>{readinessText}</Text>
+          {corruptionDisplay && corruptionDisplay.tier !== 'none' && (
+            <Text style={[styles.readinessText, { color: CORRUPTION_TIER_COLOR[corruptionDisplay.tier] || '#888' }]}>
+              Corruption: {corruptionDisplay.value} — {corruptionDisplay.tier.toUpperCase()}
+            </Text>
+          )}
         </View>
 
         <View style={styles.field}>
@@ -309,7 +608,7 @@ export default function BattleScreen() {
             <Animated.View style={{ transform: [{ translateX: playerX }] }}>
               <Image source={playerSprite} style={styles.sprite} resizeMode="contain" />
             </Animated.View>
-            {damages.filter(d => d.side === 'left').map(d => <DamageNumber key={d.id} value={d.value} side="left" />)}
+            {damages.filter((d) => d.side === 'left').map((d) => <DamageNumber key={d.id} value={d.value} side="left" />)}
           </View>
 
           <Animated.Image
@@ -327,21 +626,14 @@ export default function BattleScreen() {
                 resizeMode="contain"
               />
             </Animated.View>
-            {damages.filter(d => d.side === 'right').map(d => <DamageNumber key={d.id} value={d.value} side="right" />)}
+            {damages.filter((d) => d.side === 'right').map((d) => <DamageNumber key={d.id} value={d.value} side="right" />)}
           </View>
         </View>
 
         <View style={styles.movesRow}>
-          {PLAYER_MOVES.map((move, i) => (
-            <TouchableOpacity
-              key={move.key}
-              style={[styles.moveBtn, biasedMove === i && styles.moveBiased]}
-              onPress={() => handleBiasMove(i)}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.moveEmoji}>{move.emoji}</Text>
-              <Text style={styles.moveName}>{move.name}</Text>
-              {biasedMove === i && <Text style={styles.moveQueued}>NEXT</Text>}
+          {equippedMoves.slice(0, 2).map((move, i) => (
+            <TouchableOpacity key={move.id} style={styles.moveBtn} activeOpacity={0.85}>
+              <Text style={styles.moveName}>{move.name || move.id}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -351,98 +643,131 @@ export default function BattleScreen() {
         </View>
 
         <View style={styles.controls}>
-          {[
-            {
-              label: '✳️ Cheer',
-              cb: async () => {
-                setLog(rnd(CHEER_LOGS));
-                if (battleId) {
-                  try {
-                    const res = await cheerBattle(battleId);
-                    setLog(`Cheer sent. Crowd energy ${res?.cheers || 1}.`);
-                  } catch {}
-                }
-              },
-            },
-            { label: '🗡️ Taunt',       cb: () => setLog(rnd(TAUNT_LOGS)) },
-            {
-              label: '⚡ Suggest Ult',
-              cb: async () => {
-                setLog('MissingNo is charging up something big...');
-                if (battleId) {
-                  try {
-                    await suggestBattleUlt(battleId);
-                  } catch {}
-                }
-              },
-            },
-            { label: '🎒 Items', cb: () => router.push('/(tabs)/shop') },
-          ].map(btn => (
-            <TouchableOpacity key={btn.label} style={styles.controlBtn} onPress={btn.cb} activeOpacity={0.7}>
-              <Text style={styles.controlLabel}>{btn.label}</Text>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity
+            style={styles.controlBtn}
+            onPress={async () => {
+              setLog(rnd(CHEER_LOGS));
+              if (battleId) {
+                try {
+                  const res = await cheerBattle(battleId);
+                  setLog(`Cheer sent. Crowd energy ${res?.cheers || 1}.`);
+                } catch {}
+              }
+            }}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.controlLabel}>Cheer</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.controlBtn} onPress={() => setLog(rnd(TAUNT_LOGS))} activeOpacity={0.7}>
+            <Text style={styles.controlLabel}>Taunt</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.controlBtn} onPress={queueUlt} activeOpacity={0.7}>
+            <Text style={styles.controlLabel}>Suggest Ult</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.controlBtn} onPress={() => router.push('/(tabs)/inventory')} activeOpacity={0.7}>
+            <Text style={styles.controlLabel}>Items</Text>
+          </TouchableOpacity>
         </View>
-
       </SafeAreaView>
 
       {victory !== null && (
         <Animated.View style={[styles.overlay, { opacity: overlayOp }]}>
           <TouchableOpacity style={styles.overlayInner} onPress={handleVictoryTap} activeOpacity={0.9}>
             <Text style={[styles.overlayTitle, { color: victory ? '#ffe566' : '#ff4444' }]}>
-              {victory ? '🏆 VICTORY!' : '💀 DEFEATED'}
+              {victory ? 'VICTORY' : 'DEFEATED'}
             </Text>
-            <Text style={styles.overlaySub}>
-              {victory ? `+25 rating  •  +${earnedBits} bits` : '-20 rating  •  +8 bits'}
-            </Text>
-            {victory && <Text style={styles.overlayFlavor}>{rnd(['Target deleted!', 'System dominance achieved!', 'Battle resolved!'])}</Text>}
-            {!victory && <Text style={styles.overlayFlavor}>{rnd(['Byte crashed!', 'System failure!', 'Connection lost!'])}</Text>}
+            <Text style={styles.overlaySub}>{victory ? `+25 rating  +${earnedBits} bits` : '-20 rating  +8 bits'}</Text>
             <Text style={styles.overlayTap}>Tap to return home</Text>
           </TouchableOpacity>
         </Animated.View>
       )}
-
-      <Animated.View style={[styles.whiteFlash, { opacity: whiteFlash }]} pointerEvents="none" />
     </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  bg:   { flex: 1, width: '100%', height: '100%' },
+  bg: { flex: 1, width: '100%', height: '100%' },
   safe: { flex: 1 },
   timerTrack: { height: 4, backgroundColor: 'rgba(255,255,255,0.1)', flexDirection: 'row' },
-  timerFill:  { height: 4 },
+  timerFill: { height: 4 },
   hpSection: { paddingHorizontal: 14, paddingTop: 8, gap: 3 },
-  hpRow:  { flexDirection: 'row', justifyContent: 'space-between' },
-  hpLabel:{ color: '#cce4ff', fontSize: 11, fontWeight: '700' },
-  hpVal:  { color: 'rgba(255,255,255,0.45)', fontSize: 10 },
-  hpTrack:{ height: 10, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.1)', flexDirection: 'row', overflow: 'hidden', marginBottom: 5 },
+  hpRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  hpLabel: { color: '#cce4ff', fontSize: 11, fontWeight: '700' },
+  hpVal: { color: 'rgba(255,255,255,0.45)', fontSize: 10 },
+  hpTrack: {
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    flexDirection: 'row',
+    overflow: 'hidden',
+    marginBottom: 5,
+  },
   hpFill: { borderRadius: 5 },
+  passiveText: { color: '#9edcff', fontSize: 10, marginTop: 2 },
+  readinessText: { color: 'rgba(208,236,255,0.82)', fontSize: 9.5, marginTop: 1 },
   field: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', paddingHorizontal: 10 },
   byteSlot: { alignItems: 'center', justifyContent: 'center', position: 'relative' },
   sprite: { width: width * 0.36, height: width * 0.36, backgroundColor: 'transparent' },
   glowRing: { position: 'absolute', width: width * 0.38, height: width * 0.38, borderRadius: 999, backgroundColor: '#ff5500' },
   fireball: { position: 'absolute', width: 48, height: 48, left: width * 0.18, backgroundColor: 'transparent' },
-  damageNum: { position: 'absolute', top: -10, fontSize: 26, fontWeight: '900', textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 4 },
+  damageNum: {
+    position: 'absolute',
+    top: -10,
+    fontSize: 26,
+    fontWeight: '900',
+    textShadowColor: '#000',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 4,
+  },
   movesRow: { flexDirection: 'row', paddingHorizontal: 10, gap: 8, marginBottom: 6 },
-  moveBtn: { flex: 1, backgroundColor: 'rgba(10,25,70,0.88)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(80,160,255,0.35)', paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
-  moveBiased: { borderColor: '#ffcc00', backgroundColor: 'rgba(40,35,10,0.9)' },
-  moveEmoji:  { fontSize: 18 },
-  moveName:   { flex: 1, color: '#cce4ff', fontSize: 12, fontWeight: '700' },
-  moveQueued: { color: '#ffcc00', fontSize: 9, fontWeight: '800' },
-  logBox: { marginHorizontal: 14, marginBottom: 8, backgroundColor: 'rgba(8,20,60,0.88)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(80,160,255,0.3)', padding: 10, minHeight: 40, justifyContent: 'center' },
+  moveBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(10,25,70,0.88)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(80,160,255,0.35)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  moveName: { flex: 1, color: '#cce4ff', fontSize: 12, fontWeight: '700' },
+  logBox: {
+    marginHorizontal: 14,
+    marginBottom: 8,
+    backgroundColor: 'rgba(8,20,60,0.88)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(80,160,255,0.3)',
+    padding: 10,
+    minHeight: 40,
+    justifyContent: 'center',
+  },
   logText: { color: '#fff', fontSize: 13, fontWeight: '600', textAlign: 'center' },
   controls: { flexDirection: 'row', paddingHorizontal: 10, paddingBottom: 8, gap: 6 },
-  controlBtn: { flex: 1, backgroundColor: 'rgba(10,25,70,0.88)', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(80,160,255,0.3)', paddingVertical: 10, alignItems: 'center' },
+  controlBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(10,25,70,0.88)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(80,160,255,0.3)',
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
   controlLabel: { color: '#cce4ff', fontSize: 10, fontWeight: '700', textAlign: 'center' },
-  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,20,0.85)', alignItems: 'center', justifyContent: 'center' },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,20,0.85)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   overlayInner: { alignItems: 'center', gap: 12, padding: 40 },
-  overlayTitle: { fontSize: 48, fontWeight: '900', letterSpacing: 2, textShadowColor: '#000', textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 8 },
-  overlaySub:   { color: '#aaddff', fontSize: 16, fontWeight: '600' },
-  overlayFlavor:{ color: 'rgba(255,255,255,0.5)', fontSize: 13, fontStyle: 'italic' },
-  overlayTap:   { color: 'rgba(255,255,255,0.4)', fontSize: 13, marginTop: 20 },
-  whiteFlash:   { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#fff' },
+  overlayTitle: { fontSize: 48, fontWeight: '900', letterSpacing: 2 },
+  overlaySub: { color: '#aaddff', fontSize: 16, fontWeight: '600' },
+  overlayTap: { color: 'rgba(255,255,255,0.5)', fontSize: 13, marginTop: 20 },
 });
-
-
-

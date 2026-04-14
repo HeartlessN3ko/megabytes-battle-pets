@@ -120,6 +120,9 @@ export default function OptionsScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>PLAYTEST TOOLS</Text>
+            <TouchableOpacity style={styles.secondaryBtn} activeOpacity={0.85} onPress={() => router.push('/(tabs)/loadout')}>
+              <Text style={styles.secondaryBtnText}>CONFIGURE LOADOUT</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.resetBtn} activeOpacity={0.85} onPress={handleResetDemo}>
               <Text style={styles.resetBtnText}>RESET DEMO DATA</Text>
             </TouchableOpacity>
@@ -195,4 +198,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   resetBtnText: { color: '#ffd4d4', fontSize: 11, fontWeight: '900', letterSpacing: 1.4 },
+  secondaryBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(120,195,255,0.45)',
+    backgroundColor: 'rgba(20,44,86,0.62)',
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  secondaryBtnText: { color: '#b9e5ff', fontSize: 10.8, fontWeight: '900', letterSpacing: 1.1 },
 });

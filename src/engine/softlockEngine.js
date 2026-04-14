@@ -5,7 +5,7 @@
  * Source: softlock.md
  */
 
-const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
+/* effectsRegistry reserved for future softlock rule expansion */
 
 const DEFAULT_MOVE = {
   id:       'basic_ping.py',

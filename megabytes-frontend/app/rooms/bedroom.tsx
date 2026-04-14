@@ -1,91 +1,78 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { careAction, enterRoom } from '../../services/api';
-import RoomScene, { RoomAction } from '../../components/RoomScene';
+import RoomScene, { RoomAction, RoomResultWindow } from '../../components/RoomScene';
+import { consumePendingMiniGameResult } from '../../services/minigameRuntime';
 
 export default function BedroomRoom() {
   const router = useRouter();
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [status, setStatus] = useState('Bedroom mode active. Recovery protocols ready.');
-  const [timerLine, setTimerLine] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [resultWindow, setResultWindow] = useState<RoomResultWindow | null>(null);
 
   useEffect(() => {
     enterRoom('Bedroom', 1).catch(() => {});
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
   }, []);
 
-  const runTimed = useCallback(async (label: string, seconds: number, work: () => Promise<void>, doneText: string) => {
-    if (busy) return;
-    setBusy(true);
-    setStatus(`${label} started.`);
-
-    let remaining = seconds;
-    setTimerLine(`${label}: ${remaining}s remaining`);
-    timerRef.current = setInterval(() => {
-      remaining -= 1;
-      if (remaining > 0) setTimerLine(`${label}: ${remaining}s remaining`);
-    }, 1000);
-
-    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = null;
-    setTimerLine(null);
-
-    try {
-      await work();
-    } catch {}
-
-    setStatus(doneText);
-    setBusy(false);
-  }, [busy]);
+  useFocusEffect(
+    React.useCallback(() => {
+      const result = consumePendingMiniGameResult('bedroom');
+      if (!result) return;
+      setStatus(result.summary);
+      setResultWindow({
+        title: `${result.title} - ${result.grade.toUpperCase()}`,
+        body: result.summary,
+        byteBits: result.byteBits,
+        skillGain: result.skillGain,
+        energyCost: result.energyCost,
+        cooldownSeconds: result.cooldownSeconds,
+      });
+    }, [])
+  );
 
   const primaryActions: [RoomAction, RoomAction] = [
     {
       key: 'nap-short',
       title: 'POWER NAP',
-      subtitle: '30s quick rest',
+      subtitle: 'Quick rest program',
       icon: 'bed-outline',
       color: '#8f97ff',
-      disabled: busy,
-      onPress: () => runTimed('Power Nap', 30, () => careAction('rest'), 'Power Nap complete. Bandwidth restored.'),
+      disabled: false,
+      programLabel: 'Running stabilization program...',
+      programMs: 1400,
+      onPress: () => {
+        setStatus('Stabilization pass complete. Quick rest applied.');
+        careAction('rest')
+          .then((result) => {
+            setResultWindow({
+              title: 'STABILIZATION COMPLETE',
+              body: 'Quick stabilization program ran successfully. Byte recovered a little bandwidth and mood.',
+              byteBits: Number(result?.earned || 0),
+            });
+          })
+          .catch(() => {
+            setResultWindow({
+              title: 'STABILIZATION INCOMPLETE',
+              body: 'Rest program failed to sync. Try again in a moment.',
+            });
+          });
+      },
     },
     {
       key: 'sleep-long',
       title: 'SLEEP CYCLE',
-      subtitle: '90s deep rest',
+      subtitle: 'Launch rest minigame',
       icon: 'moon-outline',
       color: '#a88eff',
-      disabled: busy,
-      onPress: () =>
-        runTimed(
-          'Sleep Cycle',
-          90,
-          async () => {
-            await careAction('rest');
-            await careAction('rest');
-          },
-          'Sleep Cycle complete. Major recovery and mood stabilization applied.'
-        ),
-    },
-  ];
-
-  const secondaryActions: RoomAction[] = [
-    {
-      key: 'calm',
-      title: 'CALM PULSE',
-      subtitle: 'Instant mood smooth',
-      icon: 'pulse-outline',
-      color: '#6fd4ff',
-      disabled: busy,
+      disabled: false,
       onPress: () => {
-        if (busy) return;
-        setStatus('Calm pulse complete. Mood has stabilized.');
+        setStatus('Deep-rest minigame ready.');
+        router.push({ pathname: '/minigames/[id]', params: { id: 'stabilize-signal', variant: 'long', room: 'bedroom' } });
       },
     },
   ];
+
+  const secondaryActions: RoomAction[] = [];
 
   return (
     <RoomScene
@@ -97,11 +84,13 @@ export default function BedroomRoom() {
       accent="#9f9cff"
       backgroundSource={require('../../assets/backgrounds/bedroom.png')}
       statusLine={status}
-      timerLine={timerLine}
       primaryActions={primaryActions}
       secondaryActions={secondaryActions}
+      resultWindow={resultWindow}
+      onDismissResultWindow={() => setResultWindow(null)}
       onExit={() => router.replace('/(tabs)')}
-      onShop={() => router.push('/(tabs)/shop')}
     />
   );
 }
+
+

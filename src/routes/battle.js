@@ -7,10 +7,22 @@ const battleEngine  = require('../engine/battleEngine');
 const statEngine    = require('../engine/statEngine');
 const needDecay     = require('../engine/needDecay');
 const economyEngine = require('../engine/economyEngine');
+const matchmakingEngine = require('../engine/matchmakingEngine');
 const { xpRequired } = require('../engine/statEngine');
+const { findMoveInCatalog, MOVE_CATALOG } = require('../data/moveCatalog');
+const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
+const { optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
-// TODO: add auth middleware
+router.use(optionalAuth);
+
+function getDecayOptions(req) {
+  const demoMode = String(req.headers['x-demo-mode'] || '') === '1';
+  if (!demoMode) return {};
+  const headerMult = Number(req.headers['x-demo-decay-multiplier'] || 24);
+  const speedMultiplier = Number.isFinite(headerMult) && headerMult > 0 ? headerMult : 24;
+  return { speedMultiplier, maxWindowHours: 24 };
+}
 
 // POST /api/battle/start
 router.post('/start', async (req, res) => {
@@ -21,26 +33,36 @@ router.post('/start', async (req, res) => {
     if (!byteA || !byteA.isAlive) return res.status(400).json({ error: 'Byte not available' });
 
     // Apply need decay before battle — needs affect combat stats
-    const decayedA = needDecay.applyDecay(byteA.needs.toObject(), byteA.lastNeedsUpdate);
+    const decayedA = needDecay.applyDecay(byteA.needs.toObject(), byteA.lastNeedsUpdate, new Date(), getDecayOptions(req));
     byteA.needs = decayedA.needs;
     byteA.lastNeedsUpdate = decayedA.lastNeedsUpdate;
     byteA._computedStats = statEngine.applyNeedModifiers(byteA.stats.toObject(), decayedA.needs);
 
     // Resolve opponent
     let byteB;
+    let opponentRating = null;
     if (mode === 'ai') {
       byteB = generateAIOpponent(byteA);
+      opponentRating = Number(req.body?.opponentRating ?? 1000);
     } else {
       byteB = await Byte.findById(opponentByteId);
       if (!byteB || !byteB.isAlive) return res.status(400).json({ error: 'Opponent not available' });
-      const decayedB = needDecay.applyDecay(byteB.needs.toObject(), byteB.lastNeedsUpdate);
+      const decayedB = needDecay.applyDecay(byteB.needs.toObject(), byteB.lastNeedsUpdate, new Date(), getDecayOptions(req));
       byteB._computedStats = statEngine.applyNeedModifiers(byteB.stats.toObject(), decayedB.needs);
+      const playerB = await Player.findById(byteB.ownerId).select('battleRating');
+      opponentRating = Number(playerB?.battleRating || 1000);
     }
 
     // Load moves
     const allMoveIds = [...new Set([...byteA.equippedMoves, byteA.equippedUlt, ...byteB.equippedMoves, byteB.equippedUlt].filter(Boolean))];
     const moveDocs = await Move.find({ id: { $in: allMoveIds } });
     const moves = Object.fromEntries(moveDocs.map(m => [m.id, m.toObject()]));
+    allMoveIds.forEach((moveId) => {
+      if (!moves[moveId]) {
+        const fallbackMove = findMoveInCatalog(moveId);
+        if (fallbackMove) moves[moveId] = fallbackMove;
+      }
+    });
 
     // Run battle
     const result = battleEngine.runBattle(byteA, byteB, moves, {});
@@ -64,9 +86,9 @@ router.post('/start', async (req, res) => {
     const playerA = await Player.findById(byteA.ownerId);
     const isWin = result.winner === 'A';
     const reward = isWin ? economyEngine.BATTLE_REWARDS.win : economyEngine.BATTLE_REWARDS.loss;
-    const { added } = economyEngine.applyIncome(playerA.dailyIncome, reward);
+    const { added, newDailyTotal } = economyEngine.applyIncome(playerA.dailyIncome, reward);
     playerA.byteBits += added;
-    playerA.dailyIncome += added;
+    playerA.dailyIncome = newDailyTotal;
 
     byteA.xp += isWin ? 30 : 10;
     // Level up check
@@ -74,21 +96,60 @@ router.post('/start', async (req, res) => {
       byteA.level += 1;
     }
 
+    // Post-battle strain ties combat loop back into care loop.
+    const strain = isWin ? { Bandwidth: 10, Mood: 4, Fun: 3 } : { Bandwidth: 14, Mood: 7, Fun: 5 };
+    byteA.needs.Bandwidth = Math.max(0, Number(byteA.needs.Bandwidth || 0) - strain.Bandwidth);
+    byteA.needs.Mood = Math.max(0, Number(byteA.needs.Mood || 0) - strain.Mood);
+    byteA.needs.Fun = Math.max(0, Number(byteA.needs.Fun || 0) - strain.Fun);
+    byteA.lastNeedsUpdate = new Date();
+
     await byteA.save();
+
+    const ratingResult = matchmakingEngine.applyRatingResult({
+      currentRating: Number(playerA.battleRating || matchmakingEngine.RATING.base),
+      didWin: isWin,
+      currentStreak: Number(playerA.battleWinStreak || 0),
+      opponentRating: Number(opponentRating || matchmakingEngine.RATING.base),
+    });
+    playerA.battleRating = ratingResult.rating;
+    playerA.battleWinStreak = ratingResult.streak;
     await playerA.save();
 
-    res.json({ battleId: battle._id, winner: result.winner, mercyProc: result.mercyProc, earned: added });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/battle/:id
-router.get('/:id', async (req, res) => {
-  try {
-    const battle = await Battle.findById(req.params.id);
-    if (!battle) return res.status(404).json({ error: 'Not found' });
-    res.json(battle);
+    res.json({
+      battleId: battle._id,
+      winner: result.winner,
+      mercyProc: result.mercyProc,
+      earned: added,
+      opponent: {
+        byteId: String(byteB._id),
+        name: byteB.name,
+        level: byteB.level || 1,
+        element: byteB.element,
+        animal: byteB.animal,
+        feature: byteB.feature,
+        temperament: byteB.temperament || byteB.equippedPassive,
+        equippedMoves: byteB.equippedMoves,
+        equippedUlt: byteB.equippedUlt,
+      },
+      self: {
+        byteId: String(byteA._id),
+        name: byteA.name,
+        level: byteA.level,
+        element: byteA.element,
+        temperament: byteA.temperament || byteA.equippedPassive,
+      },
+      maxHpA: result.maxHpA,
+      maxHpB: result.maxHpB,
+      finalHpA: result.finalHpA,
+      finalHpB: result.finalHpB,
+      battleLog: result.log,
+      rating: {
+        before: Number(playerA.battleRating || matchmakingEngine.RATING.base) - ratingResult.delta,
+        after: ratingResult.rating,
+        delta: ratingResult.delta,
+        streak: ratingResult.streak,
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -100,6 +161,17 @@ router.get('/history/:playerId', async (req, res) => {
     const battles = await Battle.find({ playerA: req.params.playerId })
       .sort({ createdAt: -1 }).limit(20).select('-battleLog');
     res.json(battles);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/battle/:id
+router.get('/:id', async (req, res) => {
+  try {
+    const battle = await Battle.findById(req.params.id);
+    if (!battle) return res.status(404).json({ error: 'Not found' });
+    res.json(battle);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -146,7 +218,7 @@ router.get('/arena/opponents/:playerId', async (req, res) => {
     const player = await Player.findById(req.params.playerId);
     const myByte = player.activeByteSlots?.[0];
     const myByteDoc = myByte ? await Byte.findById(myByte) : null;
-    const myLevel = myByteDoc?.level || 1;
+    const _myLevel = myByteDoc?.level || 1;
 
     const opponents = await Player.find({
       _id: { $ne: req.params.playerId },
@@ -160,26 +232,70 @@ router.get('/arena/opponents/:playerId', async (req, res) => {
   }
 });
 
-// --- AI opponent generator (temp placeholder until real AI byte system is built) ---
+// --- AI opponent generator ---
+// Builds a legal combatant from real catalog data so battleEngine runs full logic
+// (passives, ults, element bonuses, animal/feature) against a player Byte.
+const AI_ELEMENTS  = ['Fire','Water','Earth','Air','Electric','Nature','Shadow','Holy','Normal'];
+const AI_ANIMALS   = ['Cat','Dog','Bird','Fish','Rabbit','Fox','Wolf','Bear','Turtle','Snake','Frog','Monkey','Boar','Deer','Owl','Lion','Shark','Octopus','Dragon','Golem'];
+const AI_FEATURES  = ['wings','horns','spikes','armor_plates','tail_variant','claws','fins','frill','shell','aura_core'];
+const AI_NAMES = ['Slopitron.exe','Ghostnet.exe','Nullpup.bin','Grimcache.dll','Zerobyte.sys','Boglink.py','Dread404.tmp','Sicklog.dat'];
+
+function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
 function generateAIOpponent(byteA) {
-  const level = byteA.level;
+  const level = byteA.level || 1;
+  const element = pickRandom(AI_ELEMENTS);
+
+  // Pick 2 element moves; fallback to normal if insufficient
+  const elementMoves = MOVE_CATALOG.filter(m => m.element === element && !m.isUlt);
+  const normalMoves  = MOVE_CATALOG.filter(m => m.element === 'Normal' && !m.isUlt);
+  const pool = elementMoves.length >= 2 ? elementMoves : [...elementMoves, ...normalMoves];
+
+  // Bias toward Damage moves so AI is aggressive
+  const damagePool = pool.filter(m => m.function === 'Damage');
+  const otherPool  = pool.filter(m => m.function !== 'Damage');
+  const moves = [];
+  if (damagePool.length) moves.push(pickRandom(damagePool));
+  if (otherPool.length) moves.push(pickRandom(otherPool));
+  else if (damagePool.length > 1) {
+    // Pick another distinct damage move
+    const secondPool = damagePool.filter(m => m.id !== moves[0]?.id);
+    if (secondPool.length) moves.push(pickRandom(secondPool));
+  }
+  const equippedMoves = moves.map(m => m.id).slice(0, 2);
+  if (equippedMoves.length === 0) equippedMoves.push('basic_ping.py');
+
+  // Pick matching ult
+  const ultMove = MOVE_CATALOG.find(m => m.isUlt && m.element === element);
+  const equippedUlt = ultMove?.id || null;
+
+  // Random passive (= temperament) from 15
+  const passives = Object.keys(EFFECTS_REGISTRY.PASSIVES || {});
+  const temperament = pickRandom(passives);
+
+  // Stats scale with level, slightly lower than player baseline for fair demo matchup
+  const statVal = Math.min(95, 8 + level * 1.2);
+
   return {
-    _id: 'ai_opponent',
-    name: 'Slopitron.exe',
-    temperament: 'Corrupt',
-    element: 'Shadow',
-    equippedMoves: ['basic_ping.py'],
-    equippedUlt: null,
-    equippedPassive: null,
+    _id: 'ai_' + Date.now(),
+    name: pickRandom(AI_NAMES),
+    temperament,
+    element,
+    animal: pickRandom(AI_ANIMALS),
+    feature: pickRandom(AI_FEATURES),
+    equippedMoves,
+    equippedUlt,
+    equippedPassive: temperament,
     isAlive: true,
     ownerId: null,
+    level,
     _computedStats: {
-      Power:    Math.min(100, 5 + level),
-      Speed:    Math.min(100, 5 + level),
-      Defense:  Math.min(100, 5 + level),
-      Stamina:  Math.min(100, 5 + level),
-      Special:  Math.min(100, 5 + level),
-      Accuracy: Math.min(100, 5 + level)
+      Power:    Math.round(statVal),
+      Speed:    Math.round(statVal),
+      Defense:  Math.round(statVal),
+      Stamina:  Math.round(statVal),
+      Special:  Math.round(statVal),
+      Accuracy: Math.round(statVal),
     }
   };
 }

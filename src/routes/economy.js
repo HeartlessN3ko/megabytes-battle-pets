@@ -1,9 +1,10 @@
 const express       = require('express');
 const Player        = require('../models/Player');
 const economyEngine = require('../engine/economyEngine');
+const { optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
-// TODO: add auth middleware
+router.use(optionalAuth);
 
 // GET /api/economy/balance/:playerId
 router.get('/balance/:playerId', async (req, res) => {

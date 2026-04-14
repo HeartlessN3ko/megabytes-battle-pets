@@ -1,4 +1,4 @@
-import { Audio } from 'expo-av';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 
 const SFX = {
   menu: require('../assets/sfx/menusfx.mp3'),
@@ -22,12 +22,12 @@ export async function initSfx() {
   if (initialized) return;
   initialized = true;
   try {
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
+    await setAudioModeAsync({
+      allowsRecording: false,
+      playsInSilentMode: true,
+      shouldPlayInBackground: false,
+      interruptionMode: 'duckOthers',
+      shouldRouteThroughEarpiece: false,
     });
   } catch {
     // Ignore in demo mode if audio init fails on a platform.
@@ -37,13 +37,14 @@ export async function initSfx() {
 export async function playSfx(key: SfxKey, volume = 0.9) {
   try {
     await initSfx();
-    const { sound } = await Audio.Sound.createAsync(SFX[key], { shouldPlay: true, volume });
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (!status.isLoaded) return;
-      if (status.didJustFinish) {
-        sound.unloadAsync().catch(() => {});
-      }
+    const player = createAudioPlayer(SFX[key], { keepAudioSessionActive: true, updateInterval: 120 });
+    player.volume = Math.max(0, Math.min(1, Number(volume || 0)));
+    const sub = player.addListener('playbackStatusUpdate', (status) => {
+      if (!status?.didJustFinish) return;
+      sub?.remove();
+      player.remove();
     });
+    player.play();
   } catch {
     // Fail silently for non-critical demo audio.
   }

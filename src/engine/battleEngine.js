@@ -5,7 +5,7 @@
  * Source: gamesystems.md
  */
 
-const { calcDamage, calcAttackRate, calcHitChance, calcMaxHP, calcEffectStrength, calcStatusDuration, applyNeedModifiers } = require('./statEngine');
+const { calcDamage, calcAttackRate, calcHitChance, calcMaxHP, calcStatusDuration } = require('./statEngine');
 const { getEffect, EFFECTS_REGISTRY } = require('../data/effectsRegistry');
 const aiDecision = require('./aiDecision');
 
@@ -14,28 +14,102 @@ const TICK_RATE       = 1.0; // 1 tick per second
 const BASE_ATTACK_RATE = 1.0; // attacks per second baseline
 const MERCY_PROC_CHANCE = 0.05; // 5% per cheer at 1 HP
 
+// Ult formula weights (abilities.md)
+const ULT_POWER_WEIGHT   = 0.6;
+const ULT_SPECIAL_WEIGHT = 0.4;
+
+// Element % bonus multipliers applied on top of ult formula (abilities.md)
+const ULT_ELEMENT_BONUS = {
+  Fire:     { Power: 0.10 },
+  Water:    { Stamina: 0.10 },
+  Earth:    { Defense: 0.10 },
+  Air:      { Speed: 0.10 },
+  Electric: { Speed: 0.05, Accuracy: 0.05 },
+  Nature:   { Stamina: 0.05, Special: 0.05 },
+  Shadow:   { Power: 0.05, Special: 0.05 },
+  Holy:     { Defense: 0.05, Special: 0.05 },
+  Normal:   {},
+};
+
+// Feature % bonus for ults (abilities.md)
+const ULT_FEATURE_BONUS = {
+  wings:        { Speed: 0.05 },
+  horns:        { Power: 0.05 },
+  spikes:       { Power: 0.03, Defense: 0.02 },
+  armor_plates: { Defense: 0.05 },
+  tail_variant: { Power: 0.03, Speed: 0.02 },
+  claws:        { Power: 0.05 },
+  fins:         { Speed: 0.03, Special: 0.02 },
+  frill:        { Special: 0.05 },
+  shell:        { Defense: 0.05 },
+  aura_core:    { Special: 0.05 },
+};
+
+const ULT_ANIMAL_BONUS_PCT = 0.10; // +10% to that animal's primary stat (statEngine.ANIMAL_BIAS top stat)
+
+// ---------------------------------------------------------------------------
+// Passive helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Return the passive name for a combatant.
+ * equippedPassive takes precedence if explicitly set, else falls back to temperament.
+ */
+function getActivePassive(combatant) {
+  return combatant.equippedPassive || combatant.temperament || null;
+}
+
+/**
+ * Apply unconditional passive stat modifications to a base stat object.
+ * Conditional passives (Proud "above 75% HP") are checked at damage time instead.
+ */
+function applyPassiveStatMods(stats, passiveName) {
+  const passive = EFFECTS_REGISTRY.PASSIVES?.[passiveName];
+  if (!passive || !passive.statMod) return stats;
+  // Skip conditional passives — resolved dynamically in tick
+  if (passive.condition) return stats;
+  const out = { ...stats };
+  for (const [stat, pct] of Object.entries(passive.statMod)) {
+    const base = out[stat] ?? 0;
+    out[stat] = Math.max(0, Math.min(100, Math.round(base * (1 + pct))));
+  }
+  return out;
+}
+
 /**
  * Build a combatant state object from a Byte document + computed stats.
+ * Applies unconditional passive stat mods at battle start.
  */
 function buildCombatant(byte, computedStats) {
-  const maxHP = calcMaxHP(50, computedStats.Stamina);
+  // Resolve passive (equippedPassive falls back to temperament)
+  const passiveName = byte.equippedPassive || byte.temperament || null;
+  const statsWithPassive = applyPassiveStatMods(computedStats, passiveName);
+
+  const maxHP = calcMaxHP(50, statsWithPassive.Stamina);
   return {
     byteId:       byte._id.toString(),
     name:         byte.name,
     temperament:  byte.temperament,
     element:      byte.element,
+    animal:       byte.animal || null,
+    feature:      byte.feature || null,
     hp:           maxHP,
     maxHP,
-    stats:        computedStats,
+    baseStats:    computedStats,       // preserved for conditional passive checks
+    stats:        statsWithPassive,    // passive-modified stats used in battle
     equippedMoves: byte.equippedMoves || ['basic_ping.py'],
     equippedUlt:  byte.equippedUlt || null,
-    equippedPassive: byte.equippedPassive || null,
+    equippedPassive: passiveName,
     status:       null,
     effects:      [],       // max 3 active
-    nextAttackIn: 1 / calcAttackRate(BASE_ATTACK_RATE, computedStats.Speed),
+    nextAttackIn: 1 / calcAttackRate(BASE_ATTACK_RATE, statsWithPassive.Speed),
     ultReady:     true,
     ultSilenced:  false,
-    alive:        true
+    alive:        true,
+    // Passive runtime flags
+    _firstHitUsed: false,
+    _rampTicks:    0,
+    _nextRandomBuffTick: 5,
   };
 }
 
@@ -58,14 +132,24 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
     }
   }
 
-  // 2. Apply healing over time (regen.sys)
+  // 2. Apply healing over time (regen.sys + Kind passive)
   for (const side of [attacker, defender]) {
     if (!side.alive) continue;
+    const passive = EFFECTS_REGISTRY.PASSIVES?.[getActivePassive(side)];
+    const coldPenalty = passive?.specialRule === 'reduced_damage_taken_lower_healing' ? 0.80 : 1.0;
+
     const regenEffect = side.effects.find(e => e.id === 'regen.sys');
     if (regenEffect) {
-      const healAmt = side.maxHP * regenEffect.value;
+      const healAmt = side.maxHP * regenEffect.value * coldPenalty;
       side.hp = Math.min(side.maxHP, side.hp + healAmt);
       entry.events.push({ type: 'hot', target: side.byteId, heal: healAmt });
+    }
+
+    // Kind passive: passive heal_over_time (EFFECTS_REGISTRY.PASSIVES.Kind.value)
+    if (passive?.effectType === 'healing_over_time' && passive?.value) {
+      const kindHeal = side.maxHP * passive.value * coldPenalty;
+      side.hp = Math.min(side.maxHP, side.hp + kindHeal);
+      entry.events.push({ type: 'passive_heal', target: side.byteId, heal: kindHeal, passive: getActivePassive(side) });
     }
   }
 
@@ -88,7 +172,7 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
     if (actor.nextAttackIn > 0) continue;
 
     // AI picks move
-    const chosenMoveId = aiDecision.chooseMove(actor, target);
+    const chosenMoveId = aiDecision.chooseMove(actor, target, Boolean(playerInput?.ultSuggested), moves);
     const move = moves[chosenMoveId];
     if (!move) continue;
 
@@ -111,6 +195,15 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
       continue;
     }
 
+    // Alert passive: dodge chance on target
+    const targetPassive = EFFECTS_REGISTRY.PASSIVES?.[getActivePassive(target)];
+    if (targetPassive?.specialRule === 'dodge_chance_bonus') {
+      if (Math.random() < (targetPassive.value || 0.10)) {
+        entry.events.push({ type: 'dodge', actor: actor.byteId, target: target.byteId, passive: getActivePassive(target) });
+        continue;
+      }
+    }
+
     // Confuse: 30% chance to fail action
     if (actor.status?.id === 'confuse.status' && Math.random() < getEffect('confuse.status').value) {
       entry.events.push({ type: 'confused_fail', actor: actor.byteId });
@@ -119,7 +212,19 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
 
     // Damage move
     if (move.function === 'Damage') {
-      let dmg = calcDamage(move.power, actor.stats.Power, target.stats.Defense);
+      // Use ult formula for ult moves, standard formula otherwise
+      let dmg;
+      const isUlt = move.isUlt === true;
+      if (isUlt) {
+        dmg = calcUltDamage(move, actor, target);
+      } else {
+        // Unstable passive: ±10% random stat variance at attack time
+        let actorPower = actor.stats.Power;
+        if (EFFECTS_REGISTRY.PASSIVES?.[getActivePassive(actor)]?.specialRule === 'random_stat_variance') {
+          actorPower = actor.stats.Power * (0.9 + Math.random() * 0.2);
+        }
+        dmg = calcDamage(move.power, actorPower, target.stats.Defense);
+      }
 
       // Weaken debuff
       const weaken = actor.effects.find(e => e.id === 'weaken.sys');
@@ -132,23 +237,49 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
       // Fear status on actor
       if (actor.status?.id === 'fear.status') dmg *= (1 - getEffect('fear.status').value);
 
-      // Anti-heal does not affect damage
+      // Passives on actor
+      const actorPassive = EFFECTS_REGISTRY.PASSIVES?.[getActivePassive(actor)];
 
-      // Sneaky temperament: first hit bonus
-      if (actor.temperament === 'Sneaky' && actor._firstHitUsed !== true) {
-        dmg *= 1.20;
+      // Proud: +10% Power above 75% HP
+      if (actorPassive?.condition === 'hp_above_75_percent' && (actor.hp / actor.maxHP) > 0.75) {
+        const pct = actorPassive.statMod?.Power || 0;
+        if (pct) dmg *= (1 + pct);
+      }
+
+      // Sneaky: first hit bonus (pulled from PASSIVES.Sneaky.value)
+      if (actorPassive?.specialRule === 'first_hit_bonus' && actor._firstHitUsed !== true) {
+        dmg *= (1 + (actorPassive.value || 0.20));
         actor._firstHitUsed = true;
       }
 
-      // Corrupt self-dot (5% of damage dealt back to self)
-      if (actor.temperament === 'Corrupt') {
-        const selfDot = dmg * 0.05;
+      // Wanderer: stat_ramp_over_time — +1% per ramp tick, capped at +20%
+      if (actorPassive?.specialRule === 'stat_ramp_over_time') {
+        const ramp = Math.min(20, actor._rampTicks) * 0.01;
+        dmg *= (1 + ramp);
+      }
+
+      // Passives on target (incoming damage reductions)
+      const tPassive = EFFECTS_REGISTRY.PASSIVES?.[getActivePassive(target)];
+
+      // Noble: reduced damage at low HP (<25%)
+      if (tPassive?.specialRule === 'reduced_damage_at_low_hp' && (target.hp / target.maxHP) < 0.25) {
+        dmg *= 0.80;
+      }
+
+      // Cold: -10% damage taken
+      if (tPassive?.specialRule === 'reduced_damage_taken_lower_healing') {
+        dmg *= 0.90;
+      }
+
+      // Corrupt: self-dot from PASSIVES registry
+      if (actorPassive?.specialRule === 'self_dot') {
+        const selfDot = dmg * (actorPassive.dotValue || 0.05);
         actor.hp = Math.max(0, actor.hp - selfDot);
         entry.events.push({ type: 'self_dot', actor: actor.byteId, damage: selfDot });
       }
 
       target.hp = Math.max(0, target.hp - dmg);
-      entry.events.push({ type: 'damage', actor: actor.byteId, target: target.byteId, move: chosenMoveId, damage: dmg });
+      entry.events.push({ type: 'damage', actor: actor.byteId, target: target.byteId, move: chosenMoveId, damage: dmg, isUlt });
 
       // Mercy proc: if target reaches 1HP and player cheered this tick
       if (target.hp === 0 && playerInput.cheer && Math.random() < MERCY_PROC_CHANCE) {
@@ -161,9 +292,14 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
       // Apply move's status effect
       if (move.appliesStatus && !target.status) {
         const statusDef = getEffect(move.appliesStatus);
-        const duration = calcStatusDuration(statusDef.duration, actor.stats.Special);
+        let duration = calcStatusDuration(statusDef.duration, actor.stats.Special);
+        // Calm passive: reduce_negative_status_duration
+        const tCalm = EFFECTS_REGISTRY.PASSIVES?.[getActivePassive(target)];
+        if (tCalm?.specialRule === 'reduce_negative_status_duration') {
+          duration = Math.max(1, Math.round(duration * (1 - (tCalm.value || 0.25))));
+        }
         target.status = { id: move.appliesStatus, duration };
-        entry.events.push({ type: 'status_applied', target: target.byteId, status: move.appliesStatus });
+        entry.events.push({ type: 'status_applied', target: target.byteId, status: move.appliesStatus, duration });
       }
     }
 
@@ -184,6 +320,13 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
       actor.effects = actor.effects.filter(e => getEffect(e.id).type !== 'debuff');
       if (actor.status && getEffect(actor.status.id).type === 'status') actor.status = null;
       entry.events.push({ type: 'cleanse', actor: actor.byteId });
+    }
+
+    // Anxious passive: 10% chance to suffer action delay after attacking
+    const actingPassive = EFFECTS_REGISTRY.PASSIVES?.[getActivePassive(actor)];
+    if (actingPassive?.specialRule === 'action_delay' && Math.random() < 0.10) {
+      actor.nextAttackIn += 1;
+      entry.events.push({ type: 'action_delay', actor: actor.byteId, passive: getActivePassive(actor) });
     }
   }
 
@@ -209,7 +352,60 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
     }
   }
 
+  // 8. End-of-tick passive upkeep
+  for (const side of [attacker, defender]) {
+    if (!side.alive) continue;
+    const p = EFFECTS_REGISTRY.PASSIVES?.[getActivePassive(side)];
+    if (!p) continue;
+
+    // Wanderer: +1 ramp tick per tick
+    if (p.specialRule === 'stat_ramp_over_time') {
+      side._rampTicks = Math.min(20, (side._rampTicks || 0) + 1);
+    }
+
+    // Mysterious: every ~6 ticks gain a random minor buff
+    if (p.specialRule === 'random_minor_buff' && tick >= (side._nextRandomBuffTick || 6)) {
+      const pool = ['power_up.sys', 'speed_up.sys', 'defense_up.sys', 'special_up.sys', 'accuracy_up.sys'];
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      applyEffect(side, pick);
+      entry.events.push({ type: 'passive_buff', actor: side.byteId, effect: pick, passive: getActivePassive(side) });
+      side._nextRandomBuffTick = tick + 6;
+    }
+  }
+
   log.push(entry);
+}
+
+// ---------------------------------------------------------------------------
+// Ult damage formula (abilities.md)
+// final = (Power * 0.6 + Special * 0.4) * (1 + element% + animal% + feature%)
+// ---------------------------------------------------------------------------
+function calcUltDamage(move, actor, target) {
+  const baseScale = (actor.stats.Power * ULT_POWER_WEIGHT) + (actor.stats.Special * ULT_SPECIAL_WEIGHT);
+
+  // Element bonus: % of ult base, summed across relevant stats (abilities.md)
+  let bonusMultiplier = 1.0;
+  const elemBonus = ULT_ELEMENT_BONUS[actor.element] || {};
+  let elemPct = 0;
+  for (const pct of Object.values(elemBonus)) elemPct += pct;
+  bonusMultiplier += elemPct;
+
+  // Animal: +10% to its primary stat's contribution (simplified — flat 10% bonus)
+  if (actor.animal) bonusMultiplier += ULT_ANIMAL_BONUS_PCT;
+
+  // Feature: sum of feature % bonuses
+  const featBonus = ULT_FEATURE_BONUS[actor.feature] || {};
+  let featPct = 0;
+  for (const pct of Object.values(featBonus)) featPct += pct;
+  bonusMultiplier += featPct;
+
+  // Scale by move.power as a coefficient (ult move.power acts as a balance knob)
+  const powerCoeff = (move.power || 40) / 40;
+
+  // Apply defense reduction in standard form
+  const rawDmg = baseScale * bonusMultiplier * powerCoeff;
+  if (actor.stats.Power + target.stats.Defense === 0) return 0;
+  return rawDmg * (actor.stats.Power / (actor.stats.Power + target.stats.Defense));
 }
 
 /**
@@ -279,7 +475,15 @@ function runBattle(byteA, byteB, moves, playerInput = {}) {
     winner = pctA >= pctB ? 'A' : 'B';
   }
 
-  return { winner, log, mercyProc, finalHpA: combatantA.hp, finalHpB: combatantB.hp };
+  return {
+    winner,
+    log,
+    mercyProc,
+    finalHpA: combatantA.hp,
+    finalHpB: combatantB.hp,
+    maxHpA: combatantA.maxHP,
+    maxHpB: combatantB.maxHP,
+  };
 }
 
 module.exports = { runBattle, buildCombatant, resolveTick, applyEffect, BATTLE_DURATION, MERCY_PROC_CHANCE };

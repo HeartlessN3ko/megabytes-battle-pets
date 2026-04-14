@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { buyItem, consumeItem, getPlayer, getShopItems } from '../../services/api';
+import { initSfx, playSfx } from '../../services/sfx';
 
 const FALLBACK_ITEMS = [
   { id: 'clean_meat.pkg', name: 'Clean Meat', cost: 25, description: 'Hunger up with small hygiene tradeoff.' },
@@ -41,6 +42,7 @@ export default function ShopScreen() {
   }, []);
 
   useEffect(() => {
+    initSfx().catch(() => {});
     load();
   }, [load]);
 
@@ -49,20 +51,25 @@ export default function ShopScreen() {
   const handleBuy = useCallback(async (itemId: string, cost: number) => {
     if (ownedItems.includes(itemId)) {
       setStatus(`${itemId} already in inventory.`);
+      playSfx('tap', 0.45);
       return;
     }
     if (bits < cost) {
       setStatus('Not enough ByteBits for that item.');
+      playSfx('no', 0.52);
       return;
     }
 
     setStatus(`Purchasing ${itemId}...`);
+    playSfx('menu', 0.55);
     try {
       await buyItem(itemId);
       setOwnedItems((prev) => [...prev, itemId]);
       setStatus(`${itemId} purchased and added to inventory.`);
+      playSfx('positive', 0.62);
     } catch {
       setStatus(`${itemId} purchased in demo mode.`);
+      playSfx('notify', 0.56);
     }
 
     setBits((prev) => Math.max(0, prev - cost));
@@ -71,15 +78,19 @@ export default function ShopScreen() {
   const handleUse = useCallback(async (itemId: string) => {
     if (!ownedItems.includes(itemId)) {
       setStatus(`You don't own ${itemId} yet.`);
+      playSfx('tap', 0.45);
       return;
     }
     setStatus(`Using ${itemId}...`);
+    playSfx('menu', 0.5);
     try {
       await consumeItem(itemId);
       setOwnedItems((prev) => prev.filter((id) => id !== itemId));
       setStatus(`${itemId} used successfully and removed from inventory.`);
+      playSfx('yes', 0.62);
     } catch {
       setStatus(`${itemId} usage mocked for demo flow.`);
+      playSfx('notify', 0.54);
     }
   }, [ownedItems]);
 

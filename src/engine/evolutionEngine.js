@@ -33,7 +33,7 @@ const SHAPE_RULES = {
   Circle:   (m) => m.feedCount >= 5 && m.playCount >= 3,
   Square:   (m) => Math.abs(m.feedCount - m.playCount) <= 1 && m.trainingCount >= 2,
   Diamond:  (m) => m.consistency >= 0.8 && m.neglectHours < 2,
-  Hexagon:  (m) => true // fallback / erratic behavior
+  Hexagon:  () => true // fallback / erratic behavior
 };
 
 /**
@@ -150,7 +150,7 @@ const ELEMENT_CONDITIONS = {
   Nature:   (m) => m.playVsTrainRatio > 0.5,
   Shadow:   (m) => m.nonRewardCheckins < 2 && m.scoldCount > m.praiseCount,
   Holy:     (m) => m.praiseCount > m.scoldCount * 2,
-  Normal:   (m) => true // fallback
+  Normal:   () => true // fallback
 };
 
 function assignElement(metrics) {
@@ -162,7 +162,7 @@ function assignElement(metrics) {
 }
 
 // --- Animal assignment by playstyle (simplified — full rarity table TBD) ---
-function assignAnimalByPlaystyle(metrics) {
+function assignAnimalByPlaystyle(_metrics) {
   // Common: Cat, Dog, Bird, Fish, Rabbit
   // Uncommon: Fox, Wolf, Bear, Turtle, Snake, Frog, Monkey, Boar, Deer, Owl
   // Rare: Lion, Shark, Octopus

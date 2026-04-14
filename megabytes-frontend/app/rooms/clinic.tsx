@@ -1,7 +1,10 @@
-﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { careAction, enterRoom } from '../../services/api';
+import { careAction, clinicRepair, enterRoom } from '../../services/api';
 import RoomScene, { RoomAction } from '../../components/RoomScene';
+import { isDemoModeActive, toDemoSeconds } from '../../services/demoSession';
+
+const DEEP_PURGE_SECONDS = () => isDemoModeActive() ? 15 : 90;
 
 export default function ClinicRoom() {
   const router = useRouter();
@@ -20,7 +23,7 @@ export default function ClinicRoom() {
   const runTimed = useCallback(async (label: string, seconds: number, work: () => Promise<void>, doneText: string) => {
     if (busy) return;
     setBusy(true);
-    setStatus(`${label} started.`);
+    setStatus(`Executing ${label} program task.`);
     let remaining = seconds;
     setTimerLine(`${label}: ${remaining}s remaining`);
     timerRef.current = setInterval(() => {
@@ -45,28 +48,25 @@ export default function ClinicRoom() {
     {
       key: 'stabilize-short',
       title: 'STABILIZE',
-      subtitle: '30s recovery pass',
+      subtitle: `${toDemoSeconds(30)}s recovery pass`,
       icon: 'medkit-outline',
       color: '#7cffc0',
       disabled: busy,
-      onPress: () => runTimed('Stabilize', 30, () => careAction('rest'), 'Stabilize complete. Recovery profile improved.'),
+      onPress: () => runTimed('Stabilize', toDemoSeconds(30), () => careAction('rest'), 'Stabilize complete. Recovery profile improved.'),
     },
     {
       key: 'purge-long',
       title: 'DEEP PURGE',
-      subtitle: '90s repair cycle',
+      subtitle: `${DEEP_PURGE_SECONDS()}s repair cycle`,
       icon: 'build-outline',
       color: '#79d2ff',
       disabled: busy,
       onPress: () =>
         runTimed(
           'Deep Purge',
-          90,
-          async () => {
-            await careAction('clean');
-            await careAction('rest');
-          },
-          'Deep Purge complete. Hygiene and stability restored.'
+          DEEP_PURGE_SECONDS(),
+          async () => { await clinicRepair(); },
+          'Deep Purge complete. Corruption reduced.'
         ),
     },
   ];
@@ -83,7 +83,8 @@ export default function ClinicRoom() {
       timerLine={timerLine}
       primaryActions={primaryActions}
       onExit={() => router.replace('/(tabs)')}
-      onShop={() => router.push('/(tabs)/shop')}
     />
   );
 }
+
+

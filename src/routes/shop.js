@@ -4,9 +4,10 @@ const Item = require('../models/Item');
 const Room = require('../models/Room');
 const Byte = require('../models/Byte');
 const { SHOP_ITEMS, SHOP_ROOMS, asMapObject } = require('../data/shopCatalog');
+const { optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
-// TODO: add auth middleware
+router.use(optionalAuth);
 
 function toPlainMap(mapOrObj) {
   if (!mapOrObj) return {};

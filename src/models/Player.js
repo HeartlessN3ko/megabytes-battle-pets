@@ -38,6 +38,8 @@ const PlayerSchema = new mongoose.Schema({
     wins:   { type: Number, default: 0 },
     losses: { type: Number, default: 0 }
   },
+  battleRating: { type: Number, default: 1000, min: 0, max: 3000 },
+  battleWinStreak: { type: Number, default: 0, min: 0 },
 
   // Settings
   settings: {

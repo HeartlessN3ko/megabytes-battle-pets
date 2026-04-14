@@ -1,12 +1,13 @@
-﻿// services/api.js
+// services/api.js
 // Central API service. Backend calls should go through this file.
+import { getActiveProfileIds, getDemoSessionHeaders } from './demoSession';
 
 const RAW_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://10.0.0.45:5000';
 const BASE_URL = RAW_BASE_URL.replace(/\/+$/, '');
+const REQUEST_TIMEOUT_MS = 14000;
+let lastWarmupAt = 0;
 
-// Hardcoded demo IDs until auth is wired up.
-export const PLAYER_ID = '69d88aea8708c93a264e50f0';
-export const BYTE_ID = '69d88d94770f0c774e9f4808';
+export const getActiveIds = () => getActiveProfileIds();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -18,18 +19,47 @@ function shouldRetry(method, status) {
   return [502, 503, 504].includes(status);
 }
 
+function isWakeLikeError(status, message = '') {
+  const msg = String(message || '').toLowerCase();
+  return [502, 503, 504].includes(Number(status || 0)) || msg.includes('waking up');
+}
+
+async function warmServerIfNeeded() {
+  const now = Date.now();
+  if (now - lastWarmupAt < 4000) return;
+  lastWarmupAt = now;
+  try {
+    await fetch(`${BASE_URL}/health`, { method: 'GET' });
+  } catch {
+    // Best-effort wake ping.
+  }
+}
+
 async function request(method, path, body) {
   const url = `${BASE_URL}${path}`;
-  const attempts = method === 'GET' ? 3 : 2;
+  const attempts = method === 'GET' ? 5 : 3;
   let lastError = null;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const res = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      const headers = {
+        'Content-Type': 'application/json',
+        ...getDemoSessionHeaders(),
+      };
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      let res;
+      try {
+        res = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       const raw = await res.text();
       let data = null;
@@ -54,10 +84,17 @@ async function request(method, path, body) {
       return data;
     } catch (err) {
       lastError = err;
+      if (err?.name === 'AbortError') {
+        err.status = 408;
+        err.message = `Request timed out after ${REQUEST_TIMEOUT_MS}ms`;
+      }
       const status = err?.status || 0;
       const canRetry = attempt < attempts && shouldRetry(method, status);
       if (canRetry) {
-        await sleep(450 * attempt);
+        if (isWakeLikeError(status, err?.message)) {
+          await warmServerIfNeeded();
+        }
+        await sleep(500 * attempt);
         continue;
       }
       const detail = err?.message || 'Request failed';
@@ -74,51 +111,81 @@ async function request(method, path, body) {
   throw lastError || new Error('Request failed');
 }
 
+function activeIds() {
+  return getActiveProfileIds();
+}
+
 // Byte
-export const getByte = () => request('GET', `/api/byte/${BYTE_ID}`);
+export const getByte = () => request('GET', `/api/byte/${activeIds().byteId}`);
+export const syncByte = () => request('POST', `/api/byte/${activeIds().byteId}/sync`);
 
 export const careAction = (action) =>
-  request('PATCH', `/api/byte/${BYTE_ID}/care`, { action: action.toLowerCase() });
+  request('PATCH', `/api/byte/${activeIds().byteId}/care`, { action: action.toLowerCase() });
 
 export const trainStat = (stat, result) =>
-  request('PATCH', `/api/byte/${BYTE_ID}/train`, { stat, result });
-export const praiseByte = () => request('POST', `/api/byte/${BYTE_ID}/praise`);
-export const scoldByte = () => request('POST', `/api/byte/${BYTE_ID}/scold`);
-export const interactByte = () => request('POST', `/api/byte/${BYTE_ID}/interact`);
-export const homeCleanByte = () => request('POST', `/api/byte/${BYTE_ID}/home-clean`);
-export const setDemoStage = (stage) => request('PATCH', `/api/byte/${BYTE_ID}/demo-stage`, { stage });
+  request('PATCH', `/api/byte/${activeIds().byteId}/train`, { stat, result });
+export const praiseByte = () => request('POST', `/api/byte/${activeIds().byteId}/praise`);
+export const scoldByte = () => request('POST', `/api/byte/${activeIds().byteId}/scold`);
+export const interactByte = () => request('POST', `/api/byte/${activeIds().byteId}/interact`);
+export const homeCleanByte = () => request('POST', `/api/byte/${activeIds().byteId}/home-clean`);
+export const clinicRepair = () => request('POST', `/api/byte/${activeIds().byteId}/clinic-repair`);
+export const setDemoStage = (stage) => request('PATCH', `/api/byte/${activeIds().byteId}/demo-stage`, { stage });
+export const getByteMoves = () => request('GET', `/api/byte/${activeIds().byteId}/moves`);
+export const updateByteLoadout = (payload) => request('PATCH', `/api/byte/${activeIds().byteId}/loadout`, payload);
 
 // Player
-export const getPlayer = () => request('GET', `/api/player/${PLAYER_ID}`);
-export const getInventory = () => request('GET', `/api/player/${PLAYER_ID}/inventory`);
+export const getPlayer = () => request('GET', `/api/player/${activeIds().playerId}`);
+export const getInventory = () => request('GET', `/api/player/${activeIds().playerId}/inventory`);
 
-export const getCurrency = () => request('GET', `/api/player/${PLAYER_ID}/currency`);
+export const getCurrency = () => request('GET', `/api/player/${activeIds().playerId}/currency`);
 export const resetDemoData = () =>
-  request('POST', `/api/player/${PLAYER_ID}/reset-demo`, { byteId: BYTE_ID });
+  request('POST', `/api/player/${activeIds().playerId}/reset-demo`, { byteId: activeIds().byteId });
 
 // Battle
 export const startBattle = (mode = 'ai') =>
-  request('POST', '/api/battle/start', { byteId: BYTE_ID, mode });
+  request('POST', '/api/battle/start', { byteId: activeIds().byteId, mode });
 
 export const getBattle = (battleId) => request('GET', `/api/battle/${battleId}`);
 export const cheerBattle = (battleId) => request('POST', `/api/battle/${battleId}/cheer`);
 export const suggestBattleUlt = (battleId) => request('POST', `/api/battle/${battleId}/ult`);
 
 // Economy
-export const getBalance = () => request('GET', `/api/economy/balance/${PLAYER_ID}`);
+export const getBalance = () => request('GET', `/api/economy/balance/${activeIds().playerId}`);
+export const earnCurrency = (amount, source = 'home_clutter') =>
+  request('POST', '/api/economy/earn', { playerId: activeIds().playerId, amount, source });
 
 // Rooms
 export const enterRoom = (roomId, durationMinutes = 1) =>
-  request('POST', '/api/rooms/enter', { playerId: PLAYER_ID, byteId: BYTE_ID, roomId, durationMinutes });
+  request('POST', '/api/rooms/enter', { playerId: activeIds().playerId, byteId: activeIds().byteId, roomId, durationMinutes });
 
 // Shop
 export const getShopItems = () => request('GET', '/api/shop/items');
 export const getShopRooms = () => request('GET', '/api/shop/rooms');
-export const buyItem = (itemId) => request('POST', '/api/shop/buy/item', { playerId: PLAYER_ID, itemId });
-export const consumeItem = (itemId) => request('POST', '/api/shop/use/item', { playerId: PLAYER_ID, byteId: BYTE_ID, itemId });
+export const buyItem = (itemId) => request('POST', '/api/shop/buy/item', { playerId: activeIds().playerId, itemId });
+export const consumeItem = (itemId) => request('POST', '/api/shop/use/item', { playerId: activeIds().playerId, byteId: activeIds().byteId, itemId });
 
 // Pageant
-export const enterPageant = () => request('POST', '/api/pageant/enter', { byteId: BYTE_ID });
-export const submitPageantScore = (placement, performanceResult = 'stable') =>
-  request('POST', '/api/pageant/score', { byteId: BYTE_ID, performanceResult, placement });
+export const enterPageant = () => request('POST', '/api/pageant/enter', { byteId: activeIds().byteId });
+export const submitPageantScore = (placement, performanceResult = 'stable', scoring = {}) =>
+  request('POST', '/api/pageant/score', {
+    byteId: activeIds().byteId,
+    performanceResult,
+    placement,
+    ...scoring,
+  });
 export const getPageantLeaderboard = () => request('GET', '/api/pageant/leaderboard');
+
+// Marketplace
+export const getMarketplaceListings = (status = 'open') =>
+  request('GET', `/api/marketplace/listings?status=${encodeURIComponent(status)}`);
+export const placeMarketplaceBid = (listingId, amount) =>
+  request('POST', '/api/marketplace/bid', { playerId: activeIds().playerId, listingId, amount });
+export const buyMarketplaceNow = (listingId) =>
+  request('POST', '/api/marketplace/buy-now', { playerId: activeIds().playerId, listingId });
+
+// Inbox
+export const getInboxMessages = () => request('GET', `/api/inbox/${activeIds().playerId}`);
+export const claimInboxMessage = (messageId) =>
+  request('POST', '/api/inbox/claim', { playerId: activeIds().playerId, messageId });
+export const markInboxRead = (messageId) =>
+  request('POST', '/api/inbox/read', { playerId: activeIds().playerId, messageId });

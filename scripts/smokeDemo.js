@@ -2,6 +2,29 @@
 const BASE_URL = (process.env.API_BASE_URL || 'http://127.0.0.1:5000').replace(/\/+$/, '');
 const PLAYER_ID = process.env.PLAYER_ID || '69d88aea8708c93a264e50f0';
 const BYTE_ID = process.env.BYTE_ID || '69d88d94770f0c774e9f4808';
+const HEALTH_TIMEOUT_MS = Number(process.env.SMOKE_HEALTH_TIMEOUT_MS || 10000);
+
+async function checkHealth() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${BASE_URL}/health`, { signal: controller.signal });
+    if (!res.ok) {
+      throw new Error(`Health check failed with status ${res.status}`);
+    }
+    const body = await res.json().catch(() => ({}));
+    return body;
+  } catch (err) {
+    const msg = err?.name === 'AbortError'
+      ? `Health check timed out after ${HEALTH_TIMEOUT_MS}ms`
+      : (err?.message || String(err));
+    throw new Error(
+      `${msg}. Ensure backend is running at ${BASE_URL} (start with: npm run dev).`
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function req(method, path, body) {
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -25,7 +48,7 @@ async function req(method, path, body) {
 async function main() {
   console.log(`Smoke target: ${BASE_URL}`);
 
-  const health = await req('GET', '/health');
+  const health = await checkHealth();
   console.log('1) health:', health.status || 'ok');
 
   const reset = await req('POST', `/api/player/${PLAYER_ID}/reset-demo`, { byteId: BYTE_ID });

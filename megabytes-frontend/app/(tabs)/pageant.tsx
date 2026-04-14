@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ImageBackground, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { enterPageant, getByte, getPageantLeaderboard, submitPageantScore } from '../../services/api';
+import { initSfx, playSfx } from '../../services/sfx';
 
 function grade(v: number) {
   if (v >= 85) return 'S';
@@ -18,6 +19,7 @@ export default function PageantScreen() {
   const [review, setReview] = useState('Run a mock pageant review to evaluate your Byte profile.');
 
   const runReview = useCallback(() => {
+    playSfx('menu', 0.55);
     const stats = byteData?.byte?.stats || {};
     const needs = byteData?.byte?.needs || {};
 
@@ -33,6 +35,9 @@ export default function PageantScreen() {
 
     const avg = Math.round((styleScore + presenceScore + stabilityScore) / 3);
     const placement = avg >= 85 ? 'first' : avg >= 70 ? 'second' : avg >= 55 ? 'third' : 'participation';
+    const perfectHits = Math.max(1, Math.round(avg / 18));
+    const goodHits = Math.max(2, Math.round(avg / 12));
+    const maxCombo = Math.max(2, Math.round((styleScore + presenceScore) / 30));
 
     const baseReview =
       `${byteData?.byte?.name || 'Your Byte'} received a ${grade(avg)} review. ` +
@@ -43,16 +48,25 @@ export default function PageantScreen() {
     (async () => {
       try {
         await enterPageant();
-        const result = await submitPageantScore(placement, top.key.toLowerCase());
+        const result = await submitPageantScore(placement, top.key.toLowerCase(), {
+          perfectHits,
+          goodHits,
+          maxCombo,
+          pageantStat: styleScore,
+        });
         setLastResult(result);
-        setReview(`${baseReview} Placement: ${placement.toUpperCase()} (+${result?.earned || 0} BB, +${result?.xpGain || 0} XP).`);
+        const score = Number(result?.scoring?.cutenessScore || 0);
+        setReview(`${baseReview} Placement: ${placement.toUpperCase()} (Score: ${score}, +${result?.earned || 0} BB, +${result?.xpGain || 0} XP).`);
+        playSfx('notify', 0.62);
       } catch {
         // Keep local mock review when backend is unavailable.
+        playSfx('tap', 0.5);
       }
     })();
   }, [byteData]);
 
   useEffect(() => {
+    initSfx().catch(() => {});
     (async () => {
       try {
         const data = await getByte();

@@ -78,6 +78,9 @@ const ByteSchema = new mongoose.Schema({
   // Corruption
   corruption: { type: Number, default: 0, min: 0, max: 100 },
 
+  // Dev/testing flag — Missingno and other dev bytes. Skips death, legacy, and corruption cap.
+  isDevByte: { type: Boolean, default: false },
+
   // Lifespan
   isAlive:   { type: Boolean, default: true },
   bornAt:    { type: Date, default: Date.now },

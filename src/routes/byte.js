@@ -351,14 +351,49 @@ router.patch('/:id/train', async (req, res) => {
   }
 });
 
-// POST /api/byte/:id/evolve
+// POST /api/byte/:id/hatch — transitions egg to stage 1, assigns shape + animal
+// isDevByte bypasses hatchAt timer. Real bytes must wait for hatchAt.
+router.post('/:id/hatch', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+    if (!byte.isEgg) return res.status(400).json({ error: 'Byte is not an egg.' });
+
+    if (!byte.isDevByte) {
+      const now = new Date();
+      if (byte.hatchAt && new Date(byte.hatchAt) > now) {
+        const msLeft = new Date(byte.hatchAt) - now;
+        return res.status(400).json({ error: `Egg is not ready to hatch yet.`, msLeft });
+      }
+    }
+
+    const byteObj = byte.toObject();
+    const shape = evolutionEngine.assignShapeFromMetrics(byteObj.eggMetrics || {});
+    const animal = evolutionEngine.assignAnimalForHatch(byteObj.behaviorMetrics || {});
+
+    byte.isEgg = false;
+    byte.evolutionStage = 1;
+    byte.shape = shape;
+    byte.animal = animal;
+    byte.stats = statEngine.applyEvolutionBiases(byteObj.stats, { shape, animal, element: null, feature: null, branch: null });
+    await byte.save();
+
+    res.json({ evolutionStage: byte.evolutionStage, shape, animal, stats: byte.stats });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/byte/:id/evolve — advance to next stage, assign trait, apply stat biases
+// isDevByte bypasses level gate and item requirement.
 router.post('/:id/evolve', async (req, res) => {
   try {
     const { itemUsed, playerChoice } = req.body;
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
-    const updates = evolutionEngine.evolve(byte.toObject(), { itemUsed, ...playerChoice });
+    const options = { itemUsed, ...playerChoice, bypassGates: byte.isDevByte };
+    const updates = evolutionEngine.evolve(byte.toObject(), options);
     Object.assign(byte, updates);
     await byte.save();
     res.json({ evolutionStage: byte.evolutionStage, updates });

@@ -4,7 +4,7 @@
 
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { useEffect } from 'react';
-import { getByte, setDemoStage } from '../services/api';
+import { getByte, evolveByte, setDemoStage } from '../services/api';
 
 type Stage = 0 | 1 | 2;
 
@@ -70,7 +70,11 @@ export function EvolutionProvider({ children }: { children: React.ReactNode }) {
         setFeedCount(0);
         setCleanCount(0);
         setBattleCount(0);
-        setDemoStage(next).catch(() => {});
+        // Call real evolve endpoint — isDevByte bypass handled server-side
+        evolveByte().catch(() => {
+          // Fallback to demo-stage if evolve fails (e.g. new egg before hatch completes)
+          setDemoStage(next).catch(() => {});
+        });
       }
       return next;
     });

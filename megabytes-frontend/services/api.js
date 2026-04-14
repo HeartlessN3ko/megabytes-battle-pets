@@ -129,6 +129,9 @@ export const scoldByte = () => request('POST', `/api/byte/${activeIds().byteId}/
 export const interactByte = () => request('POST', `/api/byte/${activeIds().byteId}/interact`);
 export const homeCleanByte = () => request('POST', `/api/byte/${activeIds().byteId}/home-clean`);
 export const clinicRepair = () => request('POST', `/api/byte/${activeIds().byteId}/clinic-repair`);
+export const hatchByte = () => request('POST', `/api/byte/${activeIds().byteId}/hatch`);
+export const evolveByte = (itemUsed = null, playerChoice = {}) =>
+  request('POST', `/api/byte/${activeIds().byteId}/evolve`, { itemUsed, playerChoice });
 export const setDemoStage = (stage) => request('PATCH', `/api/byte/${activeIds().byteId}/demo-stage`, { stage });
 export const getByteMoves = () => request('GET', `/api/byte/${activeIds().byteId}/moves`);
 export const updateByteLoadout = (payload) => request('PATCH', `/api/byte/${activeIds().byteId}/loadout`, payload);

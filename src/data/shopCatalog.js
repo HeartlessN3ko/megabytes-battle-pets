@@ -18,10 +18,19 @@
   { id: 'comfort_pack.pkg', name: 'Comfort Pack', type: 'recovery', cost: 35, restoreNeeds: { Mood: 15, Hygiene: 15, Hunger: 10, Bandwidth: -5 }, description: 'Balanced care bundle.' },
   { id: 'recovery_bundle.pkg', name: 'Recovery Bundle', type: 'recovery', cost: 38, restoreNeeds: { Hunger: 20, Bandwidth: 20, Mood: -10 }, description: 'Emergency recovery set.' },
 
-  { id: 'fire_evo_core.pkg', name: 'Fire Evo Core', type: 'evolution', cost: 75, unlocksStage: 'element', description: 'Element progression core.' },
-  { id: 'water_evo_core.pkg', name: 'Water Evo Core', type: 'evolution', cost: 75, unlocksStage: 'element', description: 'Element progression core.' },
-  { id: 'wing_module.pkg', name: 'Wing Module', type: 'evolution', cost: 120, unlocksStage: 'feature', description: 'Feature progression module.' },
-  { id: 'battlepatch.exe', name: 'Battle Patch', type: 'evolution', cost: 250, unlocksStage: 'branch', description: 'Battle branch lock item.' },
+  // Element evolution cores — one per element type, any unlocks stage 2
+  { id: 'fire_evo_core.pkg',     name: 'Fire Evo Core',     type: 'evolution', cost: 75,  unlocksStage: 'element', description: 'Fire element progression core.' },
+  { id: 'water_evo_core.pkg',    name: 'Water Evo Core',    type: 'evolution', cost: 75,  unlocksStage: 'element', description: 'Water element progression core.' },
+  { id: 'earth_evo_core.pkg',    name: 'Earth Evo Core',    type: 'evolution', cost: 75,  unlocksStage: 'element', description: 'Earth element progression core.' },
+  { id: 'air_evo_core.pkg',      name: 'Air Evo Core',      type: 'evolution', cost: 75,  unlocksStage: 'element', description: 'Air element progression core.' },
+  { id: 'electric_evo_core.pkg', name: 'Electric Evo Core', type: 'evolution', cost: 80,  unlocksStage: 'element', description: 'Electric element progression core.' },
+  { id: 'nature_evo_core.pkg',   name: 'Nature Evo Core',   type: 'evolution', cost: 75,  unlocksStage: 'element', description: 'Nature element progression core.' },
+  { id: 'shadow_evo_core.pkg',   name: 'Shadow Evo Core',   type: 'evolution', cost: 90,  unlocksStage: 'element', description: 'Shadow element progression core.' },
+  { id: 'holy_evo_core.pkg',     name: 'Holy Evo Core',     type: 'evolution', cost: 90,  unlocksStage: 'element', description: 'Holy element progression core.' },
+  // Feature and branch evolution items
+  { id: 'wing_module.pkg',   name: 'Wing Module',   type: 'evolution', cost: 120, unlocksStage: 'feature', description: 'Feature progression module.' },
+  { id: 'battlepatch.exe',   name: 'Battle Patch',  type: 'evolution', cost: 250, unlocksStage: 'branch',  description: 'Locks Battle branch at evolution.' },
+  { id: 'carepatch.exe',     name: 'Care Patch',    type: 'evolution', cost: 250, unlocksStage: 'branch',  description: 'Locks Nurture branch at evolution.' },
 
   { id: 'fire_amp.sys', name: 'Fire Amplifier', type: 'stat_boost', cost: 60, useType: 'battle_only', description: 'Temporary fire damage boost.' },
   { id: 'null_field.pkg', name: 'Null Field', type: 'utility', cost: 150, useType: 'battle_only', description: 'Temporarily nullifies elemental bonuses.' },

@@ -20,11 +20,12 @@ const EVO_PACING = {
   stage_4_to_5: 10   // branch → temperament
 };
 
-// Items required to trigger certain stages
+// Items required to trigger certain stages (IDs must match shopCatalog.js)
 const EVOLUTION_ITEM_GATES = {
-  2: 'elemental_extension.pkg', // element stage
-  3: 'feature_item.pkg',        // feature stage
-  4: ['battlepatch.exe', 'carepatch.exe'] // branch stage — which one used determines Battle vs Nurture
+  2: ['fire_evo_core.pkg', 'water_evo_core.pkg', 'earth_evo_core.pkg', 'air_evo_core.pkg',
+      'electric_evo_core.pkg', 'nature_evo_core.pkg', 'shadow_evo_core.pkg', 'holy_evo_core.pkg'], // element stage — any element core
+  3: 'wing_module.pkg',                        // feature stage
+  4: ['battlepatch.exe', 'carepatch.exe']      // branch stage — item determines Battle vs Nurture
 };
 
 // Shape assigned from egg care metrics
@@ -98,8 +99,10 @@ function getLevelForStage(currentStage) {
  * @returns {Object}         — fields to $set on the Byte document
  */
 function evolve(byte, options = {}) {
-  const { eligible, reason } = checkEvolutionEligibility(byte, options.itemUsed);
-  if (!eligible) throw new Error(`[EvolutionEngine] Cannot evolve: ${reason}`);
+  if (!options.bypassGates) {
+    const { eligible, reason } = checkEvolutionEligibility(byte, options.itemUsed);
+    if (!eligible) throw new Error(`[EvolutionEngine] Cannot evolve: ${reason}`);
+  }
 
   const nextStage = byte.evolutionStage + 1;
   const updates = { evolutionStage: nextStage };
@@ -201,11 +204,29 @@ function getLateGameTitle(level) {
   return null;
 }
 
+/**
+ * Assign shape from egg care metrics (used at hatch).
+ * Exposed separately so the hatch endpoint can call it directly.
+ */
+function assignShapeFromMetrics(eggMetrics) {
+  return assignShape(eggMetrics);
+}
+
+/**
+ * Assign animal at hatch (uses playstyle heuristics).
+ * Exposed separately so the hatch endpoint can call it directly.
+ */
+function assignAnimalForHatch(behaviorMetrics) {
+  return assignAnimalByPlaystyle(behaviorMetrics);
+}
+
 module.exports = {
   STAGES,
   EVO_PACING,
   EVOLUTION_ITEM_GATES,
   assignShape,
+  assignShapeFromMetrics,
+  assignAnimalForHatch,
   assignElement,
   assignAnimalByPlaystyle,
   assignFeature,

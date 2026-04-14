@@ -17,7 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { earnCurrency, getPlayer, praiseByte, scoldByte, syncByte } from '../../services/api';
+import { earnCurrency, evolveByte, getPlayer, praiseByte, scoldByte, syncByte } from '../../services/api';
 import { getHomeClutterClearedAt, loadHomeClutterCount, saveHomeClutterCount } from '../../services/homeRuntimeState';
 import { initSfx, playSfx } from '../../services/sfx';
 import { useEvolution } from '../../context/EvolutionContext';
@@ -167,7 +167,9 @@ function ActionBurst({
   );
 }
 
-function StatsModal({ visible, onClose, byteData, playerData }: { visible: boolean; onClose: () => void; byteData: any; playerData: any }) {
+function StatsModal({ visible, onClose, byteData, playerData, onEvolved }: { visible: boolean; onClose: () => void; byteData: any; playerData: any; onEvolved: () => void }) {
+  const [evolving, setEvolving] = React.useState(false);
+  const [evolveError, setEvolveError] = React.useState<string | null>(null);
   const byte = byteData?.byte;
   const stats = byte?.stats || {};
   const needs = byte?.needs || {};
@@ -218,9 +220,34 @@ function StatsModal({ visible, onClose, byteData, playerData }: { visible: boole
             </View>
             <View style={styles.kvRow}><Text style={styles.kvKey}>TIME ALIVE</Text><Text style={styles.kvVal}>{age}</Text></View>
             <View style={styles.kvRow}><Text style={styles.kvKey}>GENERATION</Text><Text style={styles.kvVal}>{Number(byte?.generation || 1)}</Text></View>
-            <View style={styles.kvRow}><Text style={styles.kvKey}>EVOLUTION READINESS</Text><Text style={styles.kvVal}>{evolutionReadiness}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>EVOLUTION READINESS</Text><Text style={[styles.kvVal, { color: evolutionReadiness === 'READY' ? '#7cffb2' : undefined }]}>{evolutionReadiness}</Text></View>
             <View style={styles.kvRow}><Text style={styles.kvKey}>LEVEL GATE</Text><Text style={styles.kvVal}>{Number(byte?.level || 1)} / {gateLevel}</Text></View>
             <View style={styles.kvRow}><Text style={styles.kvKey}>CARE READINESS</Text><Text style={styles.kvVal}>Avg Need {avgNeed}</Text></View>
+
+            {evolutionReadiness === 'READY' && !byte?.isEgg && (
+              <TouchableOpacity
+                style={{ marginTop: 10, backgroundColor: 'rgba(124,255,178,0.15)', borderRadius: 10, borderWidth: 1, borderColor: '#7cffb2', padding: 12, alignItems: 'center' }}
+                disabled={evolving}
+                onPress={async () => {
+                  setEvolving(true);
+                  setEvolveError(null);
+                  try {
+                    await evolveByte();
+                    onEvolved();
+                    onClose();
+                  } catch (e: any) {
+                    setEvolveError(e?.message || 'Evolution failed. Check level and items.');
+                  } finally {
+                    setEvolving(false);
+                  }
+                }}
+              >
+                <Text style={{ color: '#7cffb2', fontSize: 13, fontWeight: '900', letterSpacing: 2 }}>
+                  {evolving ? 'EVOLVING...' : '▲ EVOLVE'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {evolveError && <Text style={{ color: '#ff6060', fontSize: 11, marginTop: 6, textAlign: 'center' }}>{evolveError}</Text>}
 
             <Text style={styles.statsSection}>LOADOUT</Text>
             <View style={styles.kvRow}><Text style={styles.kvKey}>MOVES</Text><Text style={styles.kvVal}>{moves.length ? moves.join(', ') : 'None'}</Text></View>
@@ -835,7 +862,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
       )}
 
-      <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} byteData={byteData} playerData={playerData} />
+      <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} byteData={byteData} playerData={playerData} onEvolved={refreshData} />
     </ImageBackground>
   );
 }

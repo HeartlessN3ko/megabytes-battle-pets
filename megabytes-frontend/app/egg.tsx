@@ -6,7 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useEvolution } from '../context/EvolutionContext';
-import { careAction } from '../services/api';
+import { careAction, hatchByte } from '../services/api';
 
 const { width } = Dimensions.get('window');
 
@@ -88,11 +88,16 @@ export default function EggScreen() {
   }, []);
 
   const triggerEvolution = useCallback(() => {
-    advanceStage();
     Animated.sequence([
       Animated.timing(eggScale, { toValue: 1.2, duration: 300, useNativeDriver: true }),
       Animated.timing(whiteFlash, { toValue: 1, duration: 500, useNativeDriver: true }),
-    ]).start(() => router.replace('/(tabs)'));
+    ]).start(async () => {
+      try {
+        await hatchByte();
+      } catch {}
+      advanceStage();
+      router.replace('/(tabs)');
+    });
   }, [advanceStage]);
 
   const handleFeed = useCallback(async () => {

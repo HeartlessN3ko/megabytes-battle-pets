@@ -114,6 +114,30 @@ function buildCombatant(byte, computedStats) {
 }
 
 /**
+ * Apply an item's effect in battle.
+ * Items can heal, apply buffs, apply debuffs, or cleanse.
+ */
+function applyItemEffect(actor, target, item, entry) {
+  if (item.function === 'Buff' && item.appliesEffect) {
+    applyEffect(actor, item.appliesEffect);
+    entry.events.push({ type: 'item_used', actor: actor.byteId, item: item.id, effect: item.appliesEffect });
+  } else if (item.function === 'Debuff' && item.appliesEffect) {
+    applyEffect(target, item.appliesEffect);
+    entry.events.push({ type: 'item_used', actor: actor.byteId, target: target.byteId, item: item.id, effect: item.appliesEffect });
+  } else if (item.function === 'Utility' && item.appliesEffect === 'cleanse.sys') {
+    actor.effects = actor.effects.filter(e => getEffect(e.id).type !== 'debuff');
+    if (actor.status && getEffect(actor.status.id).type === 'status') actor.status = null;
+    entry.events.push({ type: 'item_used', actor: actor.byteId, item: item.id, effect: 'cleanse' });
+  }
+  // Healing items: restore HP (simple recovery)
+  else if (item.type === 'recovery' || item.function === 'Recovery') {
+    const healAmt = actor.maxHP * 0.30; // items heal 30% of max HP
+    actor.hp = Math.min(actor.maxHP, actor.hp + healAmt);
+    entry.events.push({ type: 'item_used', actor: actor.byteId, item: item.id, heal: healAmt });
+  }
+}
+
+/**
  * Resolve one battle tick.
  * Mutates combatant state objects in place. Returns tick log entry.
  */
@@ -180,6 +204,20 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
 
     actor.nextAttackIn -= TICK_RATE;
     if (actor.nextAttackIn > 0) continue;
+
+    // Try to use an item (20% AI chance, if available)
+    const availableItems = (actor.equippedItems || []).filter(itemId => !actor.itemsUsed.includes(itemId) && moves[itemId]);
+    if (availableItems.length > 0 && Math.random() < 0.20) {
+      const itemId = availableItems[Math.floor(Math.random() * availableItems.length)];
+      const item = moves[itemId];
+      applyItemEffect(actor, target, item, entry);
+      actor.itemsUsed.push(itemId);
+      // Reset attack rate and continue to next action
+      const attackRate = calcAttackRate(BASE_ATTACK_RATE, actor.stats.Speed);
+      actor.nextAttackIn = 1 / attackRate;
+      continue;
+    }
+
 
     // AI picks move (silence blocks ult suggestion)
     const isSilenced = actor.status?.id === 'silence.status';
@@ -530,6 +568,8 @@ function runBattle(byteA, byteB, moves, playerInput = {}) {
     finalHpB: combatantB.hp,
     maxHpA: combatantA.maxHP,
     maxHpB: combatantB.maxHP,
+    itemsUsedA: combatantA.itemsUsed || [],
+    itemsUsedB: combatantB.itemsUsed || [],
   };
 }
 

@@ -134,6 +134,11 @@ router.post('/start', async (req, res) => {
     byteA.needs.Fun = Math.max(0, Number(byteA.needs.Fun || 0) - strain.Fun);
     byteA.lastNeedsUpdate = new Date();
 
+    // Deduct used items from equippedItems
+    if (result.itemsUsedA && result.itemsUsedA.length > 0) {
+      byteA.equippedItems = (byteA.equippedItems || []).filter(itemId => !result.itemsUsedA.includes(itemId));
+    }
+
     await byteA.save();
 
     const ratingResult = matchmakingEngine.applyRatingResult({

@@ -718,6 +718,48 @@ router.post('/:id/clinic-repair', async (req, res) => {
   }
 });
 
+// POST /api/byte/:id/power-nap
+router.post('/:id/power-nap', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+    const demoMode = req.get('x-demo-decay-multiplier') ? true : false;
+    const sleepDurationMs = demoMode ? 60 * 1000 : 15 * 60 * 1000;
+    byte.isSleeping = true;
+    byte.sleepUntil = new Date(Date.now() + sleepDurationMs);
+    byte.needs.Mood = clampNeed(Number(byte.needs.Mood || 0) + 8);
+    byte.needs.Bandwidth = clampNeed(Number(byte.needs.Bandwidth || 0) + 12);
+    byte.lastNeedsUpdate = new Date();
+    await byte.save();
+    res.json({ isSleeping: true, sleepUntil: byte.sleepUntil, needs: byte.needs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/byte/:id/sleep-cycle
+router.post('/:id/sleep-cycle', async (req, res) => {
+  try {
+    const { durationMinutes } = req.body;
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+    const demoMode = req.get('x-demo-decay-multiplier') ? true : false;
+    let sleepMinutes = durationMinutes || 60;
+    sleepMinutes = !demoMode ? Math.max(60, Math.min(600, sleepMinutes)) : Math.max(1, Math.min(10, sleepMinutes));
+    const sleepDurationMs = sleepMinutes * 60 * 1000;
+    byte.isSleeping = true;
+    byte.sleepUntil = new Date(Date.now() + sleepDurationMs);
+    byte.needs.Mood = clampNeed(Number(byte.needs.Mood || 0) + 20);
+    byte.needs.Bandwidth = clampNeed(Number(byte.needs.Bandwidth || 0) + 25);
+    byte.needs.Hygiene = clampNeed(Number(byte.needs.Hygiene || 0) + 10);
+    byte.lastNeedsUpdate = new Date();
+    await byte.save();
+    res.json({ isSleeping: true, sleepUntil: byte.sleepUntil, sleepDurationMinutes: sleepMinutes, needs: byte.needs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/byte/generations/:playerId
 router.get('/generations/:playerId', async (req, res) => {
   try {

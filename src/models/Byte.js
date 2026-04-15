@@ -123,7 +123,11 @@ const ByteSchema = new mongoose.Schema({
     trainingCount:  { type: Number, default: 0 },
     neglectHours:   { type: Number, default: 0 },
     consistency:    { type: Number, default: 0 }
-  }
+  },
+
+  // Sleep state
+  isSleeping: { type: Boolean, default: false },
+  sleepUntil: { type: Date, default: null },
 
 }, { timestamps: true });
 

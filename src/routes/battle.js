@@ -14,6 +14,29 @@ const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
 const { optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
+
+/**
+ * Validate and normalize byte's equipped moves.
+ * Returns { equippedMoves, equippedUlt } with safe defaults.
+ */
+function validateAndNormalizeLoadout(byte, moves) {
+  const equippedMoves = (byte.equippedMoves || []).filter(id => {
+    const move = moves[id];
+    return move && !move.isUlt; // must exist and not be ult
+  });
+  
+  // Ensure at least one move, fallback to basic_ping.py
+  if (equippedMoves.length === 0) {
+    equippedMoves.push('basic_ping.py');
+  }
+
+  const equippedUlt = byte.equippedUlt;
+  const ultMove = equippedUlt ? moves[equippedUlt] : null;
+  const validUlt = (ultMove && ultMove.isUlt === true) ? equippedUlt : null;
+
+  return { equippedMoves, equippedUlt: validUlt };
+}
+
 router.use(optionalAuth);
 
 function getDecayOptions(req) {
@@ -63,6 +86,14 @@ router.post('/start', async (req, res) => {
         if (fallbackMove) moves[moveId] = fallbackMove;
       }
     });
+
+    // Validate and normalize equipped moves/ults for both bytes
+    const loadoutA = validateAndNormalizeLoadout(byteA, moves);
+    const loadoutB = validateAndNormalizeLoadout(byteB, moves);
+    byteA.equippedMoves = loadoutA.equippedMoves;
+    byteA.equippedUlt = loadoutA.equippedUlt;
+    byteB.equippedMoves = loadoutB.equippedMoves;
+    byteB.equippedUlt = loadoutB.equippedUlt;
 
     // Run battle
     const result = battleEngine.runBattle(byteA, byteB, moves, {});

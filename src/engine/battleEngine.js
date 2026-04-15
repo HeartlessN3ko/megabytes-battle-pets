@@ -171,8 +171,9 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
     actor.nextAttackIn -= TICK_RATE;
     if (actor.nextAttackIn > 0) continue;
 
-    // AI picks move
-    const chosenMoveId = aiDecision.chooseMove(actor, target, Boolean(playerInput?.ultSuggested), moves);
+    // AI picks move (silence blocks ult suggestion)
+    const isSilenced = actor.status?.id === 'silence.status';
+    const chosenMoveId = aiDecision.chooseMove(actor, target, Boolean(playerInput?.ultSuggested && !isSilenced), moves);
     const move = moves[chosenMoveId];
     if (!move) continue;
 
@@ -216,14 +217,18 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
       let dmg;
       const isUlt = move.isUlt === true;
       if (isUlt) {
-        dmg = calcUltDamage(move, actor, target);
+        const actorEffectiveStats = calcEffectiveStats(actor);
+        const targetEffectiveStats = calcEffectiveStats(target);
+        dmg = calcUltDamage(move, { ...actor, stats: actorEffectiveStats }, { ...target, stats: targetEffectiveStats });
       } else {
         // Unstable passive: ±10% random stat variance at attack time
-        let actorPower = actor.stats.Power;
+        const actorEffectiveStats = calcEffectiveStats(actor);
+        let actorPower = actorEffectiveStats.Power;
         if (EFFECTS_REGISTRY.PASSIVES?.[getActivePassive(actor)]?.specialRule === 'random_stat_variance') {
           actorPower = actor.stats.Power * (0.9 + Math.random() * 0.2);
         }
-        dmg = calcDamage(move.power, actorPower, target.stats.Defense);
+        const targetEffectiveStats = calcEffectiveStats(target);
+        dmg = calcDamage(move.power, actorPower, targetEffectiveStats.Defense);
       }
 
       // Weaken debuff
@@ -299,6 +304,10 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
           duration = Math.max(1, Math.round(duration * (1 - (tCalm.value || 0.25))));
         }
         target.status = { id: move.appliesStatus, duration };
+        // Silence blocks ult
+        if (move.appliesStatus === 'silence.status') {
+          target.ultSilenced = true;
+        }
         entry.events.push({ type: 'status_applied', target: target.byteId, status: move.appliesStatus, duration });
       }
     }
@@ -348,7 +357,13 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
 
     if (side.status) {
       side.status.duration -= 1;
-      if (side.status.duration <= 0) side.status = null;
+      if (side.status.duration <= 0) {
+        // Clear silence flag when status expires
+        if (side.status.id === 'silence.status') {
+          side.ultSilenced = false;
+        }
+        side.status = null;
+      }
     }
   }
 
@@ -412,6 +427,28 @@ function calcUltDamage(move, actor, target) {
  * Apply an effect to a combatant. Enforces max 3 active effects.
  * Same-stat: highest applies. Different stats: stack. Buff vs debuff: net.
  */
+
+/**
+ * Calculate effective stats by folding active buff/debuff effects into base stats.
+ * Returns a new stats object with effect modifiers applied.
+ */
+function calcEffectiveStats(combatant) {
+  const stats = { ...combatant.stats };
+  
+  // Apply each active effect's stat modifier
+  for (const effect of combatant.effects) {
+    const effectDef = getEffect(effect.id);
+    if (!effectDef.stat) continue; // skip non-stat effects
+    
+    // Stat effects are percentage modifiers: +/- value%
+    const base = stats[effectDef.stat] ?? 0;
+    const modifier = effectDef.type === 'buff' ? effectDef.value : -effectDef.value;
+    stats[effectDef.stat] = Math.max(0, Math.round(base * (1 + modifier)));
+  }
+  
+  return stats;
+}
+
 function applyEffect(combatant, effectId) {
   const def = getEffect(effectId);
   const { maxActiveEffects } = EFFECTS_REGISTRY.EFFECT_LIMITS;

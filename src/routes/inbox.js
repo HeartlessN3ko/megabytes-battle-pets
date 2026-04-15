@@ -42,19 +42,22 @@ router.get('/:playerId', async (req, res) => {
       });
       messages = await InboxMessage.find({ playerId }).sort({ createdAt: -1 }).limit(100);
     }
+    const now = new Date();
     res.json(
-      messages.map((msg) => ({
-        id: String(msg._id),
-        kind: msg.kind,
-        subject: msg.subject,
-        body: msg.body,
-        attachments: msg.attachments || [],
-        metadata: msg.metadata || {},
-        claimed: Boolean(msg.claimed),
-        readAt: msg.readAt,
-        claimedAt: msg.claimedAt,
-        createdAt: msg.createdAt,
-      }))
+      messages
+        .filter((msg) => !msg.readyAt || new Date(msg.readyAt) <= now)
+        .map((msg) => ({
+          id: String(msg._id),
+          kind: msg.kind,
+          subject: msg.subject,
+          body: msg.body,
+          attachments: msg.attachments || [],
+          metadata: msg.metadata || {},
+          claimed: Boolean(msg.claimed),
+          readAt: msg.readAt,
+          claimedAt: msg.claimedAt,
+          createdAt: msg.createdAt,
+        }))
     );
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -73,6 +76,9 @@ router.post('/claim', async (req, res) => {
     if (!player) return res.status(404).json({ error: 'Player not found' });
     if (!message) return res.status(404).json({ error: 'Message not found' });
     if (String(message.playerId) !== String(player._id)) return res.status(403).json({ error: 'Message does not belong to player' });
+    if (message.readyAt && new Date(message.readyAt) > new Date()) {
+      return res.status(400).json({ error: 'Message is not ready to claim yet' });
+    }
     if (message.claimed) {
       return res.json({ ok: true, alreadyClaimed: true, byteBits: player.byteBits, itemInventory: player.itemInventory });
     }
@@ -133,15 +139,4 @@ router.post('/read', async (req, res) => {
     if (!playerId || !messageId) return res.status(400).json({ error: 'playerId and messageId are required' });
     const message = await InboxMessage.findById(messageId);
     if (!message) return res.status(404).json({ error: 'Message not found' });
-    if (String(message.playerId) !== String(playerId)) return res.status(403).json({ error: 'Message does not belong to player' });
-    if (!message.readAt) {
-      message.readAt = new Date();
-      await message.save();
-    }
-    res.json({ ok: true, messageId: String(message._id), readAt: message.readAt });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = router;
+    if (String(message.playerId) !== String(playerId)) return res.status(403).json({ error: 'Message does not belong to player

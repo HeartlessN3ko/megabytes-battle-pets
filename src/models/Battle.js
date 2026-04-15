@@ -6,14 +6,13 @@ const BattleSchema = new mongoose.Schema({
   playerB: { type: mongoose.Schema.Types.ObjectId, ref: 'Player', default: null }, // null = AI opponent
   byteA:   { type: mongoose.Schema.Types.ObjectId, ref: 'Byte', required: true },
   byteB:   {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Byte',
+    type: mongoose.Schema.Types.Mixed,
     default: null,
-    required: function () { return this.mode !== 'ai'; }
+    // Can be ObjectId for pvp, or Object for ai/campaign opponents
   },
 
   // Mode
-  mode: { type: String, enum: ['pvp', 'arena', 'ai'], required: true },
+  mode: { type: String, enum: ['pvp', 'arena', 'ai', 'campaign'], required: true },
 
   // Result
   winner:  { type: String, enum: ['A', 'B', 'draw'], default: null },
@@ -38,4 +37,4 @@ const BattleSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
-module.exports = mongoose.model('Battle', BattleSchema);
+module.exports = mongoose.model('Battle', BattleSchema

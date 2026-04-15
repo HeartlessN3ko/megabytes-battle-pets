@@ -29,9 +29,4 @@ app.use('/api/economy',  require('./src/routes/economy'));
 app.use('/api/rooms',    require('./src/routes/rooms'));
 app.use('/api/onboarding', require('./src/routes/onboarding'));
 app.use('/api/achievements', require('./src/routes/achievements'));
-app.use('/api/community-event', require('./src/routes/communityEvent'));
-
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => console.log(`MEGA-BYTES backend running on port ${PORT}`));
+app.u

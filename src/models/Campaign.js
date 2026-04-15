@@ -44,7 +44,7 @@ const CampaignSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
-CampaignSchema.index({ byteId: 1 });
+// byteId has unique: true (creates index automatically)
 CampaignSchema.index({ playerId: 1 });
 
-module.exports = mongoose.model('Campaign', CampaignSchema);
+module.exports = mongoose.model('Campaign

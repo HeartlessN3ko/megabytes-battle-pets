@@ -4,6 +4,7 @@ const Player = require('../models/Player');
 const InboxMessage = require('../models/InboxMessage');
 const { SHOP_ITEMS } = require('../data/shopCatalog');
 const { optionalAuth } = require('../middleware/auth');
+const { generateMarketplaceEmail } = require('../services/marketplaceEmailFT');
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -46,7 +47,7 @@ function listingPayload(listing) {
   };
 }
 
-async function ensureMarketDelivery({ playerId, listing, acquiredBy }) {
+async function ensureMarketDelivery({ playerId, listing, acquiredBy, isDemo = false }) {
   if (!playerId || !listing?._id) return false;
   const listingId = String(listing._id);
   const existing = await InboxMessage.findOne({
@@ -56,17 +57,38 @@ async function ensureMarketDelivery({ playerId, listing, acquiredBy }) {
   }).select('_id');
   if (existing) return false;
 
+  // Demo: 5 min delivery. Real game: 24 hours. Ratio: 240x multiplier.
+  const DELIVERY_MS_REAL = 24 * 60 * 60 * 1000; // 24 hours
+  const DELIVERY_MS_DEMO = 5 * 60 * 1000; // 5 minutes
+  const deliveryDelayMs = isDemo ? DELIVERY_MS_DEMO : DELIVERY_MS_REAL;
+  const deliveryCompletesAt = new Date(Date.now() + deliveryDelayMs);
+
+  const confirmEmail = generateMarketplaceEmail('order_confirmed', listing.itemName);
+  const prefix = acquiredBy === 'auction_win' ? '🏆 Auction Won: ' : '🛒 Purchase Complete: ';
+
+  // Confirmation email (sent immediately)
   await InboxMessage.create({
     playerId,
     kind: 'market_delivery',
-    subject: acquiredBy === 'auction_win' ? `Auction won: ${listing.itemName}` : `Marketplace delivery: ${listing.itemName}`,
-    body:
-      acquiredBy === 'auction_win'
-        ? 'Your winning bid has been processed. Claim the attachment to add it to inventory.'
-        : 'Purchase complete. Claim attachment to install into your inventory cache.',
+    subject: prefix + listing.itemName,
+    body: confirmEmail.body,
     attachments: [{ type: 'item', itemId: listing.itemId, itemName: listing.itemName, quantity: listing.quantity }],
-    metadata: { listingId, acquiredBy },
+    metadata: { listingId, acquiredBy, status: 'order_confirmed', deliveryCompletesAt },
   });
+
+  // Delivery completion email (created with future readyAt timestamp)
+  const deliveryEmail = generateMarketplaceEmail('delivered', listing.itemName);
+  const deliveryPrefix = '✅ Delivery Complete: ';
+  await InboxMessage.create({
+    playerId,
+    kind: 'market_delivery',
+    subject: deliveryPrefix + listing.itemName,
+    body: deliveryEmail.body,
+    attachments: [{ type: 'item', itemId: listing.itemId, itemName: listing.itemName, quantity: listing.quantity }],
+    readyAt: deliveryCompletesAt,
+    metadata: { listingId, acquiredBy, status: 'delivered' },
+  });
+
   return true;
 }
 
@@ -113,7 +135,8 @@ async function settleExpiredOpenListings() {
     listing.status = listing.highestBidder ? 'sold' : 'expired';
     if (listing.highestBidder) {
       listing.soldToPlayer = listing.highestBidder;
-      await ensureMarketDelivery({ playerId: listing.highestBidder, listing, acquiredBy: 'auction_win' });
+      const isDemo = req.headers['x-is-demo'] === 'true';
+      await ensureMarketDelivery({ playerId: listing.highestBidder, listing, acquiredBy: 'auction_win', isDemo });
     }
     await listing.save();
   }
@@ -204,34 +227,3 @@ router.post('/buy-now', async (req, res) => {
 
     const currentBid = Number(listing.currentBid || 0);
     const currentLeaderId = listing.highestBidder ? String(listing.highestBidder) : null;
-    const buyerId = String(player._id);
-
-    let charge = buyNowPrice;
-    if (currentLeaderId === buyerId) charge = Math.max(0, buyNowPrice - currentBid);
-    if (Number(player.byteBits || 0) < charge) return res.status(400).json({ error: 'Insufficient byte.bits' });
-
-    if (listing.highestBidder && currentLeaderId !== buyerId) {
-      await Player.findByIdAndUpdate(listing.highestBidder, { $inc: { byteBits: currentBid } });
-    }
-
-    player.byteBits = Number(player.byteBits || 0) - charge;
-    listing.currentBid = buyNowPrice;
-    listing.highestBidder = player._id;
-    listing.soldToPlayer = player._id;
-    listing.status = 'sold';
-
-    await Promise.all([player.save(), listing.save()]);
-    const deliveryQueued = await ensureMarketDelivery({ playerId: player._id, listing, acquiredBy: 'buy_now' });
-
-    res.json({
-      ok: true,
-      listing: listingPayload(listing),
-      byteBitsRemaining: player.byteBits,
-      deliveryQueued,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = router;

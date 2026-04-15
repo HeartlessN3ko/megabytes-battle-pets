@@ -114,4 +114,4 @@ router.post('/check', async (req, res) => {
   }
 });
 
-module.exports = router;
+// --- Seed default achie

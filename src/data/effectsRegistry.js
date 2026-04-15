@@ -108,4 +108,21 @@ function isValidEffect(id) {
   return id in EFFECTS_REGISTRY;
 }
 
-module.exports = { EFFECTS_REGISTRY, getEffect, isValidEffect };
+/**
+ * Get a temperament's passive effect definition.
+ * Temperaments are keys in PASSIVES; returns the full passive definition.
+ */
+function getTemperamentPassive(temperamentName) {
+  const passive = PASSIVES[temperamentName];
+  if (!passive) throw new Error(`[EffectsRegistry] Unknown temperament: "${temperamentName}"`);
+  return passive;
+}
+
+/**
+ * Check if a temperament name is valid.
+ */
+function isValidTemperament(name) {
+  return name in PASSIVES;
+}
+
+module.exports = { EFFECTS_REGISTRY, getEffect, isValidEffect, getTemperamentPassive, isValidTemperament, PASSIVES };

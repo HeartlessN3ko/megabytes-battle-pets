@@ -1,4 +1,4 @@
-﻿const SHOP_ITEMS = [
+const SHOP_ITEMS = [
   { id: 'clean_meat.pkg', name: 'Clean Meat', type: 'recovery', cost: 25, restoreNeeds: { Hunger: 35, Mood: 5, Hygiene: -5 }, description: 'High-density protein block with cleanup tradeoff.' },
   { id: 'green_stack.pkg', name: 'Green Stack', type: 'recovery', cost: 20, restoreNeeds: { Hunger: 25, Hygiene: 10, Mood: -5 }, description: 'Balanced clean intake.' },
   { id: 'synth_meal.pkg', name: 'Synth Meal', type: 'recovery', cost: 40, restoreNeeds: { Hunger: 50, Bandwidth: -10, Mood: -5 }, description: 'Strong hunger restore with energy drain.' },
@@ -10,6 +10,7 @@
 
   { id: 'vibe_patch.pkg', name: 'Vibe Patch', type: 'recovery', cost: 20, restoreNeeds: { Mood: 25, Bandwidth: -5 }, description: 'Mood stabilization patch.' },
   { id: 'hype_burst.pkg', name: 'Hype Burst', type: 'clutch', cost: 30, restoreNeeds: { Mood: 30 }, description: 'High mood spike for performance.' },
+  { id: 'polish_aura.pkg', name: 'Polish Aura', type: 'recovery', cost: 30, restoreNeeds: { Hygiene: 25, Mood: 10 }, description: 'Restoration polish coating.' },
 
   { id: 'quick_charge.pkg', name: 'Quick Charge', type: 'recovery', cost: 20, restoreNeeds: { Bandwidth: 25, Mood: -5 }, description: 'Fast energy recovery.' },
   { id: 'full_charge.sys', name: 'Full Charge', type: 'recovery', cost: 40, restoreNeeds: { Bandwidth: 50, Hunger: -15 }, description: 'Heavy energy recovery.' },

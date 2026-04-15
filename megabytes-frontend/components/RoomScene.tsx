@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEvolution } from '../context/EvolutionContext';
 import { useActionGate } from '../hooks/useActionGate';
 import { consumeItem, getByte, getInventory, getShopItems } from '../services/api';
+import { getByteMotionProfile } from '../services/byteMotion';
 import { initSfx, playSfx } from '../services/sfx';
 import { resolveByteSprite } from '../services/byteSprites';
 
@@ -125,6 +126,7 @@ export default function RoomScene({
   const recommendedTypeSet = useMemo(() => new Set(recommendedTypes), [recommendedTypes]);
 
   const petSprite = useMemo(() => resolveByteSprite(runtimeStage, { preferAnimatedIdle: true }), [runtimeStage]);
+  const motionProfile = useMemo(() => getByteMotionProfile(runtimeStage), [runtimeStage]);
   const sceneEffectPalette = useMemo(() => {
     if (sceneEffect === 'stabilize') {
       return {
@@ -207,32 +209,34 @@ export default function RoomScene({
 
   useEffect(() => {
     initSfx().catch(() => {});
+    const profile = motionProfile.room;
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(bobY, { toValue: -6, duration: 1600, useNativeDriver: true }),
-        Animated.timing(bobY, { toValue: 0, duration: 1600, useNativeDriver: true }),
+        Animated.timing(bobY, { toValue: -profile.bobDistance, duration: profile.bobDuration, useNativeDriver: true }),
+        Animated.timing(bobY, { toValue: 0, duration: profile.bobDuration, useNativeDriver: true }),
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(breathe, { toValue: 1.04, duration: 1700, useNativeDriver: true }),
-        Animated.timing(breathe, { toValue: 1, duration: 1700, useNativeDriver: true }),
+        Animated.timing(breathe, { toValue: profile.breatheScale, duration: profile.breatheDuration, useNativeDriver: true }),
+        Animated.timing(breathe, { toValue: 1, duration: profile.breatheDuration, useNativeDriver: true }),
       ])
     ).start();
 
     let active = true;
     const roam = () => {
       if (!active) return;
-      const nextX = (Math.random() - 0.5) * (width * 0.36);
-      const nextY = (Math.random() - 0.5) * 26;
+      const nextX = (Math.random() - 0.5) * (width * profile.roamSpreadX);
+      const nextY = (Math.random() - 0.5) * profile.roamSpreadY;
+      const duration = profile.roamDurationMin + Math.random() * Math.max(1, profile.roamDurationMax - profile.roamDurationMin);
       Animated.parallel([
-        Animated.timing(driftX, { toValue: nextX, duration: 1700 + Math.random() * 1300, useNativeDriver: true }),
-        Animated.timing(driftY, { toValue: nextY, duration: 1700 + Math.random() * 1300, useNativeDriver: true }),
+        Animated.timing(driftX, { toValue: nextX, duration, useNativeDriver: true }),
+        Animated.timing(driftY, { toValue: nextY, duration, useNativeDriver: true }),
       ]).start(() => {
         if (!active) return;
-        setTimeout(roam, 500 + Math.random() * 900);
+        setTimeout(roam, profile.pauseMin + Math.random() * Math.max(1, profile.pauseMax - profile.pauseMin));
       });
     };
     roam();
@@ -240,7 +244,7 @@ export default function RoomScene({
     return () => {
       active = false;
     };
-  }, [bobY, breathe, driftX, driftY]);
+  }, [bobY, breathe, driftX, driftY, motionProfile]);
 
   const loadItems = useCallback(async () => {
     setItemsLoading(true);

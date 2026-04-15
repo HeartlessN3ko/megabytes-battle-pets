@@ -25,6 +25,7 @@ import { useActionGate } from '../../hooks/useActionGate';
 import { useDemoMode } from '../../hooks/useDemoMode';
 import { getDemoSpeedLabel } from '../../services/demoSession';
 import { generateByteThought } from '../../services/byteThoughts';
+import { getByteMotionProfile } from '../../services/byteMotion';
 import { resolveByteSprite } from '../../services/byteSprites';
 import HomeRoomStage from '../../components/HomeRoomStage';
 
@@ -110,20 +111,46 @@ function FloatingReward({
 }) {
   const rise = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
+  const sway = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.92)).current;
   useEffect(() => {
     Animated.parallel([
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 1, duration: 130, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0, duration: 850, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 150, useNativeDriver: true }),
+        Animated.delay(720),
+        Animated.timing(opacity, { toValue: 0, duration: 950, useNativeDriver: true }),
       ]),
-      Animated.timing(rise, { toValue: -64, duration: 980, useNativeDriver: true }),
+      Animated.timing(rise, { toValue: -92, duration: 1820, useNativeDriver: true }),
+      Animated.sequence([
+        Animated.spring(scale, { toValue: 1.05, friction: 5, tension: 80, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1, duration: 1220, useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(sway, { toValue: 1, duration: 320, useNativeDriver: true }),
+        Animated.timing(sway, { toValue: -1, duration: 420, useNativeDriver: true }),
+        Animated.timing(sway, { toValue: 0.6, duration: 340, useNativeDriver: true }),
+        Animated.timing(sway, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]),
     ]).start(() => onDone());
-  }, [onDone, opacity, rise]);
+  }, [onDone, opacity, rise, scale, sway]);
 
   return (
     <Animated.View
       pointerEvents="none"
-      style={[styles.rewardPopup, { left, bottom, opacity, transform: [{ translateY: rise }] }]}
+      style={[
+        styles.rewardPopup,
+        {
+          left,
+          bottom,
+          opacity,
+          transform: [
+            { translateY: rise },
+            { translateX: sway.interpolate({ inputRange: [-1, 1], outputRange: [-10, 10] }) },
+            { rotate: sway.interpolate({ inputRange: [-1, 1], outputRange: ['-8deg', '8deg'] }) },
+            { scale },
+          ],
+        },
+      ]}
     >
       <Text style={styles.rewardPopupText}>{text}</Text>
     </Animated.View>
@@ -360,6 +387,7 @@ export default function HomeScreen() {
   const clutterPenalty = Math.min(24, clutter * 3);
   const effectiveMood = Math.max(0, (needs.Mood || 0) - clutterPenalty);
   const demoLabel = getDemoSpeedLabel();
+  const motionProfile = useMemo(() => getByteMotionProfile(stage), [stage]);
 
   const clutterLabel = useMemo(() => {
     if (clutter >= 5) return 'Crowded';
@@ -491,38 +519,41 @@ export default function HomeScreen() {
 
   useEffect(() => {
     let active = true;
+    const profile = motionProfile.home;
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(hoverY, { toValue: -8, duration: 1800, useNativeDriver: true }),
-        Animated.timing(hoverY, { toValue: 0, duration: 1800, useNativeDriver: true }),
+        Animated.timing(hoverY, { toValue: -profile.hoverDistance, duration: profile.hoverDuration, useNativeDriver: true }),
+        Animated.timing(hoverY, { toValue: 0, duration: profile.hoverDuration, useNativeDriver: true }),
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(breathe, { toValue: 1.04, duration: 1700, useNativeDriver: true }),
-        Animated.timing(breathe, { toValue: 1, duration: 1700, useNativeDriver: true }),
+        Animated.timing(breathe, { toValue: profile.breatheScale, duration: profile.breatheDuration, useNativeDriver: true }),
+        Animated.timing(breathe, { toValue: 1, duration: profile.breatheDuration, useNativeDriver: true }),
       ])
     ).start();
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(stride, { toValue: 1, duration: 260, useNativeDriver: true }),
-        Animated.timing(stride, { toValue: -1, duration: 260, useNativeDriver: true }),
-        Animated.timing(stride, { toValue: 0.45, duration: 220, useNativeDriver: true }),
-        Animated.timing(stride, { toValue: -0.45, duration: 220, useNativeDriver: true }),
-        Animated.timing(stride, { toValue: 0, duration: 190, useNativeDriver: true }),
+        ...profile.strideValues.map((value, index) =>
+          Animated.timing(stride, {
+            toValue: value,
+            duration: profile.strideDurations[index] || profile.strideDurations[profile.strideDurations.length - 1] || 240,
+            useNativeDriver: true,
+          })
+        ),
       ])
     ).start();
 
     const roam = () => {
       if (!active) return;
-      const nextDepth = 0.86 + Math.random() * 0.28;
-      const nextX = (Math.random() - 0.5) * width * 0.62;
-      const nextY = (nextDepth - 1) * 150 + (Math.random() - 0.5) * 18;
-      const duration = 1650 + Math.floor(Math.random() * 1350);
-      const facing = nextX > 18 ? 'right' : nextX < -18 ? 'left' : 'idle';
+      const nextDepth = profile.depthMin + Math.random() * (profile.depthMax - profile.depthMin);
+      const nextX = (Math.random() - 0.5) * width * profile.roamSpreadX;
+      const nextY = (nextDepth - 1) * profile.depthYOffset + (Math.random() - 0.5) * profile.yJitter;
+      const duration = profile.roamDurationMin + Math.floor(Math.random() * Math.max(1, profile.roamDurationMax - profile.roamDurationMin));
+      const facing = nextX > profile.facingThreshold ? 'right' : nextX < -profile.facingThreshold ? 'left' : 'idle';
       setMoveFacing(facing);
 
       Animated.parallel([
@@ -532,7 +563,7 @@ export default function HomeScreen() {
       ]).start(() => {
         if (!active) return;
         setMoveFacing('idle');
-        setTimeout(roam, 420 + Math.floor(Math.random() * 1250));
+        setTimeout(roam, profile.pauseMin + Math.floor(Math.random() * Math.max(1, profile.pauseMax - profile.pauseMin)));
       });
     };
 
@@ -540,7 +571,7 @@ export default function HomeScreen() {
     return () => {
       active = false;
     };
-  }, [breathe, depthScale, hoverY, roamX, roamY, stride]);
+  }, [breathe, depthScale, hoverY, motionProfile, roamX, roamY, stride]);
 
   const openDrawer = useCallback(() => {
     if (drawerOpen || transitionBusy) return;

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ImageBackground, PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { careAction, earnCurrency, interactByte, trainStat } from '../../services/api';
+import { careAction, earnCurrency, interactByte, trainStat, syncByte } from '../../services/api';
 import { markHomeClutterCleared } from '../../services/homeRuntimeState';
 import { MiniGameDef, getMiniGameById } from '../../services/minigames';
 import { MiniGameRoomId, recordTrainingUsage, setPendingMiniGameResult } from '../../services/minigameRuntime';
@@ -359,6 +359,7 @@ export default function MiniGameRunnerScreen() {
         } else if (game.id.startsWith('training-') && game.stat) {
           try {
             await trainStat(game.stat, grade);
+            await syncByte(); // REFRESH byte data after training so stats persist
           } catch (err: any) {
             console.error(`trainStat failed for ${game.stat}:`, err?.message);
             throw err;

@@ -1,8 +1,8 @@
 ﻿# MD System Implementation Matrix (Demo Build)
 
-Date: 2026-04-14
-Owner: Codex + ChaosDesigned
-Demo status: 2.0.1
+Date: 2026-04-15
+Owner: Codex + ChaosDesigned (Claude/Sonnet handles core logic; Codex handles polish/UX)
+Demo status: 2.0.2
 Scope: `V:\Voidworks\scripts\*.md` mapped against current backend/frontend implementation.
 
 ## Status Legend
@@ -13,8 +13,8 @@ Scope: `V:\Voidworks\scripts\*.md` mapped against current backend/frontend imple
 ## System Matrix
 | MD | Current | What Is Live | Missing For Full MD Compliance |
 |---|---|---|---|
-| `care-mechanics.md` | PARTIAL | Feed/clean/rest/training/social style actions, timed room tasks, needs updates | Full minigame-linked care outcomes, deeper behavior consequences, richer room-specific rule variants |
-| `statsystemv1.md` | PARTIAL | Core stats + need modifiers + battle XP/level hooks | Full formula parity, all stat caps/rules surfaced in UI, complete overtraining integrations |
+| `care-mechanics.md` | PARTIAL | Feed/clean/rest/training/social style actions, timed room tasks, grade-scaled care restoration (perfect/good/fail multipliers), needs updates | Deeper behavior consequences, richer room-specific rule variants |
+| `statsystemv1.md` | PARTIAL | Core stats + need modifiers + battle XP/level hooks + TRAINING_GAIN multipliers in care/training routes | Full formula parity, all stat caps/rules surfaced in UI, complete overtraining integrations |
 | `overtraining.md` | LIVE | Bandwidth≤0 trigger, spec penalties, severe state at 3 events, recovery at BW≥50 | Player-facing overtraining UI messaging |
 | `corruptionstates.md` | LIVE | corruptionEngine.js: spec-compliant gain/decay/tier. Surfaced in home + battle UI. Clinic repair endpoint. | Corruption stat modifiers in battle, AI deviation by tier |
 | `softlock.md` | PARTIAL | Softlock engine + default move + recovery patch logic | Full route-level application of all recovery branches + UI messaging coverage |
@@ -33,7 +33,7 @@ Scope: `V:\Voidworks\scripts\*.md` mapped against current backend/frontend imple
 | `Marketplacedecor.md` | PLANNED | No decor inventory runtime yet | Decor item ownership, placement, room visual application |
 | `roomsystem.md` | PARTIAL | Core rooms active + timed tasks | Passive room network and full room family set |
 | `notificationv1.md` | PLANNED | Status text and some in-screen messages | Full event notification pipeline and throttling rules |
-| `minigames.md` | PARTIAL | 7 room minigames implemented (tap-target, scrub/swipe, trace, match, sequence, timing, rapid-tap, ordered-sequence). Grade pass-through to trainStat live. | Accessibility modes, full scoring parity, pageant minigame |
+| `minigames.md` | PARTIAL | 7 room minigames implemented (tap-target, scrub/swipe, trace, match, sequence, timing, rapid-tap, ordered-sequence). Grade pass-through to trainStat + careAction live. Training center UI: direct stat launch + pending result display. | Accessibility modes, full scoring parity, pageant minigame |
 | `datapersistence.md` | PARTIAL | Persistent player/byte/inventory/evolution data | Account-linking, sync conflict handling, full multi-device flow |
 | `lifespandeathcycle.md` | PARTIAL | POST /api/byte/:id/die endpoint live. Generation record + legacy egg pipeline. isDevByte guard. Smoke test written (unverified). | Death trigger automation (scheduled neglect check), full death cycle UX, memorial screen |
 | `breeding.md` | PARTIAL | Legacy/inheritance fields exist | Full breeding gameplay flow and egg generation systems |
@@ -151,8 +151,4 @@ These are the largest remaining blocks after current implementation state and ca
 ## Execution Plan (Recommended Order)
 1. Content foundation: move catalog + item master catalog (placeholder-balanced) + loadout validation.
 2. Combat integration: hook real moves/effects/ults/passives into battle runtime and UI.
-3. Care depth: implement corruption/overtraining/lifecycle player loops with feedback.
-4. Minigame + pageant: connect minigame outcomes to care/pageant scoring.
-5. Tutorial + notifications + achievement unlock engine.
-6. Perf/QA pass and content tuning.
-
+3. Care depth: implement corruption/ov

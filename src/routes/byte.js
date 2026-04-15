@@ -8,6 +8,8 @@ const statEngine       = require('../engine/statEngine');
 const corruptionEngine = require('../engine/corruptionEngine');
 const evolutionEngine  = require('../engine/evolutionEngine');
 const behaviorTracker = require('../engine/behaviorTracker');
+const eggMetricsEngine = require('../engine/eggMetricsEngine');
+const eggHatchEngine   = require('../engine/eggHatchEngine');
 const softlockEngine  = require('../engine/softlockEngine');
 const economyEngine   = require('../engine/economyEngine');
 const { MOVE_CATALOG_MAP } = require('../data/moveCatalog');
@@ -197,6 +199,28 @@ router.patch('/:id/care', async (req, res) => {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
+    // Egg care: record action, do not apply normal needs/decay
+    if (byte.isEgg) {
+      // Map care action to egg metric: feed→feed, clean→clean, praise→praise, inspect→inspect
+      const eggActionMap = { feed: 'feed', clean: 'clean', praise: 'praise', inspect: 'inspect', rest: 'inspect', play: 'inspect' };
+      const eggAction = eggActionMap[action] || 'inspect';
+
+      byte.eggMetrics = eggMetricsEngine.recordEggAction(byte.eggMetrics || {}, eggAction);
+      byte.markModified('eggMetrics');
+
+      // Build egg care response
+      const hatchAgeHours = eggMetricsEngine.calculateNeglectHours(byte.hatchAt) || 0;
+      const behaviorScores = eggMetricsEngine.convertToBehaviorScores(byte.eggMetrics, hatchAgeHours);
+      const topAnimal = Object.entries(behaviorScores).sort(([,a], [,b]) => b - a)[0];
+
+      await byte.save();
+      return res.json({
+        isEgg: true,
+        eggMetrics: byte.eggMetrics,
+        predictedAnimal: topAnimal?.[0] || 'Unknown'
+      });
+    }
+
     // Apply decay first, then care
     const decayed = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req));
     const gradeMult = statEngine.TRAINING_GAIN[grade] || 1.0;
@@ -372,17 +396,31 @@ router.post('/:id/hatch', async (req, res) => {
 
     const byteObj = byte.toObject();
     // Shape is set at egg creation (from onboarding choice) — do not overwrite it here.
-    const shape = byteObj.shape || 'Diamond';
-    const animal = evolutionEngine.assignAnimalForHatch(byteObj.behaviorMetrics || {});
+    byte.shape = byteObj.shape || 'Diamond';
 
-    byte.isEgg = false;
-    byte.evolutionStage = 1;
-    byte.shape = shape;
-    byte.animal = animal;
-    byte.stats = statEngine.applyEvolutionBiases(byteObj.stats, { shape, animal, element: null, feature: null, branch: null });
+    // Hatch: assign animal + temperament from egg metrics
+    const hatchAgeHours = eggMetricsEngine.calculateNeglectHours(byte.hatchAt) || 0;
+    const behaviorScores = eggMetricsEngine.convertToBehaviorScores(byte.eggMetrics || {}, hatchAgeHours);
+    eggHatchEngine.hatchByte(byte, byte.eggMetrics || {}, hatchAgeHours, behaviorScores);
+
+    // Apply stat biases from shape + animal
+    byte.stats = statEngine.applyEvolutionBiases(byteObj.stats, {
+      shape: byte.shape,
+      animal: byte.animal,
+      element: null,
+      feature: null,
+      branch: null
+    });
+
     await byte.save();
 
-    res.json({ evolutionStage: byte.evolutionStage, shape, animal, stats: byte.stats });
+    res.json({
+      evolutionStage: byte.evolutionStage,
+      shape: byte.shape,
+      animal: byte.animal,
+      temperament: byte.temperament,
+      stats: byte.stats
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

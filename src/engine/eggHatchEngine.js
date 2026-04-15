@@ -190,7 +190,7 @@ function hatchByte(byte, eggMetrics, hatchAgeHours, behaviorScores = null) {
   const tempScores = calculateTemperamentScores(behaviorScore, shapeBias, animalBias, {});
 
   // Pick temperament
-  const temperament = pickTemperament(tempScores);
+  let temperament = pickTemperament(tempScores);
 
   // Verify temperament is valid
   try {

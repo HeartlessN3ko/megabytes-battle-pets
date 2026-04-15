@@ -99,6 +99,7 @@ export default function RoomScene({
   const processProgress = useRef(new Animated.Value(0)).current;
   const fxPulse = useRef(new Animated.Value(0.32)).current;
   const fxSweep = useRef(new Animated.Value(0)).current;
+  const metaProgressAnim = useRef(new Animated.Value(0)).current;
 
   const [itemsOpen, setItemsOpen] = useState(false);
   const [itemsLoading, setItemsLoading] = useState(false);
@@ -206,6 +207,17 @@ export default function RoomScene({
       syncRuntimeStage().catch(() => {});
     }, [syncRuntimeStage])
   );
+
+  useEffect(() => {
+    if (metaProgress) {
+      const targetValue = (Number(metaProgress.value || 0) / Math.max(1, Number(metaProgress.max || 100))) * 100;
+      Animated.timing(metaProgressAnim, {
+        toValue: targetValue,
+        duration: 1400,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [metaProgress?.value, metaProgress?.max, metaProgressAnim]);
 
   useEffect(() => {
     initSfx().catch(() => {});
@@ -339,7 +351,7 @@ export default function RoomScene({
     await new Promise<void>((resolve) => {
       Animated.timing(processProgress, {
         toValue: 1,
-        duration: Math.max(420, Number(action.programMs || 900)),
+        duration: Math.max(1200, Number(action.programMs || 2000)),
         useNativeDriver: false,
       }).start(() => resolve());
     });
@@ -405,10 +417,10 @@ export default function RoomScene({
     const ticker = setInterval(() => {
       installProgress.stopAnimation((v) => {
         if (v < 0.88) {
-          installProgress.setValue(Math.min(0.9, v + 0.12));
+          installProgress.setValue(Math.min(0.9, v + 0.08));
         }
       });
-    }, 240);
+    }, 420);
 
     try {
       await new Promise((resolve) => setTimeout(resolve, 900));
@@ -505,11 +517,14 @@ export default function RoomScene({
                   </Text>
                 </View>
                 <View style={styles.metaProgressTrack}>
-                  <View
+                  <Animated.View
                     style={[
                       styles.metaProgressFill,
                       {
-                        width: `${Math.max(0, Math.min(100, (Number(metaProgress.value || 0) / Math.max(1, Number(metaProgress.max || 100))) * 100))}%`,
+                        width: metaProgressAnim.interpolate({
+                          inputRange: [0, 100],
+                          outputRange: ['0%', '100%'],
+                        }),
                         backgroundColor: metaProgress.tint || accent,
                       },
                     ]}
@@ -866,7 +881,7 @@ const styles = StyleSheet.create({
   },
   metaProgressHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     gap: 8,
   },
@@ -875,11 +890,13 @@ const styles = StyleSheet.create({
     fontSize: 9.8,
     fontWeight: '800',
     letterSpacing: 1,
+    flex: 1,
   },
   metaProgressValue: {
     color: '#e4f5ff',
     fontSize: 10.2,
     fontWeight: '800',
+    marginLeft: 'auto',
   },
   metaProgressTrack: {
     height: 8,

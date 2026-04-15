@@ -29,7 +29,7 @@ export default function SplashScreen() {
         Animated.timing(pulseAnim, { toValue: 1,   duration: 800, useNativeDriver: true }),
       ])
     ).start();
-  }, []);
+  }, [fadeIn, logoY, pulseAnim]);
 
   const handleStart = () => {
     if (!demoHydrated) return;
@@ -37,6 +37,10 @@ export default function SplashScreen() {
       const destination = demoMode || stage > 0 ? '/(tabs)' : '/egg';
       router.replace(destination as any);
     });
+  };
+
+  const handleCredits = () => {
+    router.push('/credits');
   };
 
   return (
@@ -47,19 +51,25 @@ export default function SplashScreen() {
     >
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <Animated.View style={[styles.container, { opacity: fadeIn }]}>
-        <Animated.View style={[styles.logoWrap, { transform: [{ translateY: logoY }] }]}>
-          <Image
-            source={require('../assets/images/titlelogo.png')}
-            style={styles.logo}
-            resizeMode="contain"
-          />
-        </Animated.View>
+        <View style={styles.heroBlock}>
+          <Animated.View style={[styles.logoWrap, { transform: [{ translateY: logoY }] }]}>
+            <Image
+              source={require('../assets/images/titlelogo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+          </Animated.View>
 
-        <TouchableOpacity onPress={handleStart} activeOpacity={0.8} style={styles.startWrap}>
-          <Animated.Text style={[styles.pressStart, { opacity: pulseAnim }]}>
-            {hydrated && demoHydrated ? 'PRESS START' : 'SYNCING...'}
-          </Animated.Text>
-        </TouchableOpacity>
+          <TouchableOpacity onPress={handleStart} activeOpacity={0.8} style={styles.startWrap}>
+            <Animated.Text style={[styles.pressStart, { opacity: pulseAnim }]}>
+              {hydrated && demoHydrated ? 'PRESS START' : 'SYNCING...'}
+            </Animated.Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={handleCredits} activeOpacity={0.85} style={styles.creditsBtn}>
+            <Text style={styles.creditsText}>CREDITS</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.infoBlock}>
           <View style={styles.scanlines} pointerEvents="none" />
@@ -75,13 +85,34 @@ export default function SplashScreen() {
 
 const styles = StyleSheet.create({
   bg:        { flex: 1, width: '100%', height: '100%' },
-  container: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingVertical: 80 },
-  logoWrap:  { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  logo:      { width: width * 0.96, height: height * 0.44 },
-  startWrap: { marginBottom: 40 },
+  container: { flex: 1, alignItems: 'center', justifyContent: 'space-between', paddingVertical: 48 },
+  heroBlock: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 28,
+  },
+  logoWrap:  { width: '100%', alignItems: 'center', justifyContent: 'center' },
+  logo:      { width: width * 1.22, height: height * 0.5 },
+  startWrap: { marginTop: -8 },
   pressStart: {
     color: '#7ec8ff', fontSize: 22, fontWeight: '800', letterSpacing: 4,
     textShadowColor: '#00aaff', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 12,
+  },
+  creditsBtn: {
+    marginTop: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(126,200,255,0.24)',
+    backgroundColor: 'rgba(4,18,40,0.46)',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  creditsText: {
+    color: 'rgba(210,238,255,0.88)',
+    fontSize: 11.2,
+    fontWeight: '800',
+    letterSpacing: 1.8,
   },
   infoBlock: {
     alignItems: 'center',

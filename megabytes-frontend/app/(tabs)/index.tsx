@@ -53,6 +53,13 @@ const CLUTTER_SPRITES = [
   require('../../assets/images/clutter2.png'),
 ];
 
+const CLUTTER_ZONES = [
+  { leftMin: 10, leftMax: 22, bottomMin: 18, bottomMax: 54, frontChance: 0.65 },
+  { leftMin: 24, leftMax: 36, bottomMin: 8, bottomMax: 36, frontChance: 0.35 },
+  { leftMin: 64, leftMax: 76, bottomMin: 8, bottomMax: 36, frontChance: 0.35 },
+  { leftMin: 78, leftMax: 90, bottomMin: 18, bottomMax: 54, frontChance: 0.65 },
+];
+
 function xpRequired(level: number) {
   if (level <= 50) return 50 * level;
   return 50 * Math.pow(level, 2);
@@ -308,12 +315,14 @@ export default function HomeScreen() {
   const roamY = useRef(new Animated.Value(0)).current;
   const hoverY = useRef(new Animated.Value(0)).current;
   const breathe = useRef(new Animated.Value(1)).current;
-  const squish = useRef(new Animated.Value(0)).current;
-  const wobble = useRef(new Animated.Value(0)).current;
+  const stride = useRef(new Animated.Value(0)).current;
+  const depthScale = useRef(new Animated.Value(1)).current;
   const tapScale = useRef(new Animated.Value(1)).current;
   const drawerAnim = useRef(new Animated.Value(height)).current;
   const stickyUntilRef = useRef(0);
   const clutterSyncRef = useRef(0);
+  const statusResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const thoughtRef = useRef<() => string>(() => 'BYTE is scanning the network.');
 
   const [byteData, setByteData] = useState<any>(null);
   const [playerData, setPlayerData] = useState<any>(null);
@@ -322,11 +331,12 @@ export default function HomeScreen() {
   const [statusText, setStatusText] = useState('BYTE is scanning the network.');
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [clutter, setClutter] = useState(0);
-  const [clutterNodes, setClutterNodes] = useState<{ id: string; sprite: any; left: number; bottom: number; size: number }[]>([]);
+  const [clutterNodes, setClutterNodes] = useState<{ id: string; sprite: any; left: number; bottom: number; size: number; front: boolean }[]>([]);
   const [demoBusy, setDemoBusy] = useState(false);
   const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
   const [rewardPopups, setRewardPopups] = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
   const [actionBursts, setActionBursts] = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
+  const [moveFacing, setMoveFacing] = useState<'left' | 'right' | 'idle'>('idle');
 
   const needs = useMemo(
     () =>
@@ -340,7 +350,12 @@ export default function HomeScreen() {
       },
     [byteData?.byte?.needs]
   );
-  const petSprite = resolveByteSprite(stage, { needs, preferAnimatedIdle: true });
+  const petSprite = resolveByteSprite(stage, {
+    needs,
+    preferAnimatedIdle: true,
+    preferAnimatedWalk: moveFacing !== 'idle',
+    facing: moveFacing,
+  });
 
   const clutterPenalty = Math.min(24, clutter * 3);
   const effectiveMood = Math.max(0, (needs.Mood || 0) - clutterPenalty);
@@ -353,26 +368,38 @@ export default function HomeScreen() {
     return 'Clean';
   }, [clutter]);
 
+  const createClutterNode = useCallback((index: number) => {
+    const zone = CLUTTER_ZONES[Math.floor(Math.random() * CLUTTER_ZONES.length)];
+    const size = 88 + Math.random() * 56;
+    const leftPct = zone.leftMin + Math.random() * (zone.leftMax - zone.leftMin);
+    const left = ((width - size) * leftPct) / 100;
+    const bottom = zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin);
+    return {
+      id: `clutter-${Date.now()}-${index}-${Math.random()}`,
+      sprite: CLUTTER_SPRITES[Math.floor(Math.random() * CLUTTER_SPRITES.length)],
+      left,
+      bottom,
+      size,
+      front: Math.random() < zone.frontChance,
+    };
+  }, []);
+
+  const backClutterNodes = useMemo(() => clutterNodes.filter((node) => !node.front), [clutterNodes]);
+  const frontClutterNodes = useMemo(() => clutterNodes.filter((node) => node.front), [clutterNodes]);
+
   useEffect(() => {
     setClutterNodes((prev) => {
       if (prev.length === clutter) return prev;
       if (prev.length < clutter) {
         const next = [...prev];
         for (let i = prev.length; i < clutter; i += 1) {
-          const size = 132 + Math.random() * 78;
-          next.push({
-            id: `clutter-${Date.now()}-${i}`,
-            sprite: CLUTTER_SPRITES[Math.floor(Math.random() * CLUTTER_SPRITES.length)],
-            left: 4 + Math.random() * Math.max(10, width - size - 8),
-            bottom: -8 + Math.random() * 30,
-            size,
-          });
+          next.push(createClutterNode(i));
         }
         return next;
       }
       return prev.slice(0, clutter);
     });
-  }, [clutter]);
+  }, [clutter, createClutterNode]);
 
   const refreshData = useCallback(async () => {
     try {
@@ -392,6 +419,12 @@ export default function HomeScreen() {
   const setTransientStatus = useCallback((message: string, holdMs = 3400) => {
     stickyUntilRef.current = Date.now() + holdMs;
     setStatusText(message);
+    if (statusResetTimerRef.current) clearTimeout(statusResetTimerRef.current);
+    statusResetTimerRef.current = setTimeout(() => {
+      if (Date.now() >= stickyUntilRef.current) {
+        setStatusText(thoughtRef.current());
+      }
+    }, holdMs + 80);
   }, []);
 
   const randomThought = useCallback(() => {
@@ -407,8 +440,15 @@ export default function HomeScreen() {
   }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.byte?.trainingSessionsToday, clutter, clutterLabel, idleThoughtTicks, needs]);
 
   useEffect(() => {
+    thoughtRef.current = randomThought;
+  }, [randomThought]);
+
+  useEffect(() => {
     initSfx().catch(() => {});
     loadHomeClutterCount().then((count) => setClutter(Math.max(0, Math.min(8, count)))).catch(() => {});
+    return () => {
+      if (statusResetTimerRef.current) clearTimeout(statusResetTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -417,14 +457,13 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      refreshData().catch(() => {});
+      Promise.all([refreshData(), reloadFromServer().catch(() => {})]).catch(() => {});
       const clearedAt = getHomeClutterClearedAt();
       if (clearedAt > clutterSyncRef.current) {
         clutterSyncRef.current = clearedAt;
         setClutter(0);
-        setTransientStatus('Clutter was cleared in another room. Home is clean.', 2300);
       }
-    }, [refreshData, setTransientStatus])
+    }, [refreshData, reloadFromServer])
   );
 
   useEffect(() => {
@@ -469,30 +508,31 @@ export default function HomeScreen() {
 
     Animated.loop(
       Animated.sequence([
-        Animated.timing(squish, { toValue: 1, duration: 180, useNativeDriver: true }),
-        Animated.timing(squish, { toValue: 0, duration: 1400, useNativeDriver: true }),
-      ])
-    ).start();
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(wobble, { toValue: 1, duration: 1700, useNativeDriver: true }),
-        Animated.timing(wobble, { toValue: -1, duration: 1700, useNativeDriver: true }),
+        Animated.timing(stride, { toValue: 1, duration: 260, useNativeDriver: true }),
+        Animated.timing(stride, { toValue: -1, duration: 260, useNativeDriver: true }),
+        Animated.timing(stride, { toValue: 0.45, duration: 220, useNativeDriver: true }),
+        Animated.timing(stride, { toValue: -0.45, duration: 220, useNativeDriver: true }),
+        Animated.timing(stride, { toValue: 0, duration: 190, useNativeDriver: true }),
       ])
     ).start();
 
     const roam = () => {
       if (!active) return;
-      const nextX = (Math.random() - 0.5) * width * 0.4;
-      const nextY = (Math.random() - 0.5) * 30;
-      const duration = 1900 + Math.floor(Math.random() * 1300);
+      const nextDepth = 0.86 + Math.random() * 0.28;
+      const nextX = (Math.random() - 0.5) * width * 0.62;
+      const nextY = (nextDepth - 1) * 150 + (Math.random() - 0.5) * 18;
+      const duration = 1650 + Math.floor(Math.random() * 1350);
+      const facing = nextX > 18 ? 'right' : nextX < -18 ? 'left' : 'idle';
+      setMoveFacing(facing);
 
       Animated.parallel([
         Animated.timing(roamX, { toValue: nextX, duration, useNativeDriver: true }),
         Animated.timing(roamY, { toValue: nextY, duration, useNativeDriver: true }),
+        Animated.timing(depthScale, { toValue: nextDepth, duration, useNativeDriver: true }),
       ]).start(() => {
         if (!active) return;
-        setTimeout(roam, 550 + Math.floor(Math.random() * 900));
+        setMoveFacing('idle');
+        setTimeout(roam, 420 + Math.floor(Math.random() * 1250));
       });
     };
 
@@ -500,7 +540,7 @@ export default function HomeScreen() {
     return () => {
       active = false;
     };
-  }, [breathe, hoverY, roamX, roamY, squish, wobble]);
+  }, [breathe, depthScale, hoverY, roamX, roamY, stride]);
 
   const openDrawer = useCallback(() => {
     if (drawerOpen || transitionBusy) return;
@@ -587,14 +627,12 @@ export default function HomeScreen() {
     try {
       await earnCurrency(award, 'home_clutter');
       await refreshData();
-      setTransientStatus(`Clutter cleaned: +${award} ByteBits`, 1500);
       setIdleThoughtTicks(0);
     } catch {
       setPlayerData((prev: any) => ({ ...(prev || {}), byteBits: Number(prev?.byteBits || 0) + award }));
-      setTransientStatus(`Clutter cleaned (offline): +${award} ByteBits`, 1500);
       setIdleThoughtTicks(0);
     }
-  }, [clutterNodes, refreshData, setTransientStatus]);
+  }, [clutterNodes, refreshData]);
 
   const handleRoomOpen = useCallback(
     (route: string) => {
@@ -739,7 +777,7 @@ export default function HomeScreen() {
           <HomeRoomStage />
 
           <View style={styles.clutterLayer}>
-            {clutterNodes.map((node) => (
+            {backClutterNodes.map((node) => (
               <TouchableOpacity
                 key={node.id}
                 style={[styles.clutterTouch, { left: node.left, bottom: node.bottom, width: node.size, height: node.size }]}
@@ -759,10 +797,11 @@ export default function HomeScreen() {
                   { translateX: roamX },
                   { translateY: roamY },
                   { translateY: hoverY },
-                  { rotate: wobble.interpolate({ inputRange: [-1, 1], outputRange: ['-2deg', '2deg'] }) },
-                  { scaleX: squish.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) },
-                  { scaleY: squish.interpolate({ inputRange: [0, 1], outputRange: [1, 0.93] }) },
+                  { rotate: stride.interpolate({ inputRange: [-1, 1], outputRange: ['-4deg', '4deg'] }) },
+                  { scaleX: stride.interpolate({ inputRange: [-1, 0, 1], outputRange: [0.94, 1.08, 0.94] }) },
+                  { scaleY: stride.interpolate({ inputRange: [-1, 0, 1], outputRange: [1.08, 0.92, 1.08] }) },
                   { scale: breathe },
+                  { scale: depthScale },
                   { scale: tapScale },
                 ],
               },
@@ -772,6 +811,19 @@ export default function HomeScreen() {
               <Image source={petSprite} style={styles.byteSprite} resizeMode="contain" />
             </TouchableOpacity>
           </Animated.View>
+
+          <View style={styles.clutterLayerFront}>
+            {frontClutterNodes.map((node) => (
+              <TouchableOpacity
+                key={node.id}
+                style={[styles.clutterTouch, { left: node.left, bottom: node.bottom, width: node.size, height: node.size }]}
+                onPress={() => handleClutterTap(node.id)}
+                activeOpacity={0.8}
+              >
+                <Image source={node.sprite} style={styles.clutterImgFront} resizeMode="contain" />
+              </TouchableOpacity>
+            ))}
+          </View>
 
           {rewardPopups.map((popup) => (
             <FloatingReward
@@ -862,7 +914,15 @@ export default function HomeScreen() {
         </TouchableOpacity>
       )}
 
-      <StatsModal visible={statsOpen} onClose={() => setStatsOpen(false)} byteData={byteData} playerData={playerData} onEvolved={refreshData} />
+      <StatsModal
+        visible={statsOpen}
+        onClose={() => setStatsOpen(false)}
+        byteData={byteData}
+        playerData={playerData}
+        onEvolved={() => {
+          Promise.all([refreshData(), reloadFromServer().catch(() => {})]).catch(() => {});
+        }}
+      />
     </ImageBackground>
   );
 }
@@ -932,8 +992,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 168,
+    height: 228,
     zIndex: 1,
+  },
+  clutterLayerFront: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 236,
+    zIndex: 4,
   },
   clutterTouch: {
     position: 'absolute',
@@ -942,7 +1010,12 @@ const styles = StyleSheet.create({
   clutterImg: {
     width: '100%',
     height: '100%',
-    opacity: 0.96,
+    opacity: 0.9,
+  },
+  clutterImgFront: {
+    width: '100%',
+    height: '100%',
+    opacity: 1,
   },
   rewardPopup: {
     position: 'absolute',
@@ -975,7 +1048,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     fontSize: 20,
   },
-  byteStage: { position: 'absolute', bottom: 12, zIndex: 2 },
+  byteStage: { position: 'absolute', bottom: 12, zIndex: 3 },
   byteSprite: { width: width * 0.3, height: width * 0.3 },
   statusCardSolo: {
     marginHorizontal: 14,

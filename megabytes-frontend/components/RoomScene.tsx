@@ -9,7 +9,7 @@ import { consumeItem, getByte, getInventory, getShopItems } from '../services/ap
 import { initSfx, playSfx } from '../services/sfx';
 import { resolveByteSprite } from '../services/byteSprites';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
 export interface RoomAction {
   key: string;
@@ -17,10 +17,11 @@ export interface RoomAction {
   subtitle: string;
   icon: string;
   color: string;
-  onPress: () => void;
+  onPress: () => void | Promise<void>;
   disabled?: boolean;
   programLabel?: string;
   programMs?: number;
+  sceneEffect?: 'stabilize' | 'purge' | 'default';
 }
 
 export interface RoomResultWindow {
@@ -32,6 +33,14 @@ export interface RoomResultWindow {
   cooldownSeconds?: number | null;
 }
 
+export interface RoomMetaProgress {
+  label: string;
+  value: number;
+  max?: number;
+  tint?: string;
+  detail?: string | null;
+}
+
 interface RoomSceneProps {
   title: string;
   subtitle: string;
@@ -41,6 +50,7 @@ interface RoomSceneProps {
   accent: string;
   statusLine: string;
   timerLine?: string | null;
+  metaProgress?: RoomMetaProgress | null;
   statsMatrix?: { label: string; value: number }[];
   resultWindow?: RoomResultWindow | null;
   onDismissResultWindow?: () => void;
@@ -58,6 +68,8 @@ type RoomInventoryItem = {
   quantity: number;
 };
 
+const DEBUG_LINES = Array.from({ length: 16 }, (_, idx) => idx);
+
 export default function RoomScene({
   title,
   subtitle,
@@ -67,6 +79,7 @@ export default function RoomScene({
   accent,
   statusLine,
   timerLine,
+  metaProgress = null,
   statsMatrix = [],
   resultWindow = null,
   onDismissResultWindow,
@@ -83,6 +96,8 @@ export default function RoomScene({
   const breathe = useRef(new Animated.Value(1)).current;
   const installProgress = useRef(new Animated.Value(0)).current;
   const processProgress = useRef(new Animated.Value(0)).current;
+  const fxPulse = useRef(new Animated.Value(0.32)).current;
+  const fxSweep = useRef(new Animated.Value(0)).current;
 
   const [itemsOpen, setItemsOpen] = useState(false);
   const [itemsLoading, setItemsLoading] = useState(false);
@@ -92,10 +107,14 @@ export default function RoomScene({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installText, setInstallText] = useState('Select a program package to execute.');
+  const [installPercent, setInstallPercent] = useState(0);
+  const [itemResultWindow, setItemResultWindow] = useState<RoomResultWindow | null>(null);
   const [runtimeStage, setRuntimeStage] = useState(stage);
   const [processOpen, setProcessOpen] = useState(false);
   const [processLabel, setProcessLabel] = useState('Running task...');
   const [processPercent, setProcessPercent] = useState(0);
+  const [sceneEffect, setSceneEffect] = useState<RoomAction['sceneEffect']>(null);
+  const [sceneEffectVisible, setSceneEffectVisible] = useState(false);
 
   const recommendedTypes = useMemo(() => {
     if (title === 'KITCHEN') return ['recovery', 'clutch'];
@@ -106,10 +125,65 @@ export default function RoomScene({
   const recommendedTypeSet = useMemo(() => new Set(recommendedTypes), [recommendedTypes]);
 
   const petSprite = useMemo(() => resolveByteSprite(runtimeStage, { preferAnimatedIdle: true }), [runtimeStage]);
+  const sceneEffectPalette = useMemo(() => {
+    if (sceneEffect === 'stabilize') {
+      return {
+        overlay: 'rgba(98,255,190,0.14)',
+        edge: 'rgba(126,255,212,0.28)',
+        sweep: 'rgba(126,255,212,0.2)',
+        line: 'rgba(160,255,225,0.18)',
+      };
+    }
+    if (sceneEffect === 'purge') {
+      return {
+        overlay: 'rgba(64,214,255,0.16)',
+        edge: 'rgba(120,225,255,0.3)',
+        sweep: 'rgba(80,226,255,0.22)',
+        line: 'rgba(142,228,255,0.16)',
+      };
+    }
+    return {
+      overlay: 'rgba(116,180,255,0.12)',
+      edge: 'rgba(120,190,255,0.24)',
+      sweep: 'rgba(120,190,255,0.18)',
+      line: 'rgba(160,214,255,0.12)',
+    };
+  }, [sceneEffect]);
 
   useEffect(() => {
     setRuntimeStage(stage);
   }, [stage]);
+
+  useEffect(() => {
+    fxPulse.stopAnimation();
+    fxSweep.stopAnimation();
+
+    if (!sceneEffectVisible) {
+      fxPulse.setValue(0.32);
+      fxSweep.setValue(0);
+      return;
+    }
+
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(fxPulse, { toValue: 0.62, duration: 620, useNativeDriver: true }),
+        Animated.timing(fxPulse, { toValue: 0.28, duration: 620, useNativeDriver: true }),
+      ])
+    );
+    const sweepLoop = Animated.loop(
+      Animated.timing(fxSweep, { toValue: 1, duration: 1280, useNativeDriver: true })
+    );
+
+    pulseLoop.start();
+    sweepLoop.start();
+
+    return () => {
+      pulseLoop.stop();
+      sweepLoop.stop();
+      fxPulse.stopAnimation();
+      fxSweep.stopAnimation();
+    };
+  }, [fxPulse, fxSweep, sceneEffectVisible]);
 
   const syncRuntimeStage = useCallback(async () => {
     try {
@@ -218,14 +292,30 @@ export default function RoomScene({
     setItemsOpen(true);
     setConfirmOpen(false);
     setSelectedItem(null);
+    setItemResultWindow(null);
+    installProgress.setValue(0);
+    setInstallPercent(0);
     playSfx('menu', 0.55);
     loadItems().catch(() => {});
-  }, [loadItems]);
+  }, [installProgress, loadItems]);
 
   const runProgramAction = useCallback(async (action: RoomAction) => {
     const label = action.programLabel;
+    const usesSceneEffect = Boolean(action.sceneEffect);
+
     if (!label) {
-      action.onPress();
+      if (usesSceneEffect) {
+        setSceneEffect(action.sceneEffect || 'default');
+        setSceneEffectVisible(true);
+      }
+      try {
+        await Promise.resolve(action.onPress());
+      } finally {
+        if (usesSceneEffect) {
+          setSceneEffectVisible(false);
+          setSceneEffect(null);
+        }
+      }
       return;
     }
 
@@ -233,6 +323,10 @@ export default function RoomScene({
     processProgress.setValue(0);
     setProcessPercent(0);
     setProcessOpen(true);
+    if (usesSceneEffect) {
+      setSceneEffect(action.sceneEffect || 'default');
+      setSceneEffectVisible(true);
+    }
     playSfx('menu', 0.45);
 
     const listenerId = processProgress.addListener(({ value }) => {
@@ -248,7 +342,14 @@ export default function RoomScene({
     processProgress.removeListener(listenerId);
 
     setProcessOpen(false);
-    action.onPress();
+    try {
+      await Promise.resolve(action.onPress());
+    } finally {
+      if (usesSceneEffect) {
+        setSceneEffectVisible(false);
+        setSceneEffect(null);
+      }
+    }
   }, [processProgress]);
 
   const itemSfxByType = useCallback((type: string) => {
@@ -269,14 +370,34 @@ export default function RoomScene({
     return 'Program';
   }, []);
 
+  const formatItemEffects = useCallback((effects: string[]) => {
+    const pretty = effects
+      .map((effect) => {
+        if (effect === 'needs_restored') return 'system needs restored';
+        if (effect === 'move_learned') return 'move package installed';
+        if (effect.startsWith('effect_applied:')) {
+          return `effect loaded: ${effect.replace('effect_applied:', '')}`;
+        }
+        return effect.replace(/_/g, ' ').toLowerCase();
+      })
+      .filter(Boolean);
+    return pretty.length > 0 ? pretty.join(', ') : 'program run completed with no explicit effects reported';
+  }, []);
+
   const executeItemInstall = useCallback(async () => {
     if (!selectedItem || installing) return;
 
+    const itemName = selectedItem.name;
+    const itemType = selectedItem.type;
     setInstalling(true);
     installProgress.setValue(0);
-    setInstallText(`Executing ${itemVerbByType(selectedItem.type)} install task: ${selectedItem.name}...`);
+    setInstallPercent(0);
+    setInstallText(`Running ${itemVerbByType(itemType)} package ${itemName} on ${byteName}...`);
     playSfx('menu', 0.45);
 
+    const listenerId = installProgress.addListener(({ value }) => {
+      setInstallPercent(Math.round(value * 100));
+    });
     const ticker = setInterval(() => {
       installProgress.stopAnimation((v) => {
         if (v < 0.88) {
@@ -289,7 +410,8 @@ export default function RoomScene({
       await new Promise((resolve) => setTimeout(resolve, 900));
       const result = await consumeItem(selectedItem.id);
       installProgress.setValue(1);
-      playSfx(itemSfxByType(selectedItem.type) as any, 0.6);
+      setInstallPercent(100);
+      playSfx(itemSfxByType(itemType) as any, 0.6);
 
       setItems((prev) =>
         prev
@@ -301,22 +423,57 @@ export default function RoomScene({
           .filter((row) => row.quantity > 0)
       );
       const effects = Array.isArray(result?.effects) ? result.effects : [];
-      const summary = effects.length ? effects.join(', ') : 'no explicit effects reported';
-      setInstallText(`${selectedItem.name} executed successfully on ${byteName}. Effects: ${summary}.`);
+      const summary = formatItemEffects(effects);
+      setInstallText(`${itemName} executed successfully on ${byteName}.`);
+      setItemResultWindow({
+        title: `${itemName.toUpperCase()} EXECUTED`,
+        body: `${itemVerbByType(itemType)} package run completed on ${byteName}. Result: ${summary}.`,
+      });
     } catch {
       playSfx('negative', 0.55);
-      setInstallText(`Execution failed for ${selectedItem.name}. Re-run task and retry.`);
+      setInstallText(`Execution failed for ${itemName}. Re-run task and retry.`);
+      setItemResultWindow({
+        title: `${itemName.toUpperCase()} FAILED`,
+        body: `Program run on ${byteName} did not complete. Retry the package after the current task settles.`,
+      });
     } finally {
       clearInterval(ticker);
+      installProgress.removeListener(listenerId);
       setInstalling(false);
       setConfirmOpen(false);
       setSelectedItem(null);
     }
-  }, [byteName, installProgress, installing, itemSfxByType, itemVerbByType, selectedItem]);
+  }, [byteName, formatItemEffects, installProgress, installing, itemSfxByType, itemVerbByType, selectedItem]);
 
   return (
     <ImageBackground source={backgroundSource || require('../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      {sceneEffectVisible ? (
+        <View pointerEvents="none" style={[styles.sceneFxOverlay, { backgroundColor: sceneEffectPalette.overlay, borderColor: sceneEffectPalette.edge }]}>
+          <Animated.View style={[styles.sceneFxPulse, { opacity: fxPulse, borderColor: sceneEffectPalette.edge }]} />
+          <Animated.View
+            style={[
+              styles.sceneFxSweep,
+              {
+                backgroundColor: sceneEffectPalette.sweep,
+                transform: [
+                  {
+                    translateY: fxSweep.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-height * 0.4, height * 0.9],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          />
+          <View style={styles.sceneFxLines}>
+            {DEBUG_LINES.map((line) => (
+              <View key={`fx-line-${line}`} style={[styles.sceneFxLine, { backgroundColor: sceneEffectPalette.line }]} />
+            ))}
+          </View>
+        </View>
+      ) : null}
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={[styles.sceneTint, { backgroundColor: sceneTint }]} />
 
@@ -328,10 +485,58 @@ export default function RoomScene({
         <View style={styles.stage}>
           <View style={[styles.roomHalo, { borderColor: `${accent}66` }]} />
           <View style={styles.roomMetaWrap}>
-            <View style={[styles.roomTag, { borderColor: `${accent}66` }]}>
+          <View style={[styles.roomTag, { borderColor: `${accent}66` }]}>
               <Text style={[styles.roomTagText, { color: accent }]}>{roomTag}</Text>
             </View>
-            <Text style={styles.ambientBody}>{ambient}</Text>
+            <View style={styles.ambientCard}>
+              <Text style={styles.ambientBody}>{ambient}</Text>
+            </View>
+            {metaProgress ? (
+              <View style={styles.metaProgressCard}>
+                <View style={styles.metaProgressHeader}>
+                  <Text style={styles.metaProgressLabel}>{metaProgress.label}</Text>
+                  <Text style={styles.metaProgressValue}>
+                    {Math.round(Number(metaProgress.value || 0))}
+                    {metaProgress.detail ? ` - ${metaProgress.detail}` : ''}
+                  </Text>
+                </View>
+                <View style={styles.metaProgressTrack}>
+                  <View
+                    style={[
+                      styles.metaProgressFill,
+                      {
+                        width: `${Math.max(0, Math.min(100, (Number(metaProgress.value || 0) / Math.max(1, Number(metaProgress.max || 100))) * 100))}%`,
+                        backgroundColor: metaProgress.tint || accent,
+                      },
+                    ]}
+                  />
+                </View>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.stageHud}>
+            <View style={styles.statusDock}>
+              <View style={styles.statusDot} />
+              <View style={styles.statusTextWrap}>
+                <Text style={styles.statusText}>{statusLine}</Text>
+                {timerLine ? <Text style={styles.timerText}>{timerLine}</Text> : null}
+              </View>
+            </View>
+
+            {statsMatrix.length > 0 ? (
+              <View style={styles.matrixDock}>
+                <Text style={styles.matrixTitle}>STAT MATRIX</Text>
+                <View style={styles.matrixGrid}>
+                  {statsMatrix.map((row) => (
+                    <View key={row.label} style={styles.matrixCell}>
+                      <Text style={styles.matrixLabel}>{row.label}</Text>
+                      <Text style={styles.matrixValue}>{Math.round(Number(row.value || 0))}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            ) : null}
           </View>
 
           <Animated.View
@@ -343,28 +548,6 @@ export default function RoomScene({
             <Image source={petSprite} style={styles.petSprite} resizeMode="contain" />
           </Animated.View>
         </View>
-
-        <View style={styles.statusDock}>
-          <View style={styles.statusDot} />
-          <View style={styles.statusTextWrap}>
-            <Text style={styles.statusText}>{statusLine}</Text>
-            {timerLine ? <Text style={styles.timerText}>{timerLine}</Text> : null}
-          </View>
-        </View>
-
-        {statsMatrix.length > 0 ? (
-          <View style={styles.matrixDock}>
-            <Text style={styles.matrixTitle}>STAT MATRIX</Text>
-            <View style={styles.matrixGrid}>
-              {statsMatrix.map((row) => (
-                <View key={row.label} style={styles.matrixCell}>
-                  <Text style={styles.matrixLabel}>{row.label}</Text>
-                  <Text style={styles.matrixValue}>{Math.round(Number(row.value || 0))}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
 
         <View style={styles.primaryRow}>
           {primaryActions.map((action) => (
@@ -442,6 +625,7 @@ export default function RoomScene({
             <Text style={styles.modalSub}>Recommended in {title}: {recommendedTypes.join(', ')}</Text>
             <Text style={styles.modalSub}>All package types are runnable in demo mode.</Text>
             <Text style={styles.modalInfo}>{installText}</Text>
+            {installing ? <Text style={styles.modalSub}>Install progress: {installPercent}%</Text> : null}
 
             <View style={styles.installTrack}>
               <Animated.View
@@ -498,8 +682,8 @@ export default function RoomScene({
         <TouchableOpacity style={styles.modalBg} activeOpacity={1} onPress={() => !installing && setConfirmOpen(false)}>
           <TouchableOpacity activeOpacity={1} style={styles.confirmCard}>
             <Text style={styles.confirmText}>
-              Use {selectedItem?.name || 'program'} on {byteName}?{' '}
-              {'\n'}Execute install task now?
+              Use {selectedItem?.name || 'program'} on {byteName}?
+              {'\n'}Run this program package now?
             </Text>
             <View style={styles.confirmRow}>
               <TouchableOpacity
@@ -546,12 +730,12 @@ export default function RoomScene({
         </View>
       </Modal>
 
-      <Modal visible={Boolean(resultWindow)} transparent animationType="fade">
+      <Modal visible={Boolean(resultWindow || itemResultWindow)} transparent animationType="fade">
         <View style={styles.modalBg}>
           <View style={styles.confirmCard}>
             <Text style={styles.modalTitle}>PROCESS RESULT</Text>
-            <Text style={styles.confirmText}>{resultWindow?.title || 'Task complete.'}</Text>
-            <Text style={styles.modalInfo}>{resultWindow?.body || ''}</Text>
+            <Text style={styles.confirmText}>{resultWindow?.title || itemResultWindow?.title || 'Task complete.'}</Text>
+            <Text style={styles.modalInfo}>{resultWindow?.body || itemResultWindow?.body || ''}</Text>
             {typeof resultWindow?.byteBits === 'number' ? (
               <Text style={styles.modalSub}>BYTEBITS +{Math.max(0, Math.round(Number(resultWindow?.byteBits || 0)))}</Text>
             ) : null}
@@ -562,7 +746,14 @@ export default function RoomScene({
             {typeof resultWindow?.cooldownSeconds === 'number' && resultWindow.cooldownSeconds > 0 ? (
               <Text style={styles.modalSub}>Training cooldown: {Math.max(1, Math.round(resultWindow.cooldownSeconds))}s</Text>
             ) : null}
-            <TouchableOpacity style={styles.modalClose} onPress={onDismissResultWindow} activeOpacity={0.85}>
+            <TouchableOpacity
+              style={styles.modalClose}
+              onPress={() => {
+                if (itemResultWindow) setItemResultWindow(null);
+                onDismissResultWindow?.();
+              }}
+              activeOpacity={0.85}
+            >
               <Text style={styles.modalCloseText}>CLOSE</Text>
             </TouchableOpacity>
           </View>
@@ -576,6 +767,35 @@ const styles = StyleSheet.create({
   bg: { flex: 1, width: '100%', height: '100%' },
   safe: { flex: 1, paddingHorizontal: 14 },
   sceneTint: { ...StyleSheet.absoluteFillObject },
+  sceneFxOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderWidth: 1,
+    zIndex: 3,
+  },
+  sceneFxPulse: {
+    position: 'absolute',
+    top: '18%',
+    left: '10%',
+    right: '10%',
+    height: height * 0.42,
+    borderRadius: 28,
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  sceneFxSweep: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: height * 0.22,
+  },
+  sceneFxLines: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'space-evenly',
+  },
+  sceneFxLine: {
+    height: 1,
+    width: '100%',
+  },
   header: { paddingTop: 14, alignItems: 'center', gap: 4 },
   roomTitle: { color: '#e1f1ff', fontSize: 22, fontWeight: '900', letterSpacing: 2 },
   roomSubtitle: { color: 'rgba(152,218,255,0.86)', fontSize: 11, fontWeight: '700', letterSpacing: 2 },
@@ -597,6 +817,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  stageHud: {
+    position: 'absolute',
+    top: 104,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 6,
+    gap: 8,
+  },
   roomTag: {
     borderRadius: 99,
     borderWidth: 1,
@@ -612,10 +840,55 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     maxWidth: width * 0.8,
   },
+  ambientCard: {
+    maxWidth: width * 0.82,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(120,190,255,0.2)',
+    backgroundColor: 'rgba(8,18,62,0.72)',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  metaProgressCard: {
+    width: Math.min(width * 0.72, 320),
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(120,190,255,0.2)',
+    backgroundColor: 'rgba(8,18,62,0.72)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 6,
+  },
+  metaProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+  },
+  metaProgressLabel: {
+    color: '#a7ddff',
+    fontSize: 9.8,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  metaProgressValue: {
+    color: '#e4f5ff',
+    fontSize: 10.2,
+    fontWeight: '800',
+  },
+  metaProgressTrack: {
+    height: 8,
+    borderRadius: 99,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    overflow: 'hidden',
+  },
+  metaProgressFill: {
+    height: 8,
+    borderRadius: 99,
+  },
   petWrap: { position: 'absolute', bottom: 10 },
   petSprite: { width: width * 0.34, height: width * 0.34 },
   statusDock: {
-    marginBottom: 8,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(100,192,255,0.23)',
@@ -659,7 +932,6 @@ const styles = StyleSheet.create({
   },
   secondaryLabel: { color: '#d6ecff', fontSize: 10, fontWeight: '700', letterSpacing: 0.6 },
   matrixDock: {
-    marginBottom: 8,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(136,210,255,0.22)',

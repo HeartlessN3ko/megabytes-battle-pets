@@ -63,6 +63,41 @@ function targetGoalFor(game: MiniGameDef, variant: Variant) {
   return 0;
 }
 
+function randomRange(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function buildCleanupPanels() {
+  return Array.from({ length: 3 }, () => {
+    const barCount = randomRange(1, 6);
+    const bars = Array.from({ length: barCount }, () => ({
+      width: randomRange(54, 130),
+      need: randomRange(42, 92),
+    }));
+    return { barCount, bars };
+  });
+}
+
+function buildTracePatterns(variant: Variant) {
+  const configs = [
+    { amplitude: variant === 'long' ? 24 : 20, phase: 0, offset: -10, goal: variant === 'long' ? 7 : 5 },
+    { amplitude: variant === 'long' ? 32 : 26, phase: Math.PI / 3, offset: 6, goal: variant === 'long' ? 8 : 5 },
+    { amplitude: variant === 'long' ? 28 : 24, phase: Math.PI / 1.7, offset: 0, goal: variant === 'long' ? 9 : 6 },
+  ];
+  return configs.map((pattern, index) => ({
+    id: `trace-${index}`,
+    ...pattern,
+  }));
+}
+
+function buildFeedLinks() {
+  return [
+    { start: { x: 48, y: 40 }, target: { x: 212, y: 46 } },
+    { start: { x: 48, y: 88 }, target: { x: 218, y: 88 } },
+    { start: { x: 48, y: 136 }, target: { x: 206, y: 132 } },
+  ];
+}
+
 export default function MiniGameRunnerScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; variant?: string; room?: string }>();
@@ -90,14 +125,22 @@ export default function MiniGameRunnerScreen() {
 
   const [tapCount, setTapCount] = useState(0);
   const [targetPos, setTargetPos] = useState({ x: 30, y: 30 });
+  const [feedLinks, setFeedLinks] = useState<{ start: { x: number; y: number }; target: { x: number; y: number } }[]>([]);
+  const [feedStage, setFeedStage] = useState(0);
+  const [feedCursor, setFeedCursor] = useState<{ x: number; y: number } | null>(null);
+  const [feedDragging, setFeedDragging] = useState(false);
 
   const [cleanedCount, setCleanedCount] = useState(0);
+  const [cleanupPanels, setCleanupPanels] = useState<{ barCount: number; bars: { width: number; need: number }[] }[]>([]);
+  const [cleanupStage, setCleanupStage] = useState(0);
   const scrubDistanceRef = useRef(0);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
   const [traceSamples, setTraceSamples] = useState(0);
   const [traceAligned, setTraceAligned] = useState(0);
   const [traceCursor, setTraceCursor] = useState<{ x: number; y: number } | null>(null);
+  const [tracePatterns, setTracePatterns] = useState<{ id: string; amplitude: number; phase: number; offset: number; goal: number }[]>([]);
+  const [traceStage, setTraceStage] = useState(0);
 
   const [cards, setCards] = useState<string[]>([]);
   const [revealed, setRevealed] = useState<boolean[]>([]);
@@ -123,10 +166,15 @@ export default function MiniGameRunnerScreen() {
   const sequencePreviewRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoStarted = useRef(false);
   const roundClosedRef = useRef(false);
+  const feedStageRef = useRef(0);
+  const cleanupStageRef = useRef(0);
+  const traceStageRef = useRef(0);
   const tapGoal = useMemo(() => (game ? targetGoalFor(game, variant) : 0), [game, variant]);
-  const scrubGoal = variant === 'long' ? 6 : 4;
-  const traceGoal = variant === 'long' ? 22 : 12;
   const pairGoal = variant === 'long' ? 3 : 2;
+  const activeCleanupPanel = cleanupPanels[cleanupStage] ?? null;
+  const scrubGoal = activeCleanupPanel?.barCount ?? 0;
+  const activeTracePattern = tracePatterns[traceStage] ?? null;
+  const traceGoal = activeTracePattern?.goal ?? 0;
 
   const cleanupTimers = useCallback(() => {
     if (timerRef.current) {
@@ -161,14 +209,28 @@ export default function MiniGameRunnerScreen() {
 
     setTapCount(0);
     setTargetPos({ x: 30 + Math.random() * 220, y: 30 + Math.random() * 120 });
+    const nextFeedLinks = buildFeedLinks();
+    setFeedLinks(nextFeedLinks);
+    setFeedStage(0);
+    feedStageRef.current = 0;
+    setFeedCursor(null);
+    setFeedDragging(false);
 
     setCleanedCount(0);
+    const nextCleanupPanels = buildCleanupPanels();
+    setCleanupPanels(nextCleanupPanels);
+    setCleanupStage(0);
+    cleanupStageRef.current = 0;
     scrubDistanceRef.current = 0;
     lastPointRef.current = null;
 
     setTraceSamples(0);
     setTraceAligned(0);
     setTraceCursor(null);
+    const nextTracePatterns = buildTracePatterns(variant);
+    setTracePatterns(nextTracePatterns);
+    setTraceStage(0);
+    traceStageRef.current = 0;
 
     const nextCards = shuffledSymbols(variant);
     setCards(nextCards);
@@ -332,6 +394,66 @@ export default function MiniGameRunnerScreen() {
     setTargetPos({ x: 24 + Math.random() * 220, y: 24 + Math.random() * 130 });
   }, [finishRound, running, tapGoal, variant]);
 
+  const feedPan = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: (evt) => {
+          if (!running || game?.id !== 'feed-upload') return false;
+          const link = feedLinks[feedStageRef.current];
+          if (!link) return false;
+          const dx = evt.nativeEvent.locationX - link.start.x;
+          const dy = evt.nativeEvent.locationY - link.start.y;
+          return Math.hypot(dx, dy) <= 24;
+        },
+        onMoveShouldSetPanResponder: () => running && game?.id === 'feed-upload',
+        onPanResponderGrant: () => {
+          const link = feedLinks[feedStageRef.current];
+          if (!link) return;
+          setFeedDragging(true);
+          setFeedCursor(link.start);
+        },
+        onPanResponderMove: (evt) => {
+          if (!running || game?.id !== 'feed-upload') return;
+          const link = feedLinks[feedStageRef.current];
+          if (!link) return;
+          const x = clamp(evt.nativeEvent.locationX, 0, 260);
+          const y = clamp(evt.nativeEvent.locationY, 0, 170);
+          setFeedCursor({ x, y });
+          setInteractions((v) => v + 1);
+
+          const dx = x - link.target.x;
+          const dy = y - link.target.y;
+          const reached = Math.hypot(dx, dy) <= 20;
+          if (!reached) return;
+
+          const nextStage = feedStageRef.current + 1;
+          const nextQuality = clamp(0.4 + (nextStage / 3) * 0.6, 0, 1);
+          setQuality(nextQuality);
+          setFeedDragging(false);
+          setFeedCursor(null);
+
+          if (nextStage >= 3) {
+            setInteractions((v) => v + 1);
+            setTimeout(() => finishRound(nextQuality), 80);
+            return;
+          }
+
+          feedStageRef.current = nextStage;
+          setFeedStage(nextStage);
+          setStatus(`Meal cycle ${nextStage + 1} loaded. Route the next nutrient line.`);
+        },
+        onPanResponderRelease: () => {
+          setFeedDragging(false);
+          setFeedCursor(null);
+        },
+        onPanResponderTerminate: () => {
+          setFeedDragging(false);
+          setFeedCursor(null);
+        },
+      }),
+    [feedLinks, finishRound, game?.id, running]
+  );
+
   const scrubPan = useMemo(
     () =>
       PanResponder.create({
@@ -348,14 +470,39 @@ export default function MiniGameRunnerScreen() {
             const dx = p.x - lastPointRef.current.x;
             const dy = p.y - lastPointRef.current.y;
             const delta = Math.hypot(dx, dy);
-            const need = variant === 'long' ? 70 : 50;
+            const panel = cleanupPanels[cleanupStageRef.current];
+            if (!panel) {
+              lastPointRef.current = p;
+              return;
+            }
             const nextDistance = scrubDistanceRef.current + delta;
             scrubDistanceRef.current = nextDistance;
-            const nextClean = Math.min(scrubGoal, Math.floor(nextDistance / need));
+            let remaining = nextDistance;
+            let nextClean = 0;
+            for (const bar of panel.bars) {
+              if (remaining >= bar.need) {
+                nextClean += 1;
+                remaining -= bar.need;
+              } else {
+                break;
+              }
+            }
+            nextClean = Math.min(panel.barCount, nextClean);
             setCleanedCount(nextClean);
-            setQuality(clamp(0.45 + nextClean * 0.14, 0, 1));
-            if (nextClean >= scrubGoal) {
-              setTimeout(() => finishRound(clamp(0.45 + nextClean * 0.14, 0, 1)), 60);
+            const totalProgress = cleanupStageRef.current + nextClean / Math.max(panel.barCount, 1);
+            const nextQuality = clamp(0.32 + (totalProgress / 3) * 0.68, 0, 1);
+            setQuality(nextQuality);
+            if (nextClean >= panel.barCount) {
+              if (cleanupStageRef.current >= 2) {
+                setTimeout(() => finishRound(nextQuality), 60);
+              } else {
+                cleanupStageRef.current += 1;
+                const nextStage = cleanupStageRef.current;
+                setCleanupStage(nextStage);
+                scrubDistanceRef.current = 0;
+                setCleanedCount(0);
+                setStatus(`Panel ${nextStage + 1} loaded. Scrub the nodes clean.`);
+              }
             }
           }
           lastPointRef.current = p;
@@ -367,7 +514,7 @@ export default function MiniGameRunnerScreen() {
           lastPointRef.current = null;
         },
       }),
-    [finishRound, game?.kind, running, scrubGoal, variant]
+    [cleanupPanels, finishRound, game?.kind, running]
   );
 
   const tracePan = useMemo(
@@ -377,11 +524,13 @@ export default function MiniGameRunnerScreen() {
         onMoveShouldSetPanResponder: () => running && game?.kind === 'trace',
         onPanResponderMove: (evt) => {
           if (!running || game?.kind !== 'trace') return;
+          const pattern = tracePatterns[traceStageRef.current];
+          if (!pattern) return;
           setInteractions((v) => v + 1);
 
           const x = clamp(evt.nativeEvent.locationX, 0, 260);
           const y = clamp(evt.nativeEvent.locationY, 0, 170);
-          const expected = 85 + Math.sin((x / 260) * Math.PI * 2) * 36;
+          const expected = 85 + pattern.offset + Math.sin((x / 260) * Math.PI * 2 + pattern.phase) * pattern.amplitude;
           const tol = variant === 'long' ? 24 : 34;
           const ok = Math.abs(y - expected) <= tol;
 
@@ -390,14 +539,24 @@ export default function MiniGameRunnerScreen() {
           if (ok) setTraceAligned((a) => a + 1);
           const samples = traceSamples + 1;
           const aligned = traceAligned + (ok ? 1 : 0);
-          const nextQuality = clamp(aligned / Math.max(1, samples), 0, 1);
+          const nextQuality = clamp(((traceStageRef.current + aligned / Math.max(1, pattern.goal)) / 3) * 0.9 + aligned / Math.max(1, samples) * 0.1, 0, 1);
           setQuality(nextQuality);
-          if (aligned >= traceGoal && nextQuality >= 0.6) {
-            setTimeout(() => finishRound(nextQuality), 60);
+          if (aligned >= pattern.goal && nextQuality >= 0.45) {
+            if (traceStageRef.current >= 2) {
+              setTimeout(() => finishRound(nextQuality), 60);
+            } else {
+              traceStageRef.current += 1;
+              const nextStage = traceStageRef.current;
+              setTraceStage(nextStage);
+              setTraceSamples(0);
+              setTraceAligned(0);
+              setTraceCursor(null);
+              setStatus(`Signal pattern ${nextStage + 1} engaged. Hold the line steady.`);
+            }
           }
         },
       }),
-    [finishRound, game?.kind, running, traceAligned, traceGoal, traceSamples, variant]
+    [finishRound, game?.kind, running, traceAligned, tracePatterns, traceSamples, variant]
   );
 
   const onCardPress = useCallback((idx: number) => {
@@ -482,21 +641,23 @@ export default function MiniGameRunnerScreen() {
 
   const progress = useMemo(() => {
     if (!game) return '0';
-    if (game.kind === 'scrub') return `${cleanedCount}/${scrubGoal} cleaned`;
-    if (game.kind === 'trace') return `${Math.min(traceAligned, traceGoal)}/${traceGoal} aligned`;
+    if (game.id === 'feed-upload') return `Cycle ${Math.min(feedStage + 1, 3)}/3`;
+    if (game.kind === 'scrub') return `Panel ${Math.min(cleanupStage + 1, 3)}/3 - ${cleanedCount}/${scrubGoal} clean`;
+    if (game.kind === 'trace') return `Pattern ${Math.min(traceStage + 1, 3)}/3 - ${Math.min(traceAligned, traceGoal)}/${traceGoal}`;
     if (game.kind === 'match') return `${pairCount}/${pairGoal} pairs`;
     if (game.kind === 'sequence') return `${seqCorrect}/${seqPattern.length}`;
     if (game.kind === 'ordered-sequence') return `${Math.min(orderedNext - 1, 6)}/6`;
     if (game.kind === 'timing') return `${timingHits}/${timingAttempts}`;
     return `${tapCount} taps`;
-  }, [cleanedCount, game, orderedNext, pairCount, pairGoal, scrubGoal, seqCorrect, seqPattern.length, tapCount, timingAttempts, timingHits, traceAligned, traceGoal]);
+  }, [cleanedCount, cleanupStage, feedStage, game, orderedNext, pairCount, pairGoal, scrubGoal, seqCorrect, seqPattern.length, tapCount, timingAttempts, timingHits, traceAligned, traceGoal, traceStage]);
 
   const instruction = useMemo(() => {
     if (!game) return '';
+    if (game.id === 'feed-upload') return 'Route the nutrient link into BYTE. Complete 3 meal cycles.';
     if (game.kind === 'tap-target') return `Hit ${tapGoal} targets before time runs out.`;
     if (game.kind === 'rapid-tap') return `Mash to ${tapGoal} taps as fast as possible.`;
-    if (game.kind === 'scrub') return `Scrub until ${scrubGoal} patches are clean.`;
-    if (game.kind === 'trace') return `Trace the wave and reach ${traceGoal} aligned points.`;
+    if (game.kind === 'scrub') return `Scrub the nodes clean. Clear 3 panels of ${scrubGoal} bars.`;
+    if (game.kind === 'trace') return `Stabilize 3 signal patterns. Lock ${traceGoal} aligned points on this pattern.`;
     if (game.kind === 'match') return `Match ${pairGoal} pairs.`;
     if (game.kind === 'sequence') return sequencePreviewing
       ? `Memorize: ${seqPattern.map((idx) => EMOTES[idx]).join(' -> ')}`
@@ -559,8 +720,79 @@ export default function MiniGameRunnerScreen() {
           <View style={styles.hudCard}><Text style={styles.hudLabel}>QUALITY</Text><Text style={styles.hudVal}>{Math.round(quality * 100)}%</Text></View>
         </View>
 
+        <View style={styles.alertStack}>
+          {postProcessing ? (
+            <View style={styles.processCard}>
+              <View style={styles.processHeader}>
+                <Text style={styles.processTitle}>{processLabelFor(game)}</Text>
+                <Text style={styles.processPercent}>{postPercent}%</Text>
+              </View>
+              <Text style={styles.processSub}>SYSTEM PROCESS</Text>
+              <View style={styles.processTrack}>
+                <View style={[styles.processFill, { width: `${postPercent}%` }]} />
+              </View>
+              <Text style={styles.processFooter}>Reward package and room sync in progress...</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.statusCard}>
+            <Text style={styles.instruction}>{instruction}</Text>
+            <Text style={styles.status}>{syncing ? 'Syncing result...' : status}</Text>
+            <Text style={styles.grade}>Grade: {grade.toUpperCase()}</Text>
+          </View>
+
+          {resultReady ? (
+            <View style={styles.resultCard}>
+              <Text style={styles.resultTitle}>PROGRAM RESULT READY</Text>
+              <Text style={styles.resultBody}>{resultSummary}</Text>
+              <Text style={styles.resultMeta}>BYTEBITS +{resultBits} - Energy -{resultEnergyCost}</Text>
+              {resultSkill ? <Text style={styles.resultMeta}>{resultSkill}</Text> : null}
+              <TouchableOpacity style={styles.btn} onPress={goBackToRoom} activeOpacity={0.85}>
+                <Text style={styles.btnText}>RETURN TO ROOM</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
+
         <View style={styles.play}>
-          {(game.kind === 'tap-target' || game.kind === 'rapid-tap') ? (
+          {game.id === 'feed-upload' ? (
+            <View style={styles.fill} {...feedPan.panHandlers}>
+              <Text style={styles.hint}>Connect the food line to BYTE</Text>
+              <Text style={styles.stageText}>Meal cycle {Math.min(feedStage + 1, 3)} of 3</Text>
+              <View style={styles.feedBoard}>
+                {feedLinks.map((link, idx) => {
+                  const isDone = idx < feedStage;
+                  const isActive = idx === feedStage;
+                  return (
+                    <View key={`feed-${idx}`} style={[styles.feedLane, { top: 0 }]}>
+                      <View style={[styles.feedNode, styles.feedSource, { left: link.start.x - 15, top: link.start.y - 15 }, isDone && styles.feedNodeDone, isActive && styles.feedNodeActive]}>
+                        <Text style={styles.feedNodeText}>FOOD</Text>
+                      </View>
+                      <View style={[styles.feedTargetNode, { left: link.target.x - 18, top: link.target.y - 18 }, isDone && styles.feedNodeDone, isActive && styles.feedTargetActive]}>
+                        <Text style={styles.feedTargetText}>BYTE</Text>
+                      </View>
+                      {isDone ? (
+                        <View style={[styles.feedLineDone, {
+                          left: link.start.x + 8,
+                          top: link.start.y - 3,
+                          width: Math.max(20, link.target.x - link.start.x - 10),
+                        }]} />
+                      ) : null}
+                      {isActive && feedDragging && feedCursor ? (
+                        <View style={[styles.feedLineActive, {
+                          left: link.start.x + 8,
+                          top: link.start.y - 3,
+                          width: Math.max(12, feedCursor.x - link.start.x),
+                        }]} />
+                      ) : null}
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
+          {(game.kind === 'tap-target' || game.kind === 'rapid-tap') && game.id !== 'feed-upload' ? (
             <TouchableOpacity style={[styles.target, { left: targetPos.x, top: targetPos.y }]} onPress={onTapTarget} disabled={!running}>
               <Text style={styles.targetText}>{game.kind === 'rapid-tap' ? 'TAP' : 'GO'}</Text>
             </TouchableOpacity>
@@ -568,10 +800,18 @@ export default function MiniGameRunnerScreen() {
 
           {game.kind === 'scrub' ? (
             <View style={styles.fill} {...scrubPan.panHandlers}>
-              <Text style={styles.hint}>Swipe/Rub across this panel</Text>
-              <View style={styles.row}>
-                {Array.from({ length: scrubGoal }).map((_, idx) => (
-                  <View key={idx} style={[styles.patch, idx < cleanedCount && styles.patchClean]} />
+              <Text style={styles.hint}>Scrub the nodes clean</Text>
+              <Text style={styles.stageText}>Panel {Math.min(cleanupStage + 1, 3)} of 3</Text>
+              <View style={styles.scrubBoard}>
+                {activeCleanupPanel?.bars.map((bar, idx) => (
+                  <View
+                    key={`${cleanupStage}-${idx}`}
+                    style={[
+                      styles.patch,
+                      { width: bar.width },
+                      idx < cleanedCount && styles.patchClean,
+                    ]}
+                  />
                 ))}
               </View>
             </View>
@@ -579,15 +819,16 @@ export default function MiniGameRunnerScreen() {
 
           {game.kind === 'trace' ? (
             <View style={styles.fill} {...tracePan.panHandlers}>
+              <Text style={styles.stageText}>Pattern {Math.min(traceStage + 1, 3)} of 3</Text>
               <View style={styles.traceBoard}>
                 {Array.from({ length: 28 }).map((_, idx) => {
                   const x = (idx / 27) * 260;
-                  const y = 85 + Math.sin((x / 260) * Math.PI * 2) * 36;
+                  const y = 85 + (activeTracePattern?.offset ?? 0) + Math.sin((x / 260) * Math.PI * 2 + (activeTracePattern?.phase ?? 0)) * (activeTracePattern?.amplitude ?? 30);
                   return <View key={idx} style={[styles.traceDot, { left: x, top: y }]} />;
                 })}
                 {traceCursor ? <View style={[styles.traceCursor, { left: traceCursor.x, top: traceCursor.y }]} /> : null}
               </View>
-              <Text style={styles.hint}>Drag the marker along the wave line</Text>
+              <Text style={styles.hint}>Drag the marker across each signal pattern</Text>
             </View>
           ) : null}
 
@@ -632,35 +873,6 @@ export default function MiniGameRunnerScreen() {
           ) : null}
         </View>
 
-        {postProcessing ? (
-          <View style={styles.processCard}>
-            <View style={styles.processHeader}>
-              <Text style={styles.processTitle}>{processLabelFor(game)}</Text>
-              <Text style={styles.processPercent}>{postPercent}%</Text>
-            </View>
-            <Text style={styles.processSub}>SYSTEM PROCESS</Text>
-            <View style={styles.processTrack}>
-              <View style={[styles.processFill, { width: `${postPercent}%` }]} />
-            </View>
-            <Text style={styles.processFooter}>Reward package and room sync in progress...</Text>
-          </View>
-        ) : null}
-
-        <Text style={styles.instruction}>{instruction}</Text>
-        <Text style={styles.status}>{syncing ? 'Syncing result...' : status}</Text>
-        <Text style={styles.grade}>Grade: {grade.toUpperCase()}</Text>
-
-        {resultReady ? (
-          <View style={styles.resultCard}>
-            <Text style={styles.resultTitle}>PROGRAM RESULT READY</Text>
-            <Text style={styles.resultBody}>{resultSummary}</Text>
-            <Text style={styles.resultMeta}>BYTEBITS +{resultBits} - Energy -{resultEnergyCost}</Text>
-            {resultSkill ? <Text style={styles.resultMeta}>{resultSkill}</Text> : null}
-            <TouchableOpacity style={styles.btn} onPress={goBackToRoom} activeOpacity={0.85}>
-              <Text style={styles.btnText}>RETURN TO ROOM</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
       </SafeAreaView>
     </ImageBackground>
   );
@@ -693,8 +905,17 @@ const styles = StyleSheet.create({
   },
   hudLabel: { color: '#9dd5ff', fontSize: 9.5, fontWeight: '800', letterSpacing: 1 },
   hudVal: { color: '#e9f4ff', fontSize: 10.8, fontWeight: '700' },
+  alertStack: { marginTop: 10, gap: 8 },
+  statusCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(120,190,255,0.26)',
+    backgroundColor: 'rgba(7,16,54,0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
   play: {
-    marginTop: 12,
+    marginTop: 10,
     minHeight: 240,
     borderRadius: 12,
     borderWidth: 1,
@@ -705,7 +926,80 @@ const styles = StyleSheet.create({
   },
   fill: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   hint: { color: '#d9efff', fontSize: 11, fontWeight: '700' },
-  row: { flexDirection: 'row', gap: 8 },
+  stageText: { color: '#8fdfff', fontSize: 10.2, fontWeight: '800', letterSpacing: 1 },
+  scrubBoard: { width: '100%', gap: 10, alignItems: 'center', justifyContent: 'center' },
+  feedBoard: {
+    width: 260,
+    height: 170,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(120,190,255,0.28)',
+    backgroundColor: 'rgba(14,36,76,0.76)',
+    overflow: 'hidden',
+  },
+  feedLane: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  feedNode: {
+    position: 'absolute',
+    width: 44,
+    height: 30,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,221,120,0.6)',
+    backgroundColor: 'rgba(255,187,76,0.24)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedSource: {
+    width: 48,
+  },
+  feedTargetNode: {
+    position: 'absolute',
+    width: 52,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(126,240,194,0.75)',
+    backgroundColor: 'rgba(27,103,74,0.36)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  feedNodeActive: {
+    backgroundColor: 'rgba(255,214,117,0.34)',
+    borderColor: 'rgba(255,238,171,0.86)',
+  },
+  feedTargetActive: {
+    backgroundColor: 'rgba(49,146,110,0.44)',
+  },
+  feedNodeDone: {
+    borderColor: 'rgba(126,240,194,0.86)',
+    backgroundColor: 'rgba(126,240,194,0.22)',
+  },
+  feedNodeText: {
+    color: '#fff2c2',
+    fontSize: 8.8,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  feedTargetText: {
+    color: '#d9fff1',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  feedLineDone: {
+    position: 'absolute',
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: '#68f4d4',
+  },
+  feedLineActive: {
+    position: 'absolute',
+    height: 6,
+    borderRadius: 99,
+    backgroundColor: '#ffd985',
+  },
   target: {
     position: 'absolute',
     width: 70,
@@ -718,8 +1012,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   targetText: { color: '#2a1a08', fontSize: 16, fontWeight: '900' },
-  patch: { width: 26, height: 26, borderRadius: 99, backgroundColor: 'rgba(55,32,14,0.95)' },
-  patchClean: { backgroundColor: 'rgba(110,244,188,0.95)' },
+  patch: {
+    height: 18,
+    borderRadius: 99,
+    borderWidth: 1,
+    borderColor: 'rgba(255,207,138,0.34)',
+    backgroundColor: 'rgba(72,41,16,0.98)',
+  },
+  patchClean: {
+    borderColor: 'rgba(110,244,188,0.36)',
+    backgroundColor: 'rgba(110,244,188,0.95)',
+    opacity: 0.18,
+  },
   traceBoard: {
     width: 260,
     height: 170,
@@ -762,7 +1066,6 @@ const styles = StyleSheet.create({
   btn: { borderRadius: 10, borderWidth: 1, borderColor: 'rgba(120,190,255,0.35)', backgroundColor: 'rgba(8,18,62,0.92)', paddingVertical: 10, alignItems: 'center', marginTop: 8 },
   btnText: { color: '#d9efff', fontSize: 11, fontWeight: '800', letterSpacing: 1.1 },
   processCard: {
-    marginTop: 10,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(95,182,255,0.28)',
@@ -777,10 +1080,9 @@ const styles = StyleSheet.create({
   processTrack: { height: 9, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
   processFill: { height: 9, borderRadius: 5, backgroundColor: '#2de6f6' },
   processFooter: { color: 'rgba(132,177,255,0.74)', fontSize: 9.4, fontWeight: '700' },
-  status: { marginTop: 10, color: '#9cdfff', fontSize: 10.5, textAlign: 'center' },
+  status: { marginTop: 6, color: '#9cdfff', fontSize: 10.5, textAlign: 'center' },
   grade: { marginTop: 2, color: '#d9efff', fontSize: 10.5, textAlign: 'center', fontWeight: '700' },
   resultCard: {
-    marginTop: 10,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(120,190,255,0.3)',

@@ -368,12 +368,12 @@ router.post('/:id/hatch', async (req, res) => {
     }
 
     const byteObj = byte.toObject();
-    const shape = evolutionEngine.assignShapeFromMetrics(byteObj.eggMetrics || {});
+    // Shape is set at egg creation (from onboarding choice) — do not overwrite it here.
+    const shape = byteObj.shape || 'Diamond';
     const animal = evolutionEngine.assignAnimalForHatch(byteObj.behaviorMetrics || {});
 
     byte.isEgg = false;
     byte.evolutionStage = 1;
-    byte.shape = shape;
     byte.animal = animal;
     byte.stats = statEngine.applyEvolutionBiases(byteObj.stats, { shape, animal, element: null, feature: null, branch: null });
     await byte.save();

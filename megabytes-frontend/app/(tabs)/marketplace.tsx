@@ -1,9 +1,24 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, ImageBackground, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { buyMarketplaceNow, getMarketplaceListings, getPlayer, placeMarketplaceBid } from '../../services/api';
 
+function listingEmoji(listing: any) {
+  const name = String(listing?.itemName || listing?.title || '').toLowerCase();
+  const text = `${name} ${String(listing?.description || '').toLowerCase()}`;
+  if (text.includes('meat') || text.includes('meal') || text.includes('snack') || text.includes('food')) return '🍖';
+  if (text.includes('wipe') || text.includes('scrub') || text.includes('clean') || text.includes('purge')) return '🧽';
+  if (text.includes('charge') || text.includes('energy') || text.includes('bandwidth') || text.includes('overclock')) return '🔋';
+  if (text.includes('vibe') || text.includes('mood') || text.includes('comfort') || text.includes('hype')) return '✨';
+  if (text.includes('evo') || text.includes('core') || text.includes('kernel') || text.includes('module')) return '💠';
+  if (text.includes('teach') || text.includes('move') || text.includes('combat')) return '📀';
+  if (text.includes('field') || text.includes('protocol') || text.includes('utility')) return '🧩';
+  return '📦';
+}
+
 export default function MarketplaceScreen() {
+  const router = useRouter();
   const [listings, setListings] = useState<any[]>([]);
   const [bits, setBits] = useState(0);
   const [playerId, setPlayerId] = useState('');
@@ -92,6 +107,9 @@ export default function MarketplaceScreen() {
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.85}>
+          <Text style={styles.backText}>BACK</Text>
+        </TouchableOpacity>
         <Text style={styles.title}>MARKETPLACE</Text>
         <Text style={styles.sub}>Auction + buy-now exchange</Text>
         <Text style={styles.bits}>{bits.toLocaleString()} ByteBits</Text>
@@ -102,10 +120,14 @@ export default function MarketplaceScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.list}>
+          <View style={styles.grid}>
           {listings.map((listing) => {
             const isBusy = busyId === listing.id;
             return (
               <View key={listing.id} style={styles.card}>
+                <View style={styles.itemArt}>
+                  <Text style={styles.itemEmoji}>{listingEmoji(listing)}</Text>
+                </View>
                 <Text style={styles.itemName}>{listing.itemName}</Text>
                 <Text style={styles.itemMeta}>{listing.title}</Text>
                 <Text style={styles.itemDesc}>{listing.description || 'Auction listing.'}</Text>
@@ -150,6 +172,7 @@ export default function MarketplaceScreen() {
               </View>
             );
           })}
+          </View>
         </ScrollView>
       </SafeAreaView>
     </ImageBackground>
@@ -159,6 +182,17 @@ export default function MarketplaceScreen() {
 const styles = StyleSheet.create({
   bg: { flex: 1 },
   safe: { flex: 1, paddingHorizontal: 14 },
+  backBtn: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(120,195,255,0.28)',
+    backgroundColor: 'rgba(8,18,62,0.86)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  backText: { color: '#dff2ff', fontSize: 10.5, fontWeight: '900', letterSpacing: 1.1 },
   title: { color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: 1.8, marginTop: 8 },
   sub: { color: 'rgba(200,228,255,0.68)', fontSize: 11, marginTop: 3 },
   bits: { color: '#ffd96d', fontSize: 12, fontWeight: '800', marginTop: 6 },
@@ -174,8 +208,15 @@ const styles = StyleSheet.create({
   },
   statusText: { color: '#dff2ff', fontSize: 11 },
   statusMeta: { color: 'rgba(180,220,255,0.72)', fontSize: 10 },
-  list: { paddingTop: 10, paddingBottom: 26, gap: 10 },
+  list: { paddingTop: 10, paddingBottom: 26 },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   card: {
+    width: '48.5%',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(120,195,255,0.26)',
@@ -184,19 +225,29 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 5,
   },
+  itemArt: {
+    height: 82,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(120,195,255,0.22)',
+    backgroundColor: 'rgba(18,32,84,0.72)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  itemEmoji: { fontSize: 34 },
   itemName: { color: '#fff', fontSize: 13, fontWeight: '800' },
   itemMeta: { color: '#9fe3ff', fontSize: 10.5, fontWeight: '700' },
-  itemDesc: { color: 'rgba(220,240,255,0.8)', fontSize: 10.5 },
+  itemDesc: { color: 'rgba(220,240,255,0.8)', fontSize: 10.2, minHeight: 42 },
   leadingTag: { color: '#8bffc0', fontSize: 9.8, fontWeight: '800' },
-  priceRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  priceRow: { gap: 2 },
   priceText: { color: '#ffd96d', fontSize: 10.5, fontWeight: '700' },
   endsText: { color: 'rgba(190,230,255,0.65)', fontSize: 9.8 },
   bidMeta: { color: 'rgba(175,221,255,0.78)', fontSize: 9.8 },
   bidHistory: { gap: 2 },
   bidHistoryText: { color: 'rgba(168,211,246,0.72)', fontSize: 9.3 },
-  bidRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  bidRow: { gap: 8, marginTop: 6 },
   bidInput: {
-    flex: 1,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(120,195,255,0.26)',

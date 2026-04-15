@@ -63,7 +63,7 @@ export default function SplashScreen() {
 
         <View style={styles.infoBlock}>
           <View style={styles.scanlines} pointerEvents="none" />
-          <Text style={styles.infoPrimary}>DEMO BUILD 1.5</Text>
+          <Text style={styles.infoPrimary}>DEMO BUILD 2.2.3</Text>
           {demoMode ? <Text style={styles.infoDemo}>DEMO PROFILE ACTIVE</Text> : null}
           <Text style={styles.infoSecondary}>VOIDWORKS INTERACTIVE</Text>
           <Text style={styles.infoSecondary}>INTERNAL SHOWCASE BRANCH</Text>

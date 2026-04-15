@@ -103,7 +103,9 @@ async function request(method, path, body) {
       if (renderColdStart) {
         err.message = 'Server is waking up. Please retry in a few seconds.';
       }
-      console.error(`[API] ${method} ${path} failed (${BASE_URL}):`, detail);
+      if (__DEV__) {
+        console.log(`[API] ${method} ${path} failed (${BASE_URL}): ${detail}`);
+      }
       throw err;
     }
   }

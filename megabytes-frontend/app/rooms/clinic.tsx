@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { careAction, clinicRepair, enterRoom } from '../../services/api';
+import { careAction, clinicRepair, enterRoom, getByte } from '../../services/api';
 import RoomScene, { RoomAction } from '../../components/RoomScene';
 import { isDemoModeActive, toDemoSeconds } from '../../services/demoSession';
 
@@ -12,13 +12,28 @@ export default function ClinicRoom() {
   const [status, setStatus] = useState('Clinic scan active. Stabilization options available.');
   const [timerLine, setTimerLine] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [corruption, setCorruption] = useState(0);
+  const [corruptionTier, setCorruptionTier] = useState('none');
+
+  const loadClinicStatus = useCallback(async () => {
+    try {
+      const data = await getByte();
+      const nextValue = Number(data?.byte?.corruption ?? 0);
+      setCorruption(Number.isFinite(nextValue) ? Math.max(0, nextValue) : 0);
+      setCorruptionTier(String(data?.corruptionTier || 'none').toUpperCase());
+    } catch {
+      setCorruption(0);
+      setCorruptionTier('NONE');
+    }
+  }, []);
 
   useEffect(() => {
     enterRoom('Clinic', 1).catch(() => {});
+    loadClinicStatus().catch(() => {});
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, []);
+  }, [loadClinicStatus]);
 
   const runTimed = useCallback(async (label: string, seconds: number, work: () => Promise<void>, doneText: string) => {
     if (busy) return;
@@ -40,17 +55,19 @@ export default function ClinicRoom() {
       await work();
     } catch {}
 
+    await loadClinicStatus().catch(() => {});
     setStatus(doneText);
     setBusy(false);
-  }, [busy]);
+  }, [busy, loadClinicStatus]);
 
   const primaryActions: [RoomAction, RoomAction] = [
     {
       key: 'stabilize-short',
       title: 'STABILIZE',
-      subtitle: `${toDemoSeconds(30)}s recovery pass`,
+      subtitle: 'Quick recovery pass',
       icon: 'medkit-outline',
       color: '#7cffc0',
+      sceneEffect: 'stabilize',
       disabled: busy,
       onPress: () => runTimed('Stabilize', toDemoSeconds(30), () => careAction('rest'), 'Stabilize complete. Recovery profile improved.'),
     },
@@ -60,6 +77,7 @@ export default function ClinicRoom() {
       subtitle: `${DEEP_PURGE_SECONDS()}s repair cycle`,
       icon: 'build-outline',
       color: '#79d2ff',
+      sceneEffect: 'purge',
       disabled: busy,
       onPress: () =>
         runTimed(
@@ -81,10 +99,15 @@ export default function ClinicRoom() {
       accent="#8fffd4"
       statusLine={status}
       timerLine={timerLine}
+      metaProgress={{
+        label: 'CORRUPTION',
+        value: corruption,
+        max: 100,
+        tint: corruption >= 70 ? '#ff728f' : corruption >= 35 ? '#ffd86f' : '#7cffc0',
+        detail: corruptionTier,
+      }}
       primaryActions={primaryActions}
       onExit={() => router.replace('/(tabs)')}
     />
   );
 }
-
-

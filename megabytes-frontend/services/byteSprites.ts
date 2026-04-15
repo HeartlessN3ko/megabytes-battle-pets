@@ -10,6 +10,8 @@
 type SpriteOptions = {
   needs?: NeedSnapshot | null;
   preferAnimatedIdle?: boolean;
+  preferAnimatedWalk?: boolean;
+  facing?: 'left' | 'right' | 'idle';
 };
 
 const BYTE_SPRITES = {
@@ -20,6 +22,8 @@ const BYTE_SPRITES = {
   stage1Frown: require('../assets/bytes/stage1-facefrown.png'),
   stage1Sleep: require('../assets/bytes/stage1-facesleep.png'),
   stage1IdleGif: require('../assets/bytes/stage1-idolanimationt.gif'),
+  stage1WalkLeftGif: require('../assets/bytes/stage1-idolanimationt.gif'),
+  stage1WalkRightGif: require('../assets/bytes/stage1-idolanimationt.gif'),
   stage2: require('../assets/bytes/stage2.png'),
 } as const;
 
@@ -37,6 +41,11 @@ export function resolveByteSprite(stage: number, options: SpriteOptions = {}) {
 
   if (stage <= 0) return BYTE_SPRITES.egg;
   if (stage >= 2) return BYTE_SPRITES.stage2;
+
+  if (options.preferAnimatedWalk && mood >= 55 && bandwidth >= 45 && hygiene >= 35) {
+    if (options.facing === 'left') return BYTE_SPRITES.stage1WalkLeftGif;
+    if (options.facing === 'right') return BYTE_SPRITES.stage1WalkRightGif;
+  }
 
   if (options.preferAnimatedIdle && mood >= 65 && bandwidth >= 55 && hygiene >= 45) {
     return BYTE_SPRITES.stage1IdleGif;

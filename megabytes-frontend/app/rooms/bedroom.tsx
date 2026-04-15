@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { Modal, TouchableOpacity, Text, View, StyleSheet } from 'react-native';
-import { careAction, enterRoom, powerNap, sleepCycle } from '../../services/api';
+import { careAction, enterRoom, getByte, powerNap, sleepCycle } from '../../services/api';
 import RoomScene, { RoomAction, RoomResultWindow } from '../../components/RoomScene';
 import { consumePendingMiniGameResult } from '../../services/minigameRuntime';
 
@@ -12,14 +12,27 @@ export default function BedroomRoom() {
   const [resultWindow, setResultWindow] = useState<RoomResultWindow | null>(null);
   const [sleepDurationPickerOpen, setSleepDurationPickerOpen] = useState(false);
   const [sleepDurationMinutes, setSleepDurationMinutes] = useState(60);
+  const [energy, setEnergy] = useState(0);
+
+  const loadBedroomStatus = React.useCallback(async () => {
+    try {
+      const data = await getByte();
+      const nextEnergy = Number(data?.byte?.needs?.Energy ?? 0);
+      setEnergy(Number.isFinite(nextEnergy) ? Math.max(0, Math.min(100, nextEnergy)) : 0);
+    } catch {
+      setEnergy(0);
+    }
+  }, []);
 
   useEffect(() => {
     enterRoom('Bedroom', 1).catch(() => {});
-  }, []);
+    loadBedroomStatus().catch(() => {});
+  }, [loadBedroomStatus]);
 
   useFocusEffect(
     React.useCallback(() => {
       const result = consumePendingMiniGameResult('bedroom');
+      loadBedroomStatus().catch(() => {});
       if (!result) return;
       setStatus(result.summary);
 
@@ -37,7 +50,7 @@ export default function BedroomRoom() {
           cooldownSeconds: result.cooldownSeconds,
         });
       }
-    }, [])
+    }, [loadBedroomStatus])
   );
 
   const primaryActions: [RoomAction, RoomAction] = [
@@ -58,6 +71,7 @@ export default function BedroomRoom() {
               title: 'POWER NAP ACTIVE',
               body: `Byte is resting. Sleep until: ${new Date(result.sleepUntil).toLocaleTimeString()}. Bandwidth +12, Mood +8.`,
             });
+            loadBedroomStatus().catch(() => {});
           })
           .catch(() => {
             setResultWindow({
@@ -94,6 +108,13 @@ export default function BedroomRoom() {
         accent="#9f9cff"
         backgroundSource={require('../../assets/backgrounds/bedroom.png')}
         statusLine={status}
+        metaProgress={{
+          label: 'ENERGY',
+          value: energy,
+          max: 100,
+          tint: energy >= 70 ? '#7cffc0' : energy >= 35 ? '#a88eff' : '#8f97ff',
+          detail: `${Math.round(energy)}%`,
+        }}
         primaryActions={primaryActions}
         secondaryActions={secondaryActions}
         resultWindow={resultWindow}
@@ -128,6 +149,7 @@ export default function BedroomRoom() {
                     title: 'SLEEP CYCLE ACTIVE',
                     body: `Byte is in deep sleep. Sleep until: ${new Date(result.sleepUntil).toLocaleTimeString()}. Full recovery applied.`,
                   });
+                  loadBedroomStatus().catch(() => {});
                 })
                 .catch(() => {
                   setResultWindow({

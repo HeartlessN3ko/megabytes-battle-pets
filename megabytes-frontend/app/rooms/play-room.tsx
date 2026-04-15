@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { enterRoom, interactByte } from '../../services/api';
+import { enterRoom, getByte, interactByte } from '../../services/api';
 import RoomScene, { RoomAction, RoomResultWindow } from '../../components/RoomScene';
 import { consumePendingMiniGameResult } from '../../services/minigameRuntime';
 
@@ -9,14 +9,27 @@ export default function PlayRoom() {
   const router = useRouter();
   const [status, setStatus] = useState('Play room loaded. Engagement routines ready.');
   const [resultWindow, setResultWindow] = useState<RoomResultWindow | null>(null);
+  const [mood, setMood] = useState(0);
+
+  const loadPlayRoomStatus = React.useCallback(async () => {
+    try {
+      const data = await getByte();
+      const nextMood = Number(data?.byte?.needs?.Mood ?? 0);
+      setMood(Number.isFinite(nextMood) ? Math.max(0, Math.min(100, nextMood)) : 0);
+    } catch {
+      setMood(0);
+    }
+  }, []);
 
   useEffect(() => {
     enterRoom('Play_Room', 1).catch(() => {});
-  }, []);
+    loadPlayRoomStatus().catch(() => {});
+  }, [loadPlayRoomStatus]);
 
   useFocusEffect(
     React.useCallback(() => {
       const result = consumePendingMiniGameResult('play-room');
+      loadPlayRoomStatus().catch(() => {});
       if (!result) return;
       setStatus(result.summary);
       setResultWindow({
@@ -27,7 +40,7 @@ export default function PlayRoom() {
         energyCost: result.energyCost,
         cooldownSeconds: result.cooldownSeconds,
       });
-    }, [])
+    }, [loadPlayRoomStatus])
   );
 
   const primaryActions: [RoomAction, RoomAction] = [
@@ -82,6 +95,13 @@ export default function PlayRoom() {
       sceneTint="rgba(66,26,70,0.22)"
       accent="#ff8ed2"
       statusLine={status}
+      metaProgress={{
+        label: 'MOOD',
+        value: mood,
+        max: 100,
+        tint: mood >= 70 ? '#7cffc0' : mood >= 35 ? '#ff93e2' : '#ff9cdf',
+        detail: `${Math.round(mood)}%`,
+      }}
       primaryActions={primaryActions}
       secondaryActions={secondaryActions}
       resultWindow={resultWindow}

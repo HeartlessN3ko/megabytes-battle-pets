@@ -21,13 +21,14 @@ export default function TabLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color }) => <TabIcon name="home-outline" color={color} /> }} />
-      <Tabs.Screen name="cash-shop" options={{ title: 'Cash', tabBarIcon: ({ color }) => <TabIcon name="card-outline" color={color} /> }} />
       <Tabs.Screen name="story" options={{ title: 'Story', tabBarIcon: ({ color }) => <TabIcon name="map-outline" color={color} /> }} />
       <Tabs.Screen name="arena" options={{ title: 'Arena', tabBarIcon: ({ color }) => <TabIcon name="flash-outline" color={color} /> }} />
-      <Tabs.Screen name="leaderboards" options={{ title: 'Leaders', tabBarIcon: ({ color }) => <TabIcon name="podium-outline" color={color} /> }} />
+      <Tabs.Screen name="achievements" options={{ title: 'Achievements', tabBarIcon: ({ color }) => <TabIcon name="ribbon-outline" color={color} /> }} />
+      <Tabs.Screen name="collection" options={{ title: 'Settings', tabBarIcon: ({ color }) => <TabIcon name="settings-outline" color={color} /> }} />
+      <Tabs.Screen name="cash-shop" options={{ href: null }} />
+      <Tabs.Screen name="leaderboards" options={{ href: null }} />
       <Tabs.Screen name="marketplace" options={{ href: null }} />
       <Tabs.Screen name="inbox" options={{ href: null }} />
-      <Tabs.Screen name="collection" options={{ href: null }} />
       <Tabs.Screen name="profile" options={{ href: null }} />
       <Tabs.Screen name="events" options={{ href: null }} />
       <Tabs.Screen name="battle" options={{ href: null }} />

@@ -17,7 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { earnCurrency, evolveByte, getPlayer, praiseByte, scoldByte, syncByte } from '../../services/api';
+import { earnCurrency, evolveByte, getPlayer, praiseByte, scoldByte, syncByte, wakeUpByte } from '../../services/api';
 import { getHomeClutterClearedAt, loadHomeClutterCount, saveHomeClutterCount } from '../../services/homeRuntimeState';
 import { initSfx, playSfx } from '../../services/sfx';
 import { useEvolution } from '../../context/EvolutionContext';
@@ -36,6 +36,10 @@ const CORRUPTION_TIER_COLOR: Record<string, string> = {
   none: '#888888', light: '#ffe666', medium: '#ff9c44', heavy: '#ff6060', critical: '#bf44ff',
 };
 
+const STAGE_NAMES = ['EGG', 'Stage 1 .PNG', 'Stage 2 .SVG', 'Stage 3 .GIF', 'Stage 4 .ANI', 'Stage 5 .MOV'];
+
+const getStageName = (stage: number): string => STAGE_NAMES[Math.max(0, Math.min(5, stage))] || 'Unknown';
+
 const HOME_ACTIONS = [
   { key: 'inventory', label: 'INVENTORY', icon: 'cube-outline', color: '#ffc84a' },
   { key: 'praise', label: 'PRAISE', icon: 'thumbs-up-outline', color: '#45d4ff' },
@@ -45,10 +49,8 @@ const HOME_ACTIONS = [
 
 const TOP_MENU = [
   { key: 'profile', label: 'PROFILE', icon: 'person-circle-outline', route: '/(tabs)/profile' },
-  { key: 'achievements', label: 'ACHIEVEMENTS', icon: 'star-outline', action: 'achievements' },
   { key: 'inbox', label: 'INBOX', icon: 'mail-open-outline', route: '/(tabs)/inbox' },
-  { key: 'events', label: 'EVENTS', icon: 'sparkles-outline', route: '/(tabs)/events' },
-  { key: 'settings', label: 'SETTINGS', icon: 'settings-outline', route: '/(tabs)/collection' },
+  { key: 'events', label: 'EVENTS', icon: 'sparkles-outline', route: '/(tabs)/events', color: '#ffd45a' },
 ];
 
 const CLUTTER_SPRITES = [
@@ -241,7 +243,7 @@ function StatsModal({ visible, onClose, byteData, playerData, onEvolved }: { vis
 
           <ScrollView style={styles.statsScroll} showsVerticalScrollIndicator={false}>
             <Text style={styles.statsSection}>PROFILE</Text>
-            <View style={styles.kvRow}><Text style={styles.kvKey}>STAGE</Text><Text style={styles.kvVal}>{Number(byte?.evolutionStage || 0) + 1}</Text></View>
+            <View style={styles.kvRow}><Text style={styles.kvKey}>STAGE</Text><Text style={styles.kvVal}>{getStageName(byte?.evolutionStage || 0)}</Text></View>
             <View style={styles.kvRow}><Text style={styles.kvKey}>LEVEL / XP</Text><Text style={styles.kvVal}>{Number(byte?.level || 1)} / {Number(byte?.xp || 0)}</Text></View>
             <View style={styles.kvRow}><Text style={styles.kvKey}>ELEMENT</Text><Text style={styles.kvVal}>{element}</Text></View>
             <View style={styles.kvRow}><Text style={styles.kvKey}>TEMPERAMENT</Text><Text style={styles.kvVal}>{temperament}</Text></View>
@@ -347,6 +349,7 @@ export default function HomeScreen() {
   const stride = useRef(new Animated.Value(0)).current;
   const depthScale = useRef(new Animated.Value(1)).current;
   const tapScale = useRef(new Animated.Value(1)).current;
+  const blinkOpacity = useRef(new Animated.Value(1)).current;
   const drawerAnim = useRef(new Animated.Value(height)).current;
   const stickyUntilRef = useRef(0);
   const clutterSyncRef = useRef(0);
@@ -366,7 +369,13 @@ export default function HomeScreen() {
   const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
   const [rewardPopups, setRewardPopups] = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
   const [actionBursts, setActionBursts] = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
+  const [emotion, setEmotion] = useState<'praise' | 'scold' | null>(null);
   const [moveFacing, setMoveFacing] = useState<'left' | 'right' | 'idle'>('idle');
+  const [motionState, setMotionState] = useState<'walking_slow' | 'walking_fast' | 'idle' | 'resting'>('walking_slow');
+  const [isSleeping, setIsSleeping] = useState(false);
+  const [sleepUntil, setSleepUntil] = useState<Date | null>(null);
+  const [wakeUpTaps, setWakeUpTaps] = useState(0);
+  const emotionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const needs = useMemo(
     () =>
@@ -380,12 +389,19 @@ export default function HomeScreen() {
       },
     [byteData?.byte?.needs]
   );
-  const petSprite = resolveByteSprite(stage, {
+  let petSprite = resolveByteSprite(stage, {
     needs,
     preferAnimatedIdle: true,
     preferAnimatedWalk: moveFacing !== 'idle',
     facing: moveFacing,
   });
+
+  // Override sprite with emotion GIF if emotion is active
+  if (emotion === 'praise') {
+    petSprite = require('../../assets/bytes/missingno-smile.gif');
+  } else if (emotion === 'scold') {
+    petSprite = require('../../assets/bytes/missingno-sad.gif');
+  }
 
   const clutterPenalty = Math.min(24, clutter * 3);
   const effectiveMood = Math.max(0, (needs.Mood || 0) - clutterPenalty);
@@ -437,6 +453,8 @@ export default function HomeScreen() {
       const [b, p] = await Promise.all([syncByte(), getPlayer()]);
       setByteData(b);
       setPlayerData(p);
+      setIsSleeping(b?.byte?.isSleeping || false);
+      setSleepUntil(b?.byte?.sleepUntil ? new Date(b.byte.sleepUntil) : null);
     } catch (err: any) {
       const msg = err?.message || '';
       if (msg.toLowerCase().includes('waking up')) {
@@ -479,6 +497,7 @@ export default function HomeScreen() {
     loadHomeClutterCount().then((count) => setClutter(Math.max(0, Math.min(8, count)))).catch(() => {});
     return () => {
       if (statusResetTimerRef.current) clearTimeout(statusResetTimerRef.current);
+      if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
     };
   }, []);
 
@@ -488,14 +507,24 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      Promise.all([refreshData(), reloadFromServer().catch(() => {})]).catch(() => {});
-      const clearedAt = getHomeClutterClearedAt();
-      if (clearedAt > clutterSyncRef.current) {
-        clutterSyncRef.current = clearedAt;
-        setClutter(0);
-      }
+      (async () => {
+        await refreshData();
+        await reloadFromServer().catch(() => {});
+        const clearedAt = getHomeClutterClearedAt();
+        if (clearedAt > clutterSyncRef.current) {
+          clutterSyncRef.current = clearedAt;
+          setClutter(0);
+        }
+      })().catch(() => {});
     }, [refreshData, reloadFromServer])
   );
+
+  // Redirect to egg screen if byte is an egg
+  useEffect(() => {
+    if (byteData?.byte?.isEgg) {
+      router.replace('/egg');
+    }
+  }, [byteData?.byte?.isEgg, router]);
 
   useEffect(() => {
     const thoughtTicker = setInterval(() => {
@@ -519,6 +548,30 @@ export default function HomeScreen() {
 
     return () => clearInterval(clutterTicker);
   }, [needs.Hygiene]);
+
+  // Auto-wake when sleep time expires
+  useEffect(() => {
+    if (!isSleeping || !sleepUntil) return;
+    const now = Date.now();
+    const sleepEndTime = new Date(sleepUntil).getTime();
+    if (now >= sleepEndTime) {
+      wakeUpByte().catch(() => {});
+      setIsSleeping(false);
+      setSleepUntil(null);
+      setWakeUpTaps(0);
+      setTransientStatus('BYTE woke up naturally.', 2000);
+    } else {
+      const timeUntilWake = sleepEndTime - now;
+      const timer = setTimeout(() => {
+        wakeUpByte().catch(() => {});
+        setIsSleeping(false);
+        setSleepUntil(null);
+        setWakeUpTaps(0);
+        setTransientStatus('BYTE woke up naturally.', 2000);
+      }, timeUntilWake);
+      return () => clearTimeout(timer);
+    }
+  }, [isSleeping, sleepUntil, setTransientStatus]);
 
   useEffect(() => {
     let active = true;
@@ -552,10 +605,51 @@ export default function HomeScreen() {
 
     const roam = () => {
       if (!active) return;
+
+      // Pick motion state: 60% walking_slow, 20% walking_fast, 15% idle, 5% resting
+      const rand = Math.random();
+      const nextMotionState: typeof motionState =
+        rand < 0.60 ? 'walking_slow' : rand < 0.80 ? 'walking_fast' : rand < 0.95 ? 'idle' : 'resting';
+      setMotionState(nextMotionState);
+
+      // Resting: stay in place for a long time
+      if (nextMotionState === 'resting') {
+        setMoveFacing('idle');
+        const restDuration = 3000 + Math.random() * 3000;
+        setTimeout(roam, restDuration);
+        return;
+      }
+
+      // Idle: just blink for a bit
+      if (nextMotionState === 'idle') {
+        setMoveFacing('idle');
+        const blinkDuration = 1200 + Math.random() * 800;
+        Animated.sequence([
+          Animated.timing(blinkOpacity, { toValue: 0.3, duration: 150, useNativeDriver: true }),
+          Animated.timing(blinkOpacity, { toValue: 1, duration: 100, useNativeDriver: true }),
+          Animated.delay(blinkDuration - 250),
+        ]).start();
+        setTimeout(roam, blinkDuration);
+        return;
+      }
+
+      // Walking (slow or fast)
       const nextDepth = profile.depthMin + Math.random() * (profile.depthMax - profile.depthMin);
       const nextX = (Math.random() - 0.5) * width * profile.roamSpreadX;
       const nextY = (nextDepth - 1) * profile.depthYOffset + (Math.random() - 0.5) * profile.yJitter;
-      const duration = profile.roamDurationMin + Math.floor(Math.random() * Math.max(1, profile.roamDurationMax - profile.roamDurationMin));
+
+      // Adjust duration based on walk speed
+      let baseMin = profile.roamDurationMin;
+      let baseMax = profile.roamDurationMax;
+      if (nextMotionState === 'walking_slow') {
+        baseMin *= 1.4;
+        baseMax *= 1.4;
+      } else if (nextMotionState === 'walking_fast') {
+        baseMin *= 0.6;
+        baseMax *= 0.6;
+      }
+      const duration = Math.round(baseMin + Math.random() * Math.max(1, baseMax - baseMin));
+
       const facing = nextX > profile.facingThreshold ? 'right' : nextX < -profile.facingThreshold ? 'left' : 'idle';
       setMoveFacing(facing);
 
@@ -566,7 +660,8 @@ export default function HomeScreen() {
       ]).start(() => {
         if (!active) return;
         setMoveFacing('idle');
-        setTimeout(roam, profile.pauseMin + Math.floor(Math.random() * Math.max(1, profile.pauseMax - profile.pauseMin)));
+        const pauseDuration = profile.pauseMin + Math.floor(Math.random() * Math.max(1, profile.pauseMax - profile.pauseMin));
+        setTimeout(roam, pauseDuration);
       });
     };
 
@@ -574,7 +669,7 @@ export default function HomeScreen() {
     return () => {
       active = false;
     };
-  }, [breathe, depthScale, hoverY, motionProfile, roamX, roamY, stride]);
+  }, [breathe, depthScale, hoverY, motionProfile, roamX, roamY, stride, width]);
 
   const openDrawer = useCallback(() => {
     if (drawerOpen || transitionBusy) return;
@@ -620,6 +715,9 @@ export default function HomeScreen() {
       } catch {}
       await refreshData();
       playSfx('yes', 0.8);
+      setEmotion('praise');
+      if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
+      emotionTimerRef.current = setTimeout(() => setEmotion(null), 2000);
       setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'praise' }]);
       setTransientStatus('Praise logged. BYTE mood and social confidence increased.', 2800);
       return;
@@ -631,6 +729,9 @@ export default function HomeScreen() {
       } catch {}
       await refreshData();
       playSfx('no', 0.8);
+      setEmotion('scold');
+      if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
+      emotionTimerRef.current = setTimeout(() => setEmotion(null), 2000);
       setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'scold' }]);
       setTransientStatus('Scold logged. BYTE is re-evaluating behavior routines.', 2800);
     }
@@ -675,6 +776,10 @@ export default function HomeScreen() {
   const handleRoomOpen = useCallback(
     (route: string) => {
       if (transitionBusy) return;
+      if (isSleeping && route.includes('training')) {
+        setTransientStatus('BYTE is sleeping... cannot access training room.', 2000);
+        return;
+      }
       setTransitionBusy(true);
       closeDrawer();
       setTransientStatus('Loading room interface...', 1200);
@@ -683,18 +788,38 @@ export default function HomeScreen() {
         setTransitionBusy(false);
       }, 220);
     },
-    [closeDrawer, router, setTransientStatus, transitionBusy]
+    [closeDrawer, isSleeping, router, setTransientStatus, transitionBusy]
   );
 
-  const handleByteTap = useCallback(() => {
+  const handleByteTap = useCallback(async () => {
     Animated.sequence([
       Animated.timing(tapScale, { toValue: 0.92, duration: 90, useNativeDriver: true }),
       Animated.spring(tapScale, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
-    playSfx(Math.random() > 0.5 ? 'chirp1' : 'chirp2', 0.75);
-    setTransientStatus('BYTE is humming while it explores...', 2000);
-    setIdleThoughtTicks(0);
-  }, [setTransientStatus, tapScale]);
+
+    if (isSleeping) {
+      const nextTaps = wakeUpTaps + 1;
+      setWakeUpTaps(nextTaps);
+      playSfx('chirp1', 0.5);
+      setTransientStatus(`Tapping BYTE to wake it... (${nextTaps}/10)`, 1500);
+      if (nextTaps >= 10) {
+        try {
+          await wakeUpByte();
+          setIsSleeping(false);
+          setSleepUntil(null);
+          setWakeUpTaps(0);
+          setTransientStatus('BYTE woke up!', 2000);
+          await refreshData();
+        } catch {
+          setTransientStatus('Failed to wake BYTE.', 2000);
+        }
+      }
+    } else {
+      playSfx(Math.random() > 0.5 ? 'chirp1' : 'chirp2', 0.75);
+      setTransientStatus('BYTE is humming while it explores...', 2000);
+      setIdleThoughtTicks(0);
+    }
+  }, [isSleeping, wakeUpTaps, setTransientStatus, tapScale, refreshData]);
 
   const handleEnableDemoMode = useCallback(async () => {
     if (demoMode || demoBusy) return;
@@ -785,7 +910,7 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.statusChip}>Lv.{byteLevel}</Text>
             <Text style={styles.statusChip}>{moodLabel}</Text>
-            <Text style={styles.statusChip}>Stage {stage + 1}</Text>
+            <Text style={styles.statusChip}>{getStageName(stage)}</Text>
           </View>
           <Text style={styles.statusTextWrap}>{statusText}</Text>
         </View>
@@ -831,6 +956,7 @@ export default function HomeScreen() {
             style={[
               styles.byteStage,
               {
+                opacity: blinkOpacity,
                 transform: [
                   { translateX: roamX },
                   { translateY: roamY },
@@ -958,7 +1084,10 @@ export default function HomeScreen() {
         byteData={byteData}
         playerData={playerData}
         onEvolved={() => {
-          Promise.all([refreshData(), reloadFromServer().catch(() => {})]).catch(() => {});
+          (async () => {
+            await refreshData();
+            await reloadFromServer().catch(() => {});
+          })().catch(() => {});
         }}
       />
 
@@ -1032,16 +1161,18 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    height: 228,
+    height: 280,
     zIndex: 1,
+    overflow: 'visible',
   },
   clutterLayerFront: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: 236,
+    height: 280,
     zIndex: 4,
+    overflow: 'visible',
   },
   clutterTouch: {
     position: 'absolute',
@@ -1088,7 +1219,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     fontSize: 20,
   },
-  byteStage: { position: 'absolute', bottom: 12, zIndex: 3 },
+  byteStage: { position: 'absolute', bottom: 12, zIndex: 3, pointerEvents: 'box-none' },
   byteSprite: { width: width * 0.3, height: width * 0.3 },
   statusCardSolo: {
     marginHorizontal: 14,

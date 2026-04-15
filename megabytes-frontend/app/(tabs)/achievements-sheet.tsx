@@ -73,10 +73,11 @@ export default function AchievementsSheet({ visible, onClose }: AchievementsShee
         <View style={styles.container}>
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>ACHIEVEMENTS</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <Ionicons name="close-outline" size={24} color="#d9efff" />
+            <TouchableOpacity onPress={onClose} style={styles.backBtn}>
+              <Ionicons name="arrow-back-outline" size={20} color="#7ec8ff" />
             </TouchableOpacity>
+            <Text style={styles.title}>ACHIEVEMENTS</Text>
+            <View style={{ width: 40 }} />
           </View>
 
           {/* Progress stats */}
@@ -189,7 +190,7 @@ const styles = StyleSheet.create({
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(80,160,255,0.15)' },
   title: { fontSize: 20, fontWeight: '900', color: '#d9efff', letterSpacing: 1.5 },
-  closeBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+  backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
 
   statsBlock: { flexDirection: 'row', paddingVertical: 16, justifyContent: 'space-around', borderBottomWidth: 1, borderBottomColor: 'rgba(80,160,255,0.15)' },
   statItem: { alignItems: 'center' },

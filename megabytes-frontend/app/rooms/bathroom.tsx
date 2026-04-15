@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { careAction, enterRoom } from '../../services/api';
+import { careAction, enterRoom, getByte } from '../../services/api';
 import RoomScene, { RoomAction, RoomResultWindow } from '../../components/RoomScene';
 import { consumePendingMiniGameResult } from '../../services/minigameRuntime';
 
@@ -9,14 +9,27 @@ export default function BathroomRoom() {
   const router = useRouter();
   const [status, setStatus] = useState('Bathroom diagnostics online. Hygiene bay is ready.');
   const [resultWindow, setResultWindow] = useState<RoomResultWindow | null>(null);
+  const [hygiene, setHygiene] = useState(0);
+
+  const loadBathroomStatus = React.useCallback(async () => {
+    try {
+      const data = await getByte();
+      const nextHygiene = Number(data?.byte?.needs?.Hygiene ?? 0);
+      setHygiene(Number.isFinite(nextHygiene) ? Math.max(0, Math.min(100, nextHygiene)) : 0);
+    } catch {
+      setHygiene(0);
+    }
+  }, []);
 
   useEffect(() => {
     enterRoom('Bathroom', 1).catch(() => {});
-  }, []);
+    loadBathroomStatus().catch(() => {});
+  }, [loadBathroomStatus]);
 
   useFocusEffect(
     React.useCallback(() => {
       const result = consumePendingMiniGameResult('bathroom');
+      loadBathroomStatus().catch(() => {});
       if (!result) return;
       setStatus(result.summary);
       setResultWindow({
@@ -27,7 +40,7 @@ export default function BathroomRoom() {
         energyCost: result.energyCost,
         cooldownSeconds: result.cooldownSeconds,
       });
-    }, [])
+    }, [loadBathroomStatus])
   );
 
   const primaryActions: [RoomAction, RoomAction] = [
@@ -84,6 +97,13 @@ export default function BathroomRoom() {
       accent="#78deff"
       backgroundSource={require('../../assets/backgrounds/bathroom.png')}
       statusLine={status}
+      metaProgress={{
+        label: 'CLEANLINESS',
+        value: hygiene,
+        max: 100,
+        tint: hygiene >= 70 ? '#7cffc0' : hygiene >= 35 ? '#7ee8ff' : '#53daff',
+        detail: `${Math.round(hygiene)}%`,
+      }}
       primaryActions={primaryActions}
       secondaryActions={secondaryActions}
       resultWindow={resultWindow}

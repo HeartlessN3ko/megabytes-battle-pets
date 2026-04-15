@@ -357,7 +357,12 @@ export default function MiniGameRunnerScreen() {
           await interactByte();
           if (variant === 'long') await interactByte();
         } else if (game.id.startsWith('training-') && game.stat) {
-          await trainStat(game.stat, grade);
+          try {
+            await trainStat(game.stat, grade);
+          } catch (err: any) {
+            console.error(`trainStat failed for ${game.stat}:`, err?.message);
+            throw err;
+          }
         }
       }
 
@@ -828,7 +833,7 @@ export default function MiniGameRunnerScreen() {
           ) : null}
 
           {(game.kind === 'tap-target' || game.kind === 'rapid-tap') && game.id !== 'feed-upload' ? (
-            <TouchableOpacity style={[styles.target, { left: targetPos.x, top: targetPos.y }]} onPress={onTapTarget} disabled={!running}>
+            <TouchableOpacity style={[styles.target, { left: targetPos.x, top: targetPos.y }]} onPress={onTapTarget} disabled={!running} hitSlop={20}>
               <Text style={styles.targetText}>{game.kind === 'rapid-tap' ? 'TAP' : 'GO'}</Text>
             </TouchableOpacity>
           ) : null}
@@ -937,6 +942,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(120,190,255,0.28)',
     backgroundColor: 'rgba(8,18,62,0.8)',
     padding: 8,
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   hudLabel: { color: '#9dd5ff', fontSize: 9.5, fontWeight: '800', letterSpacing: 1 },
   hudVal: { color: '#e9f4ff', fontSize: 10.8, fontWeight: '700' },
@@ -1078,11 +1085,11 @@ const styles = StyleSheet.create({
   },
   traceCursor: {
     position: 'absolute',
-    width: 14,
-    height: 14,
+    width: 24,
+    height: 24,
     borderRadius: 8,
-    marginLeft: -7,
-    marginTop: -7,
+    marginLeft: -12,
+    marginTop: -12,
     borderWidth: 2,
     borderColor: '#7ef0c2',
     backgroundColor: 'rgba(126,240,194,0.32)',

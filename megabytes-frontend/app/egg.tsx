@@ -162,7 +162,7 @@ export default function EggScreen() {
         <View style={styles.eggStage}>
           <Animated.View style={{ transform: [{ translateY: eggBob }, { scale: eggScale }] }}>
             <Image
-              source={require('../assets/bytes/egg.png')}
+              source={require('../assets/bytes/missingno-egg.png')}
               style={styles.eggSprite}
               resizeMode="contain"
             />
@@ -173,7 +173,7 @@ export default function EggScreen() {
         </View>
 
         <View style={styles.statusCard}>
-          <Text style={styles.statusTitle}>DIAMOND EGG</Text>
+          <Text style={styles.statusTitle}>SPECIAL EGG</Text>
           <Text style={styles.statusSub}>
             {halfwayDone
               ? 'Something stirs within... it could hatch at any time.'

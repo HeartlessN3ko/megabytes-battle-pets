@@ -42,7 +42,7 @@ export const MINI_GAME_DEFS: MiniGameDef[] = [
   { id: 'emote-align', title: 'EMOTE ALIGN', subtitle: 'Repeat emote pattern', kind: 'sequence', room: 'play-room', accent: '#ff9b9b' },
 
   { id: 'training-power', title: 'POWER DRILL', subtitle: 'Charge + impact taps', kind: 'tap-target', room: 'training-center', stat: 'Power', accent: '#d3a3ff' },
-  { id: 'training-agility', title: 'AGILITY DRILL', subtitle: 'Quick reaction targets', kind: 'tap-target', room: 'training-center', stat: 'Agility', accent: '#8ce6ff' },
+  { id: 'training-agility', title: 'AGILITY DRILL', subtitle: 'Quick reaction targets', kind: 'tap-target', room: 'training-center', stat: 'Speed', accent: '#8ce6ff' },
   { id: 'training-accuracy', title: 'ACCURACY DRILL', subtitle: 'Stop in target zone', kind: 'timing', room: 'training-center', stat: 'Accuracy', accent: '#ffe08b' },
   { id: 'training-defense', title: 'DEFENSE DRILL', subtitle: 'Merge fragments', kind: 'match', room: 'training-center', stat: 'Defense', accent: '#9df4a6' },
   { id: 'training-special', title: 'SPECIAL DRILL', subtitle: 'Solve pattern puzzle', kind: 'sequence', room: 'training-center', stat: 'Special', accent: '#9fb0ff' },

@@ -140,14 +140,24 @@ function resolveTick(tick, attacker, defender, moves, log, playerInput = {}) {
 
     const regenEffect = side.effects.find(e => e.id === 'regen.sys');
     if (regenEffect) {
-      const healAmt = side.maxHP * regenEffect.value * coldPenalty;
+      let healAmt = side.maxHP * regenEffect.value * coldPenalty;
+      // Anti-heal debuff: reduce healing received by 50%
+      const antiHeal = side.effects.find(e => e.id === 'anti_heal.sys');
+      if (antiHeal) {
+        healAmt *= (1 - antiHeal.value);
+      }
       side.hp = Math.min(side.maxHP, side.hp + healAmt);
       entry.events.push({ type: 'hot', target: side.byteId, heal: healAmt });
     }
 
     // Kind passive: passive heal_over_time (EFFECTS_REGISTRY.PASSIVES.Kind.value)
     if (passive?.effectType === 'healing_over_time' && passive?.value) {
-      const kindHeal = side.maxHP * passive.value * coldPenalty;
+      let kindHeal = side.maxHP * passive.value * coldPenalty;
+      // Anti-heal debuff: reduce healing received by 50%
+      const antiHeal = side.effects.find(e => e.id === 'anti_heal.sys');
+      if (antiHeal) {
+        kindHeal *= (1 - antiHeal.value);
+      }
       side.hp = Math.min(side.maxHP, side.hp + kindHeal);
       entry.events.push({ type: 'passive_heal', target: side.byteId, heal: kindHeal, passive: getActivePassive(side) });
     }

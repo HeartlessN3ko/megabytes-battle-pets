@@ -20,6 +20,7 @@ const MOVE_CATALOG = [
   { id: 'soak_leak.exe', name: 'Soak Leak', element: 'Water', function: 'Debuff', power: 10, accuracy: 0.91, energyCost: 10, appliesEffect: 'speed_down.sys', description: 'Slows enemy execution cycle.' },
   { id: 'pressure_sink.dll', name: 'Pressure Sink', element: 'Water', function: 'Debuff', power: 0, accuracy: 0.9, energyCost: 12, appliesEffect: 'fragile.sys', description: 'Makes target take more damage.' },
   { id: 'refresh_stream.bin', name: 'Refresh Stream', element: 'Water', function: 'Utility', power: 0, accuracy: 1.0, energyCost: 10, appliesEffect: 'cleanse.sys', description: 'Cleanses negative states.' },
+  { id: 'vital_restore.wav', name: 'Vital Restore', element: 'Water', function: 'Buff', power: 0, accuracy: 1.0, energyCost: 12, appliesEffect: 'regen.sys', description: 'Potent healing stream. Stronger than Flow State.' },
 
   // Earth
   { id: 'rock_crash.py', name: 'Rock Crash', element: 'Earth', function: 'Damage', power: 26, accuracy: 0.86, energyCost: 13, description: 'Heavy earth impact strike.' },

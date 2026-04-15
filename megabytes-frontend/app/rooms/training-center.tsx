@@ -42,7 +42,8 @@ export default function TrainingCenterRoom() {
       const fatigue = getTrainingFatigue();
       const simulatedEnergy = Math.max(0, Math.round(Math.max(0, bandwidth - fatigue)));
       if (remainMs > 0) {
-        setTimerLine(`Cooldown ${Math.max(0.1, remainMs / 1000).toFixed(1)}s | Energy ${simulatedEnergy}%`);
+        const secondsLeft = Math.ceil(remainMs / 1000);
+        setTimerLine(`Cooldown ${secondsLeft}s | Energy ${simulatedEnergy}%`);
       } else {
         setTimerLine(`Energy ${simulatedEnergy}% | Training lane open`);
       }
@@ -69,7 +70,7 @@ export default function TrainingCenterRoom() {
     }, [])
   );
 
-  const launchTrainingGame = React.useCallback(async (id: string, variant: 'quick' | 'long') => {
+  const launchTrainingGame = React.useCallback(async (id: string, label: string) => {
     const remaining = getTrainingCooldownRemainingMs();
     if (remaining > 0) {
       setStatus(`Training cooldown active: ${Math.ceil(remaining / 1000)}s remaining.`);
@@ -88,8 +89,8 @@ export default function TrainingCenterRoom() {
       setStatus('Byte energy too low for training. Rest in bedroom or use an energy item.');
       return;
     }
-    setStatus(`Running ${id.replace('training-', '').toUpperCase()} training program...`);
-    router.push({ pathname: '/minigames/[id]', params: { id, variant, room: 'training-center' } });
+    setStatus(`Launching ${label.toUpperCase()} training protocol...`);
+    router.push({ pathname: '/minigames/[id]', params: { id, variant: 'long', room: 'training-center' } });
   }, [bandwidth, router]);
 
   const executeQuickTraining = React.useCallback(async (stat: string, label: string) => {
@@ -118,104 +119,77 @@ export default function TrainingCenterRoom() {
     }
   }, [bandwidth]);
 
-  const primaryActions: [RoomAction, RoomAction] = [
+  const primaryActions: RoomAction[] = [
     {
-      key: 'drill-short',
-      title: 'QUICK DRILL',
-      subtitle: 'Fast low-yield program',
+      key: 'training-power',
+      title: 'POWER',
+      subtitle: 'Tap & impact training',
       icon: 'barbell-outline',
-      color: '#d48fff',
+      color: '#d3a3ff',
       disabled: false,
-      programLabel: 'Running power drill program...',
-      programMs: 1200,
-      onPress: () => {
-        executeQuickTraining('Power', 'Power drill').catch(() => {});
-      },
+      onPress: () => launchTrainingGame('training-power', 'power').catch(() => {}),
     },
     {
-      key: 'drill-long',
-      title: 'FULL PROTOCOL',
-      subtitle: 'Launch training minigame',
-      icon: 'fitness-outline',
-      color: '#ff9be8',
+      key: 'training-agility',
+      title: 'AGILITY',
+      subtitle: 'Quick reaction training',
+      icon: 'flash-outline',
+      color: '#8ce6ff',
       disabled: false,
-      onPress: () => {
-        launchTrainingGame('training-power', 'long').catch(() => {});
-      },
+      onPress: () => launchTrainingGame('training-agility', 'agility').catch(() => {}),
     },
   ];
 
   const secondaryActions: RoomAction[] = [
     {
-      key: 'training-agility',
-      title: 'AGILITY',
-      subtitle: 'Quick program',
-      icon: 'flash-outline',
-      color: '#8fe8ff',
-      disabled: false,
-      programLabel: 'Running agility drill program...',
-      programMs: 1100,
-      onPress: () => executeQuickTraining('Agility', 'Agility drill').catch(() => {}),
-    },
-    {
       key: 'training-accuracy',
       title: 'ACCURACY',
-      subtitle: 'Quick program',
+      subtitle: 'Timing precision',
       icon: 'locate-outline',
-      color: '#ffe294',
+      color: '#ffe08b',
       disabled: false,
-      programLabel: 'Running accuracy drill program...',
-      programMs: 1100,
-      onPress: () => executeQuickTraining('Accuracy', 'Accuracy drill').catch(() => {}),
+      onPress: () => launchTrainingGame('training-accuracy', 'accuracy').catch(() => {}),
     },
     {
       key: 'training-defense',
       title: 'DEFENSE',
-      subtitle: 'Quick program',
+      subtitle: 'Fragment merging',
       icon: 'shield-checkmark-outline',
-      color: '#93f0a8',
+      color: '#9df4a6',
       disabled: false,
-      programLabel: 'Running defense drill program...',
-      programMs: 1100,
-      onPress: () => executeQuickTraining('Defense', 'Defense drill').catch(() => {}),
+      onPress: () => launchTrainingGame('training-defense', 'defense').catch(() => {}),
     },
     {
       key: 'training-special',
       title: 'SPECIAL',
-      subtitle: 'Quick program',
+      subtitle: 'Pattern solving',
       icon: 'sparkles-outline',
-      color: '#9ab0ff',
+      color: '#9fb0ff',
       disabled: false,
-      programLabel: 'Running special drill program...',
-      programMs: 1100,
-      onPress: () => executeQuickTraining('Special', 'Special drill').catch(() => {}),
+      onPress: () => launchTrainingGame('training-special', 'special').catch(() => {}),
     },
     {
       key: 'training-stamina',
       title: 'STAMINA',
-      subtitle: 'Quick program',
+      subtitle: 'Rapid tap endurance',
       icon: 'heart-outline',
-      color: '#ffbc8f',
+      color: '#ffb88a',
       disabled: false,
-      programLabel: 'Running stamina drill program...',
-      programMs: 1100,
-      onPress: () => executeQuickTraining('Stamina', 'Stamina drill').catch(() => {}),
+      onPress: () => launchTrainingGame('training-stamina', 'stamina').catch(() => {}),
     },
     {
       key: 'training-speed',
       title: 'SPEED',
-      subtitle: 'Quick program',
+      subtitle: 'Sequential tapping',
       icon: 'speedometer-outline',
-      color: '#8ed8ff',
+      color: '#7fdcff',
       disabled: false,
-      programLabel: 'Running speed drill program...',
-      programMs: 1100,
-      onPress: () => executeQuickTraining('Speed', 'Speed drill').catch(() => {}),
+      onPress: () => launchTrainingGame('training-speed', 'speed').catch(() => {}),
     },
     {
       key: 'training-battle',
       title: 'TRAINING BATTLE',
-      subtitle: 'Run simulated combat test',
+      subtitle: 'Combat simulation',
       icon: 'flash-outline',
       color: '#8fd8ff',
       disabled: false,
@@ -231,7 +205,7 @@ export default function TrainingCenterRoom() {
       title="TRAINING CENTER"
       subtitle="COMBAT PREP"
       roomTag="STAT DEVELOPMENT"
-      ambient="Short drills are fast and efficient. Full protocols produce stronger long-term gains."
+      ambient="Select a stat to begin training protocol. Each minigame develops specific core abilities."
       sceneTint="rgba(52,26,60,0.2)"
       accent="#d893ff"
       statusLine={status}

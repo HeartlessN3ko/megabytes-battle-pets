@@ -98,13 +98,14 @@ const CARE_RESTORE = {
  * @param {string} action - 'feed' | 'clean' | 'rest' | 'play'
  * @returns {Object} - updated needs
  */
-function applyCare(needs, action) {
+function applyCare(needs, action, gradeMult = 1.0) {
   const restore = CARE_RESTORE[action];
   if (!restore) throw new Error(`[NeedDecay] Unknown care action: "${action}"`);
 
   const updated = { ...needs };
   for (const [need, amount] of Object.entries(restore)) {
-    updated[need] = Math.min(100, (updated[need] ?? 0) + amount);
+    const scaledAmount = Math.round(amount * gradeMult);
+    updated[need] = Math.min(100, (updated[need] ?? 0) + scaledAmount);
   }
   return updated;
 }

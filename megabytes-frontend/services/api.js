@@ -121,8 +121,8 @@ function activeIds() {
 export const getByte = () => request('GET', `/api/byte/${activeIds().byteId}`);
 export const syncByte = () => request('POST', `/api/byte/${activeIds().byteId}/sync`);
 
-export const careAction = (action) =>
-  request('PATCH', `/api/byte/${activeIds().byteId}/care`, { action: action.toLowerCase() });
+export const careAction = (action, grade = 'good') =>
+  request('PATCH', `/api/byte/${activeIds().byteId}/care`, { action: action.toLowerCase(), grade });
 
 export const trainStat = (stat, result) =>
   request('PATCH', `/api/byte/${activeIds().byteId}/train`, { stat, result });

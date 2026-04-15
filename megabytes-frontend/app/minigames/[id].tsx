@@ -332,15 +332,15 @@ export default function MiniGameRunnerScreen() {
 
       if (quality > 0) {
         if (game.id === 'feed-upload') {
-          await careAction('feed');
-          if (variant === 'long') await careAction('feed');
+          await careAction('feed', grade);
+          if (variant === 'long') await careAction('feed', grade);
         } else if (game.id === 'run-cleanup') {
-          await careAction('clean');
-          if (variant === 'long') await careAction('clean');
+          await careAction('clean', grade);
+          if (variant === 'long') await careAction('clean', grade);
           markHomeClutterCleared();
         } else if (game.id === 'stabilize-signal') {
-          await careAction('rest');
-          if (variant === 'long') await careAction('rest');
+          await careAction('rest', grade);
+          if (variant === 'long') await careAction('rest', grade);
         } else if (game.id === 'engage-simulation' || game.id === 'sync-link' || game.id === 'emote-align') {
           await interactByte();
           if (variant === 'long') await interactByte();
@@ -364,6 +364,22 @@ export default function MiniGameRunnerScreen() {
       setResultEnergyCost(economy.energyCost);
       setResultSummary(`Result synced. Grade ${grade.toUpperCase()}, quality ${Math.round(quality * 100)}%.`);
       setStatus('Result ready. Return to room to continue.');
+
+      // Set pending result for room UI
+      if (game.id.startsWith('training-')) {
+        setPendingMiniGameResult({
+          room: 'training-center',
+          gameId: game.id,
+          title: game.title,
+          grade,
+          quality,
+          byteBits: economy.byteBits,
+          skillGain: economy.statGain,
+          energyCost: economy.energyCost,
+          cooldownSeconds: 10,
+          summary: `${game.title} complete. ${economy.statGain || 'Gains applied'}. Grade: ${grade.toUpperCase()}.`,
+        });
+      }
     } catch {
       setStatus('Sync failed right now. You can cancel and retry.');
     } finally {

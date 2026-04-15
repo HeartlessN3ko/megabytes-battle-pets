@@ -193,13 +193,14 @@ router.post('/', async (req, res) => {
 // PATCH /api/byte/:id/care
 router.patch('/:id/care', async (req, res) => {
   try {
-    const { action } = req.body;
+    const { action, grade } = req.body;
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
     // Apply decay first, then care
     const decayed = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req));
-    const updatedNeeds = needDecay.applyCare(decayed.needs, action);
+    const gradeMult = statEngine.TRAINING_GAIN[grade] || 1.0;
+    const updatedNeeds = needDecay.applyCare(decayed.needs, action, gradeMult);
     byte.needs = updatedNeeds;
     byte.lastNeedsUpdate = decayed.lastNeedsUpdate;
 

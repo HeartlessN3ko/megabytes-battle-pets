@@ -169,15 +169,17 @@ router.post('/:id/sync', async (req, res) => {
 // POST /api/byte - create a new byte (egg)
 router.post('/', async (req, res) => {
   try {
-    const { playerId } = req.body;
+    const { playerId, shape } = req.body;
     const player = await Player.findById(playerId);
     if (!player) return res.status(404).json({ error: 'Player not found' });
     if (player.activeByteSlots.length >= 3) return res.status(400).json({ error: 'No byte slots available' });
 
+    const VALID_SHAPES = ['Circle', 'Square', 'Triangle', 'Diamond', 'Hexagon'];
     const byte = await Byte.create({
       ownerId: playerId,
       isEgg: true,
-      hatchAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+      hatchAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      shape: VALID_SHAPES.includes(shape) ? shape : null, // set from onboarding choice; null until onboarding connected
     });
 
     player.activeByteSlots.push(byte._id);
@@ -374,6 +376,7 @@ router.post('/:id/hatch', async (req, res) => {
 
     byte.isEgg = false;
     byte.evolutionStage = 1;
+    byte.shape = shape;
     byte.animal = animal;
     byte.stats = statEngine.applyEvolutionBiases(byteObj.stats, { shape, animal, element: null, feature: null, branch: null });
     await byte.save();

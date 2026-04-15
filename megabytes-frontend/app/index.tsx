@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, ImageBackground, Image, TouchableOpacity,
   StyleSheet, Animated, Dimensions, StatusBar,
@@ -6,6 +6,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useEvolution } from '../context/EvolutionContext';
 import { useDemoMode } from '../hooks/useDemoMode';
+import { getOnboardingProgress } from '../services/api';
 
 const { width, height } = Dimensions.get('window');
 
@@ -31,12 +32,37 @@ export default function SplashScreen() {
     ).start();
   }, [fadeIn, logoY, pulseAnim]);
 
-  const handleStart = () => {
+  const handleStart = async () => {
     if (!demoHydrated) return;
-    Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
-      const destination = demoMode || stage > 0 ? '/(tabs)' : '/egg';
-      router.replace(destination as any);
-    });
+
+    // If demo mode, skip onboarding and go straight to tabs
+    if (demoMode) {
+      Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
+        router.replace('/(tabs)' as any);
+      });
+      return;
+    }
+
+    // Check onboarding status if player exists
+    if (stage > 0) {
+      try {
+        const onboarding = await getOnboardingProgress();
+        const destination = onboarding.isComplete ? '/(tabs)' : '/onboarding/flow';
+        Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
+          router.replace(destination as any);
+        });
+      } catch (err) {
+        // If onboarding check fails, go to tabs
+        Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
+          router.replace('/(tabs)' as any);
+        });
+      }
+    } else {
+      // No byte yet, go to egg creation
+      Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
+        router.replace('/egg' as any);
+      });
+    }
   };
 
   const handleCredits = () => {

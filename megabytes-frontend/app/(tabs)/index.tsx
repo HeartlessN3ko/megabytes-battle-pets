@@ -28,6 +28,7 @@ import { generateByteThought } from '../../services/byteThoughts';
 import { getByteMotionProfile } from '../../services/byteMotion';
 import { resolveByteSprite } from '../../services/byteSprites';
 import HomeRoomStage from '../../components/HomeRoomStage';
+import AchievementsSheet from './achievements-sheet';
 
 const { width, height } = Dimensions.get('window');
 
@@ -44,6 +45,7 @@ const HOME_ACTIONS = [
 
 const TOP_MENU = [
   { key: 'profile', label: 'PROFILE', icon: 'person-circle-outline', route: '/(tabs)/profile' },
+  { key: 'achievements', label: 'ACHIEVEMENTS', icon: 'star-outline', action: 'achievements' },
   { key: 'inbox', label: 'INBOX', icon: 'mail-open-outline', route: '/(tabs)/inbox' },
   { key: 'events', label: 'EVENTS', icon: 'sparkles-outline', route: '/(tabs)/events' },
   { key: 'settings', label: 'SETTINGS', icon: 'settings-outline', route: '/(tabs)/collection' },
@@ -355,6 +357,7 @@ export default function HomeScreen() {
   const [playerData, setPlayerData] = useState<any>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [achievementsOpen, setAchievementsOpen] = useState(false);
   const [statusText, setStatusText] = useState('BYTE is scanning the network.');
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [clutter, setClutter] = useState(0);
@@ -633,10 +636,14 @@ export default function HomeScreen() {
     }
   }, [refreshData, router, setTransientStatus, transitionBusy]);
 
-  const handleTopMenuNav = useCallback((route: string) => {
+  const handleTopMenuNav = useCallback((route: string | undefined, action?: string) => {
     if (transitionBusy) return;
     playSfx('menu', 0.6);
-    router.push(route as any);
+    if (action === 'achievements') {
+      setAchievementsOpen(true);
+    } else if (route) {
+      router.push(route as any);
+    }
   }, [router, transitionBusy]);
 
   const handleClutterTap = useCallback(async (id: string) => {
@@ -732,7 +739,7 @@ export default function HomeScreen() {
             <TouchableOpacity
               key={item.key}
               style={styles.utilityBtn}
-              onPress={() => handleTopMenuNav(item.route)}
+              onPress={() => handleTopMenuNav((item as any).route, (item as any).action)}
               activeOpacity={0.85}
             >
               <Ionicons name={item.icon as any} size={14} color="#b1e2ff" />
@@ -954,6 +961,8 @@ export default function HomeScreen() {
           Promise.all([refreshData(), reloadFromServer().catch(() => {})]).catch(() => {});
         }}
       />
+
+      <AchievementsSheet visible={achievementsOpen} onClose={() => setAchievementsOpen(false)} />
     </ImageBackground>
   );
 }

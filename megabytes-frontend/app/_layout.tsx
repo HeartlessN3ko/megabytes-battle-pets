@@ -7,6 +7,7 @@ export default function RootLayout() {
       <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="egg" />
+        <Stack.Screen name="onboarding" />
         <Stack.Screen name="(tabs)" />
       </Stack>
     </EvolutionProvider>

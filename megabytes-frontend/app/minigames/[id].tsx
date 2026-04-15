@@ -91,10 +91,20 @@ function buildTracePatterns(variant: Variant) {
 }
 
 function buildFeedLinks() {
+  // Shuffle positions for difficulty — start always left, targets randomized
+  const baseTargets = [
+    { x: randomRange(180, 230), y: randomRange(30, 55) },
+    { x: randomRange(180, 230), y: randomRange(75, 105) },
+    { x: randomRange(180, 230), y: randomRange(120, 150) },
+  ];
+  // Randomize order to vary difficulty
+  const order = [0, 1, 2].sort(() => Math.random() - 0.5);
+  const shuffled = order.map(i => baseTargets[i]);
+
   return [
-    { start: { x: 48, y: 40 }, target: { x: 212, y: 46 } },
-    { start: { x: 48, y: 88 }, target: { x: 218, y: 88 } },
-    { start: { x: 48, y: 136 }, target: { x: 206, y: 132 } },
+    { start: { x: 48, y: 40 }, target: shuffled[0] },
+    { start: { x: 48, y: 88 }, target: shuffled[1] },
+    { start: { x: 48, y: 136 }, target: shuffled[2] },
   ];
 }
 
@@ -190,6 +200,8 @@ export default function MiniGameRunnerScreen() {
       sequencePreviewRef.current = null;
     }
   }, []);
+
+  const cleanupStageLockRef = useRef(0);
 
   const resetRoundState = useCallback((def: MiniGameDef) => {
     roundClosedRef.current = false;
@@ -330,7 +342,7 @@ export default function MiniGameRunnerScreen() {
         }, 32);
       });
 
-      if (quality > 0) {
+      if (quality > 0 && grade !== 'fail') {
         if (game.id === 'feed-upload') {
           await careAction('feed', grade);
           if (variant === 'long') await careAction('feed', grade);
@@ -439,7 +451,7 @@ export default function MiniGameRunnerScreen() {
 
           const dx = x - link.target.x;
           const dy = y - link.target.y;
-          const reached = Math.hypot(dx, dy) <= 20;
+          const reached = Math.hypot(dx, dy) <= 28;
           if (!reached) return;
 
           const nextStage = feedStageRef.current + 1;
@@ -509,10 +521,17 @@ export default function MiniGameRunnerScreen() {
             const nextQuality = clamp(0.32 + (totalProgress / 3) * 0.68, 0, 1);
             setQuality(nextQuality);
             if (nextClean >= panel.barCount) {
+              // Lock stage switch to prevent immediate progression if hand is still on screen
+              const now = Date.now();
+              if (cleanupStageLockRef.current > now) {
+                return; // Still locked, don't advance yet
+              }
+
               if (cleanupStageRef.current >= 2) {
                 setTimeout(() => finishRound(nextQuality), 60);
               } else {
                 cleanupStageRef.current += 1;
+                cleanupStageLockRef.current = now + 200; // Lock for 200ms
                 const nextStage = cleanupStageRef.current;
                 setCleanupStage(nextStage);
                 scrubDistanceRef.current = 0;

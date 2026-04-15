@@ -15,16 +15,19 @@ type SpriteOptions = {
 };
 
 const BYTE_SPRITES = {
-  egg: require('../assets/bytes/egg.png'),
-  stage1Base: require('../assets/bytes/missingnostage1.png'),
-  stage1Neutral: require('../assets/bytes/stage1-faceneutral.png'),
-  stage1Smile: require('../assets/bytes/stage1-facesmile.png'),
-  stage1Frown: require('../assets/bytes/stage1-facefrown.png'),
-  stage1Sleep: require('../assets/bytes/stage1-facesleep.png'),
-  stage1IdleGif: require('../assets/bytes/stage1-idolanimationt.gif'),
-  stage1WalkLeftGif: require('../assets/bytes/stage1-idolanimationt.gif'),
-  stage1WalkRightGif: require('../assets/bytes/stage1-idolanimationt.gif'),
-  stage2: require('../assets/bytes/stage2.png'),
+  egg: require('../assets/bytes/missingno-egg.png'),
+  stage1Base: require('../assets/bytes/missingno-stage1.png'),
+  stage1Neutral: require('../assets/bytes/missingno-idleblinking.gif'),
+  stage1Smile: require('../assets/bytes/missingno-smile.gif'),
+  stage1Frown: require('../assets/bytes/missingno-sad.gif'),
+  stage1Sleep: require('../assets/bytes/missingno-sleeping.gif'),
+  stage1Tired: require('../assets/bytes/missingno-tired.gif'),
+  stage1Exhausted: require('../assets/bytes/missingno-exhausted.gif'),
+  stage1Anxious: require('../assets/bytes/missingno-anxious.gif'),
+  stage1IdleGif: require('../assets/bytes/missingno-idleblinking.gif'),
+  stage1WalkLeftGif: require('../assets/bytes/missingno-left.gif'),
+  stage1WalkRightGif: require('../assets/bytes/missingno-right.gif'),
+  stage2: require('../assets/bytes/missingno-stage2-frog.png'),
 } as const;
 
 function n(value: unknown, fallback = 60) {
@@ -42,18 +45,21 @@ export function resolveByteSprite(stage: number, options: SpriteOptions = {}) {
   if (stage <= 0) return BYTE_SPRITES.egg;
   if (stage >= 2) return BYTE_SPRITES.stage2;
 
-  if (options.preferAnimatedWalk && mood >= 55 && bandwidth >= 45 && hygiene >= 35) {
+  if (options.preferAnimatedWalk) {
     if (options.facing === 'left') return BYTE_SPRITES.stage1WalkLeftGif;
     if (options.facing === 'right') return BYTE_SPRITES.stage1WalkRightGif;
   }
 
-  if (options.preferAnimatedIdle && mood >= 65 && bandwidth >= 55 && hygiene >= 45) {
+  if (options.preferAnimatedIdle) {
     return BYTE_SPRITES.stage1IdleGif;
   }
 
+  if (bandwidth < 15) return BYTE_SPRITES.stage1Exhausted;
+  if (bandwidth < 35) return BYTE_SPRITES.stage1Tired;
   if (bandwidth < 28) return BYTE_SPRITES.stage1Sleep;
+  if (mood < 30) return BYTE_SPRITES.stage1Anxious;
   if (mood < 35 || hygiene < 25) return BYTE_SPRITES.stage1Frown;
   if (mood >= 80) return BYTE_SPRITES.stage1Smile;
 
-  return BYTE_SPRITES.stage1Neutral || BYTE_SPRITES.stage1Base;
+  return BYTE_SPRITES.stage1Neutral;
 }

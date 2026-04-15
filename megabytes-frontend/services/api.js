@@ -131,6 +131,8 @@ export const scoldByte = () => request('POST', `/api/byte/${activeIds().byteId}/
 export const interactByte = () => request('POST', `/api/byte/${activeIds().byteId}/interact`);
 export const homeCleanByte = () => request('POST', `/api/byte/${activeIds().byteId}/home-clean`);
 export const clinicRepair = () => request('POST', `/api/byte/${activeIds().byteId}/clinic-repair`);
+export const powerNap = () => request('POST', `/api/byte/${activeIds().byteId}/power-nap`);
+export const sleepCycle = (durationMinutes) => request('POST', `/api/byte/${activeIds().byteId}/sleep-cycle`, { durationMinutes });
 export const hatchByte = () => request('POST', `/api/byte/${activeIds().byteId}/hatch`);
 export const evolveByte = (itemUsed = null, playerChoice = {}) =>
   request('POST', `/api/byte/${activeIds().byteId}/evolve`, { itemUsed, playerChoice });
@@ -194,3 +196,31 @@ export const claimInboxMessage = (messageId) =>
   request('POST', '/api/inbox/claim', { playerId: activeIds().playerId, messageId });
 export const markInboxRead = (messageId) =>
   request('POST', '/api/inbox/read', { playerId: activeIds().playerId, messageId });
+
+// Campaign
+export const getCampaignProgress = () => request('GET', `/api/campaign/${activeIds().byteId}`);
+export const startCampaign = () => request('POST', `/api/campaign/${activeIds().byteId}/start`);
+export const startCampaignNode = (nodeId) => request('POST', `/api/campaign/${activeIds().byteId}/node/${nodeId}/start`);
+export const completeCampaignNode = (nodeId, grade) =>
+  request('POST', `/api/campaign/${activeIds().byteId}/node/${nodeId}/complete`, { grade });
+export const getCampaignStats = () => request('GET', `/api/campaign/${activeIds().byteId}/stats`);
+export const getCampaignLeaderboard = () => request('GET', '/api/campaign/leaderboard');
+
+// Onboarding
+export const getOnboardingProgress = () => request('GET', `/api/onboarding/${activeIds().playerId}`);
+export const advanceOnboarding = () => request('POST', `/api/onboarding/${activeIds().playerId}/advance`);
+export const selectOnboardingEgg = (shape) => request('POST', `/api/onboarding/${activeIds().playerId}/select-egg`, { shape });
+export const skipOnboarding = () => request('POST', `/api/onboarding/${activeIds().playerId}/skip`);
+
+// Achievements
+export const getAllAchievements = () => request('GET', '/api/achievements');
+export const getPlayerAchievements = () => request('GET', `/api/achievements/player/${activeIds().playerId}`);
+export const unlockAchievement = (achievementId) =>
+  request('POST', `/api/achievements/${achievementId}/unlock`, { playerId: activeIds().playerId });
+export const checkAchievements = () => request('POST', '/api/achievements/check', { playerId: activeIds().playerId });
+
+// Community Event
+export const getCurrentCommunityEvent = () => request('GET', '/api/community-event/current');
+export const getCommunityEventStatus = (eventId) => request('GET', `/api/community-event/${eventId}/status`);
+export const claimCommunityEventReward = (eventId, playerContribution = 0) =>
+  request('POST', `/api/community-event/${eventId}/claim`, { playerId: activeIds().playerId, playerContribution });

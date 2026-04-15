@@ -598,15 +598,15 @@ export default function RoomScene({
 
         <View style={styles.cornerNav}>
           <TouchableOpacity
-            style={[styles.cornerBtn, isLocked('nav-exit') && styles.btnDisabled]}
+            style={[styles.cornerBtnExit, isLocked('nav-exit') && styles.btnDisabled]}
             onPress={() => {
               runAction('nav-exit', onExit, 900);
             }}
             activeOpacity={0.85}
             disabled={isLocked('nav-exit')}
           >
-            <Ionicons name="arrow-back-outline" size={16} color="#a9d8ff" />
-            <Text style={styles.cornerText}>EXIT</Text>
+            <Ionicons name="arrow-back-outline" size={16} color="#ff6b6b" />
+            <Text style={styles.cornerTextExit}>EXIT</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.cornerBtn, isLocked('room-items') && styles.btnDisabled]}
@@ -823,7 +823,7 @@ const styles = StyleSheet.create({
   },
   stageHud: {
     position: 'absolute',
-    top: 104,
+    top: 160,
     left: 0,
     right: 0,
     paddingHorizontal: 6,
@@ -838,7 +838,7 @@ const styles = StyleSheet.create({
   },
   roomTagText: { fontSize: 10, fontWeight: '800', letterSpacing: 1.4 },
   ambientBody: {
-    color: 'rgba(224,243,255,0.78)',
+    color: '#e4f5ff',
     fontSize: 11,
     lineHeight: 16,
     textAlign: 'center',
@@ -971,12 +971,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
+  cornerBtnExit: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,107,107,0.4)',
+    backgroundColor: 'rgba(255,107,107,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
   cornerText: { color: '#d9efff', fontSize: 10.2, fontWeight: '800', letterSpacing: 1.1 },
+  cornerTextExit: { color: '#ff6b6b', fontSize: 10.2, fontWeight: '800', letterSpacing: 1.1 },
   btnDisabled: { opacity: 0.5 },
   modalBg: {
     flex: 1,
     backgroundColor: 'rgba(0,0,18,0.86)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
     padding: 12,
   },
   modalCard: {

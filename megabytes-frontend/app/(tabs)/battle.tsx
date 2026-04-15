@@ -11,8 +11,8 @@ import {
   ImageBackground,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { cheerBattle, getByte, getByteMoves, startBattle, suggestBattleUlt } from '../../services/api';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { cheerBattle, getByte, getByteMoves, startBattle, suggestBattleUlt, completeCampaignNode } from '../../services/api';
 import { useEvolution } from '../../context/EvolutionContext';
 import { resolveByteSprite } from '../../services/byteSprites';
 
@@ -143,9 +143,45 @@ function DamageNumber({ value, side }: { value: number; side: 'left' | 'right' }
   );
 }
 
+function FloatingText({ text, emoji }: { text: string; emoji: string }) {
+  const y = useRef(new Animated.Value(0)).current;
+  const op = useRef(new Animated.Value(1)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(y, { toValue: -100, duration: 1200, useNativeDriver: true }),
+      Animated.timing(op, { toValue: 0, duration: 1200, useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 1.3, duration: 1200, useNativeDriver: true }),
+    ]).start();
+  }, [op, y, scale]);
+  return (
+    <Animated.View
+      style={[
+        styles.floatingText,
+        { transform: [{ translateY: y }, { scale }], opacity: op },
+      ]}
+    >
+      <Text style={styles.floatingEmoji}>{emoji}</Text>
+      <Text style={styles.floatingTextLabel}>{text}</Text>
+    </Animated.View>
+  );
+}
+
 export default function BattleScreen() {
   const router = useRouter();
   const { stage, recordBattle } = useEvolution();
+  const params = useLocalSearchParams<{ campaignBattle?: string; campaignNodeId?: string }>();
+  const isCampaignBattle = params.campaignBattle === 'true';
+  const campaignNodeId = params.campaignNodeId ? parseInt(params.campaignNodeId, 10) : null;
+
+  // Navigation debounce to prevent accidental double-navigation
+  const navLock = useRef(false);
+  const safeNavigate = useCallback((fn: () => void, delay = 300) => {
+    if (navLock.current) return;
+    navLock.current = true;
+    fn();
+    setTimeout(() => { navLock.current = false; }, delay);
+  }, []);
 
   const PLAYER_MAX_HP = 100;
   const [battleNeeds, setBattleNeeds] = useState<any>(null);
@@ -188,6 +224,9 @@ export default function BattleScreen() {
   const [battleId, setBattleId] = useState<string | null>(null);
   const [readinessText, setReadinessText] = useState('Readiness: syncing...');
   const [corruptionDisplay, setCorruptionDisplay] = useState<{ value: number; tier: string } | null>(null);
+  const [floatingTexts, setFloatingTexts] = useState<{ id: number; text: string; emoji: string }[]>([]);
+  const floatingTextId = useRef(0);
+  const lastCheerTauntTime = useRef(0);
 
   const [equippedMoves, setEquippedMoves] = useState<MoveDef[]>([
     { id: 'fireball.py', name: 'Fireball', function: 'Damage', power: 28, accuracy: 0.88 },
@@ -200,6 +239,16 @@ export default function BattleScreen() {
     const id = damageId.current++;
     setDamages((d) => [...d, { id, value, side }]);
     setTimeout(() => setDamages((d) => d.filter((x) => x.id !== id)), 1100);
+  }, []);
+
+  const addFloatingText = useCallback((text: string, emoji: string) => {
+    const now = Date.now();
+    if (now - lastCheerTauntTime.current < 1000) return; // 1s cooldown
+    lastCheerTauntTime.current = now;
+
+    const id = floatingTextId.current++;
+    setFloatingTexts((f) => [...f, { id, text, emoji }]);
+    setTimeout(() => setFloatingTexts((f) => f.filter((x) => x.id !== id)), 1300);
   }, []);
 
   const lunge = useCallback(
@@ -341,14 +390,33 @@ export default function BattleScreen() {
     setReturningHome(true);
     setLog('Finalizing battle results...');
 
-    setTimeout(() => {
-      setVictory(null);
-      overlayOp.setValue(0);
-      restoreBattleState();
-      setReturningHome(false);
-      router.replace('/(tabs)');
-    }, 450);
-  }, [overlayOp, restoreBattleState, returningHome, router]);
+    const finalize = async () => {
+      // If campaign battle and victory, mark node as complete
+      if (isCampaignBattle && victory && campaignNodeId) {
+        try {
+          await completeCampaignNode(campaignNodeId, 'good');
+        } catch (err) {
+          console.error('Failed to mark campaign node complete:', err);
+        }
+      }
+
+      setTimeout(() => {
+        setVictory(null);
+        overlayOp.setValue(0);
+        restoreBattleState();
+        setReturningHome(false);
+        safeNavigate(() => {
+          if (isCampaignBattle) {
+            router.back();
+          } else {
+            router.replace('/(tabs)');
+          }
+        }, 300);
+      }, 450);
+    };
+
+    finalize();
+  }, [overlayOp, restoreBattleState, returningHome, safeNavigate, isCampaignBattle, victory, campaignNodeId]);
 
   // Tick-log playback: consume each entry in battleLogRef, apply events to UI.
   const playTick = useCallback((tickEntry: BattleTick) => {
@@ -628,13 +696,17 @@ export default function BattleScreen() {
             </Animated.View>
             {damages.filter((d) => d.side === 'right').map((d) => <DamageNumber key={d.id} value={d.value} side="right" />)}
           </View>
+
+          {floatingTexts.map((ft) => (
+            <FloatingText key={ft.id} text={ft.text} emoji={ft.emoji} />
+          ))}
         </View>
 
         <View style={styles.movesRow}>
           {equippedMoves.slice(0, 2).map((move, i) => (
-            <TouchableOpacity key={move.id} style={styles.moveBtn} activeOpacity={0.85}>
+            <View key={move.id} style={[styles.moveBtn, styles.moveDisplay]}>
               <Text style={styles.moveName}>{move.name || move.id}</Text>
-            </TouchableOpacity>
+            </View>
           ))}
         </View>
 
@@ -646,11 +718,12 @@ export default function BattleScreen() {
           <TouchableOpacity
             style={styles.controlBtn}
             onPress={async () => {
-              setLog(rnd(CHEER_LOGS));
+              const cheer = rnd(CHEER_LOGS);
+              setLog(cheer);
+              addFloatingText(cheer, '📢');
               if (battleId) {
                 try {
                   const res = await cheerBattle(battleId);
-                  setLog(`Cheer sent. Crowd energy ${res?.cheers || 1}.`);
                 } catch {}
               }
             }}
@@ -658,7 +731,15 @@ export default function BattleScreen() {
           >
             <Text style={styles.controlLabel}>Cheer</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.controlBtn} onPress={() => setLog(rnd(TAUNT_LOGS))} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={styles.controlBtn}
+            onPress={() => {
+              const taunt = rnd(TAUNT_LOGS);
+              setLog(taunt);
+              addFloatingText(taunt, '😤');
+            }}
+            activeOpacity={0.7}
+          >
             <Text style={styles.controlLabel}>Taunt</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.controlBtn} onPress={queueUlt} activeOpacity={0.7}>
@@ -733,6 +814,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   moveName: { flex: 1, color: '#cce4ff', fontSize: 12, fontWeight: '700' },
+  moveDisplay: { opacity: 0.6, borderColor: 'rgba(80,160,255,0.15)' },
+  floatingText: { position: 'absolute', alignItems: 'center', gap: 4, top: width * 0.15 },
+  floatingEmoji: { fontSize: 36 },
+  floatingTextLabel: { fontSize: 13, fontWeight: '800', color: '#ffd45a', textShadowColor: '#000', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 3 },
   logBox: {
     marginHorizontal: 14,
     marginBottom: 8,

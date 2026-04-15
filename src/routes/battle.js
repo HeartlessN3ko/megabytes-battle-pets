@@ -67,6 +67,9 @@ router.post('/start', async (req, res) => {
     if (mode === 'ai') {
       byteB = generateAIOpponent(byteA);
       opponentRating = Number(req.body?.opponentRating ?? 1000);
+    } else if (mode === 'campaign') {
+      byteB = generateSlopitronOpponent(byteA);
+      opponentRating = 1200; // Hard mode rating
     } else {
       byteB = await Byte.findById(opponentByteId);
       if (!byteB || !byteB.isAlive) return res.status(400).json({ error: 'Opponent not available' });
@@ -278,6 +281,60 @@ const AI_NAMES = ['Slopitron.exe','Ghostnet.exe','Nullpup.bin','Grimcache.dll','
 
 function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
+function generateSlopitronOpponent(byteA) {
+  // Slopitron.exe: hard mode boss for campaign node 1
+  // Level = player level + 2, min 5
+  // Aggressive Normal element moveset with high defense
+  const playerLevel = Math.max(1, byteA.level || 1);
+  const slopLevel = Math.max(5, playerLevel + 2);
+  
+  // Aggressive Normal-type moveset (no element advantage)
+  const normalMoves = MOVE_CATALOG.filter(m => m.element === 'Normal' && !m.isUlt && m.function === 'Damage');
+  const equippedMoves = [];
+  if (normalMoves.length > 0) {
+    equippedMoves.push(normalMoves[0].id); // Primary damage
+    if (normalMoves.length > 1) equippedMoves.push(normalMoves[1].id); // Secondary damage
+  }
+  if (equippedMoves.length === 0) equippedMoves.push('basic_ping.py');
+  
+  // Normal ult
+  const normalUlt = MOVE_CATALOG.find(m => m.element === 'Normal' && m.isUlt);
+  const equippedUlt = normalUlt?.id || null;
+  
+  // Aggressive passive temperament
+  const passives = Object.keys(EFFECTS_REGISTRY.PASSIVES || {});
+  const temperament = passives.includes('Aggressive') ? 'Aggressive' : pickRandom(passives);
+  
+  // Base stats 110 + level scaling; 10% defense boost for hard mode
+  const baseVal = 110 + slopLevel * 1.8;
+  const defenseVal = Math.round(baseVal * 1.1);
+  
+  return {
+    _id: 'slopitron_' + Date.now(),
+    name: 'Slopitron.exe',
+    temperament,
+    element: 'Normal',
+    animal: 'Golem',
+    feature: 'armor_plates',
+    equippedMoves,
+    equippedUlt,
+    equippedPassive: temperament,
+    isAlive: true,
+    ownerId: null,
+    level: slopLevel,
+    _computedStats: {
+      Power: Math.round(baseVal),
+      Speed: Math.round(baseVal),
+      Defense: defenseVal,
+      Stamina: Math.round(baseVal),
+      Accuracy: Math.round(baseVal * 0.95),
+      Special: Math.round(baseVal * 0.85),
+    },
+    maxHp: Math.round(140 + slopLevel * 3),
+    hp: Math.round(140 + slopLevel * 3),
+  };
+}
+
 function generateAIOpponent(byteA) {
   const level = byteA.level || 1;
   const element = pickRandom(AI_ELEMENTS);
@@ -294,22 +351,18 @@ function generateAIOpponent(byteA) {
   if (damagePool.length) moves.push(pickRandom(damagePool));
   if (otherPool.length) moves.push(pickRandom(otherPool));
   else if (damagePool.length > 1) {
-    // Pick another distinct damage move
     const secondPool = damagePool.filter(m => m.id !== moves[0]?.id);
     if (secondPool.length) moves.push(pickRandom(secondPool));
   }
   const equippedMoves = moves.map(m => m.id).slice(0, 2);
   if (equippedMoves.length === 0) equippedMoves.push('basic_ping.py');
 
-  // Pick matching ult
   const ultMove = MOVE_CATALOG.find(m => m.isUlt && m.element === element);
   const equippedUlt = ultMove?.id || null;
 
-  // Random passive (= temperament) from 15
   const passives = Object.keys(EFFECTS_REGISTRY.PASSIVES || {});
   const temperament = pickRandom(passives);
 
-  // Stats scale with level, slightly lower than player baseline for fair demo matchup
   const statVal = Math.min(95, 8 + level * 1.2);
 
   return {

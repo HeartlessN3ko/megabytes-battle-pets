@@ -471,7 +471,7 @@ export default function RoomScene({
   }, [byteName, formatItemEffects, installProgress, installing, itemSfxByType, itemVerbByType, selectedItem]);
 
   return (
-    <ImageBackground source={backgroundSource || require('../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={backgroundSource || require('../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       {sceneEffectVisible ? (
         <View pointerEvents="none" style={[styles.sceneFxOverlay, { backgroundColor: sceneEffectPalette.overlay, borderColor: sceneEffectPalette.edge }]}>

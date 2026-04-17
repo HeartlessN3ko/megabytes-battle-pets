@@ -86,7 +86,7 @@ export default function LoadoutScreen() {
   }, [equippedMoves, equippedPassive, equippedUlt]);
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <Text style={styles.title}>LOADOUT</Text>
         <Text style={styles.sub}>2 moves + 1 ult + 1 passive</Text>

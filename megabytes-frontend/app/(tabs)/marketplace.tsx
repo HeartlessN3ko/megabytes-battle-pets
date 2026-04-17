@@ -94,7 +94,7 @@ export default function MarketplaceScreen() {
   const isDemo = listings.length === 0;
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} activeOpacity={0.85}>
           <Text style={styles.backText}>BACK</Text>

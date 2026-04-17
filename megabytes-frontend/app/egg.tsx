@@ -156,7 +156,7 @@ export default function EggScreen() {
 
   return (
     <ImageBackground
-      source={require('../assets/backgrounds/bg916.png')}
+      source={require('../assets/backgrounds/bg916.jpg')}
       style={styles.bg}
       resizeMode="cover"
     >

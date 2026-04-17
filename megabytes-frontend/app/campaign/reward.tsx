@@ -34,7 +34,7 @@ export default function CampaignRewardScreen() {
   };
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
         <View style={styles.container}>
@@ -128,5 +128,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  continueBtnText: { fontSize: 13, fontWeight: '900', color: '#d9efff', letterSpacing: 1.2 },
-});
+  continueBtnText: { fontSize: 13, fontWeight: '900

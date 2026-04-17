@@ -76,7 +76,7 @@ export default function CampaignNodeScreen() {
 
   if (loading) {
     return (
-      <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+      <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
           <ActivityIndicator size="large" color="#7ec8ff" />
         </SafeAreaView>
@@ -85,7 +85,7 @@ export default function CampaignNodeScreen() {
   }
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
         <View style={styles.container}>
@@ -194,5 +194,4 @@ const styles = StyleSheet.create({
   },
   startBattleBtnText: { fontSize: 13, fontWeight: '900', color: '#d9efff', letterSpacing: 1.2 },
 
-  errorText: { color: '#ff6060', fontSize: 12, marginTop: 10, textAlign: 'center' },
-});
+  errorText: { color: '#ff6060', fontSize:

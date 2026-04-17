@@ -95,7 +95,7 @@ export default function StoryScreen() {
 
   if (loading) {
     return (
-      <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+      <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
           <ActivityIndicator size="large" color="#7ec8ff" />
         </SafeAreaView>
@@ -105,7 +105,7 @@ export default function StoryScreen() {
 
   if (!campaign) {
     return (
-      <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+      <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
         <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
           <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
           <ScrollView showsVerticalScrollIndicator={false} style={styles.container}>
@@ -133,7 +133,7 @@ export default function StoryScreen() {
   const progressPercent = (campaign.highestNodeReached / 100) * 100;
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
         <ScrollView showsVerticalScrollIndicator={false} style={styles.container}>
@@ -394,5 +394,4 @@ const styles = StyleSheet.create({
   },
   claimBtnText: { fontSize: 12, fontWeight: '800', color: '#7cffb2', letterSpacing: 0.8 },
 
-  errorText: { color: '#ff6060', fontSize: 12, marginTop: 10, textAlign: 'center' },
-});
+  errorText: { color: '#ff6060', fontSize:

@@ -82,7 +82,7 @@ export default function EggSelectScreen() {
   };
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
         <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
@@ -159,5 +159,4 @@ const styles = StyleSheet.create({
 
   selectedIndicator: { position: 'absolute', top: 12, right: 12 },
 
-  loadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' },
-});
+  loadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'cent

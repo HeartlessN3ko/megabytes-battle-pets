@@ -95,7 +95,7 @@ export default function InventoryScreen() {
   }, []);
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <Text style={styles.title}>INVENTORY</Text>
         <Text style={styles.sub}>Track and sort owned items</Text>

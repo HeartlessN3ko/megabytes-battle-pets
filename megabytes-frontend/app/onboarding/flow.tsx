@@ -82,7 +82,7 @@ export default function OnboardingFlowScreen() {
 
   if (loading) {
     return (
-      <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+      <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
         <SafeAreaView style={styles.safe}>
           <ActivityIndicator size="large" color="#7ec8ff" />
         </SafeAreaView>
@@ -94,7 +94,7 @@ export default function OnboardingFlowScreen() {
   const isDemo = getDemoSessionHeaders()['x-is-demo'] === 'true';
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/bg916.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
         <View style={styles.container}>
@@ -195,5 +195,4 @@ const styles = StyleSheet.create({
   skipBtnText: { fontSize: 12, fontWeight: '800', color: 'rgba(255,106,96,0.8)', letterSpacing: 1 },
 
   progressBar: { alignItems: 'center' },
-  progressText: { fontSize: 11, fontWeight: '700', color: 'rgba(212,238,255,0.5)' },
-});
+  progressText: { fontSize: 11, fontWeight

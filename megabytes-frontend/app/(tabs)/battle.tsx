@@ -640,7 +640,7 @@ export default function BattleScreen() {
   const timerWidth = timerAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/battleground.png')} style={styles.bg} resizeMode="cover">
+    <ImageBackground source={require('../../assets/backgrounds/battleground.jpg')} style={styles.bg} resizeMode="cover">
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.timerTrack}>

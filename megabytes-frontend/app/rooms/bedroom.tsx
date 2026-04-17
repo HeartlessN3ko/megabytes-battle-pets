@@ -126,7 +126,7 @@ export default function BedroomRoom() {
         ambient="Use short rests for quick recovery or deep cycle sleep for stronger restoration."
         sceneTint="rgba(36,28,74,0.22)"
         accent="#9f9cff"
-        backgroundSource={require('../../assets/backgrounds/bedroom.png')}
+        backgroundSource={require('../../assets/backgrounds/bedroom.jpg')}
         statusLine={isSleeping ? `Byte is sleeping. Zzzz... ${wakeTimeLabel || ''}` : status}
         timerLine={isSleeping && wakeTimeLabel ? 'Training locked while resting. Tap byte to wake.' : undefined}
         metaProgress={{ label: 'ENERGY', value: energy, max: 100, tint: energy >= 70 ? '#7cffc0' : energy >= 35 ? '#a88eff' : '#8f97ff', detail: `${Math.round(energy)}%` }}

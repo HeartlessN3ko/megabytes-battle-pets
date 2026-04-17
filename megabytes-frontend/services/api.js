@@ -134,7 +134,9 @@ export const homeCleanByte = () => request('POST', `/api/byte/${activeIds().byte
 export const clinicRepair = () => request('POST', `/api/byte/${activeIds().byteId}/clinic-repair`);
 export const powerNap = () => request('POST', `/api/byte/${activeIds().byteId}/power-nap`);
 export const sleepCycle = (durationMinutes) => request('POST', `/api/byte/${activeIds().byteId}/sleep-cycle`, { durationMinutes });
-export const wakeUpByte = () => request('POST', `/api/byte/${activeIds().byteId}/wake-up`);
+export const wakeUpByte = (forced = false) => request('POST', `/api/byte/${activeIds().byteId}/wake-up`, { forced });
+export const getDailyCareStatus = () => request('GET', `/api/byte/${activeIds().byteId}/daily-care`);
+export const resetDailyTasks = () => request('POST', `/api/byte/${activeIds().byteId}/daily-care/reset`);
 export const hatchByte = () => request('POST', `/api/byte/${activeIds().byteId}/hatch`);
 export const evolveByte = (itemUsed = null, playerChoice = {}) =>
   request('POST', `/api/byte/${activeIds().byteId}/evolve`, { itemUsed, playerChoice });

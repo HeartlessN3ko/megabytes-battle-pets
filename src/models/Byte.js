@@ -137,8 +137,16 @@ const ByteSchema = new mongoose.Schema({
   withdrawalTimer: { type: Number, default: 0 }, // MS remaining in withdrawal state
   lastTapResponseTime: { type: Date, default: null }, // For cooldown tracking (1.5s between responses)
 
+  // Affection (persistent relationship meter, 0–100)
+  affection:              { type: Number, default: 50, min: 0, max: 100 },
+  affectionLastPraiseAt:  { type: Date,   default: null },   // For 2-min cooldown + 5-min window
+  affectionPraiseCount:   { type: Number, default: 0 },      // Count within rolling 5-min window
+
+  // Session tracking
+  lastLoginAt: { type: Date, default: null },
+
   // Care pattern tracking
-  dailyCareScore: { type: Number, default: 50 },
+  dailyCareScore: { type: Number, default: 0 },
   careHistory: { type: Array, default: [] },   // Rich action history from carePatternEngine
   needsHistory: { type: Array, default: [] },  // Periodic needs snapshots
 
@@ -149,6 +157,10 @@ const ByteSchema = new mongoose.Schema({
     milestones:   { type: Map, of: Boolean, default: {} },
   },
 
+  // Daily care streak (consecutive days completing all daily tasks)
+  dailyCareStreak: { type: Number, default: 0 },
+  lastCareDate:    { type: String, default: null }, // 'YYYY-MM-DD' UTC, last day tasks were completed
+
   // Neglect tracking
   neglectTimer: { type: Number, default: 0 }, // milliseconds accumulated in critical state
 
@@ -156,9 +168,20 @@ const ByteSchema = new mongoose.Schema({
   roomScore:   { type: Number, default: 25 },
   decorItems:  { type: Array, default: [] },  // [{ id, value, type }]
 
-  // Daily guide tasks
+  // Daily guide tasks (legacy array — superseded by activeDailyTasks)
   dailyTasks:     { type: Array, default: [] },
   tasksCompleted: { type: Number, default: 0 },
+
+  // Active daily care tasks (structured, event-driven)
+  activeDailyTasks: [{
+    _id:        false,
+    id:         { type: String },
+    target:     { type: Number },
+    progress:   { type: Number, default: 0 },
+    completed:  { type: Boolean, default: false },
+    failed:     { type: Boolean, default: false },
+    assignedAt: { type: Date }
+  }],
 
 }, { timestamps: true });
 

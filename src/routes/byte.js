@@ -20,6 +20,8 @@ const eggHatchEngine   = require('../engine/eggHatchEngine');
 const softlockEngine  = require('../engine/softlockEngine');
 const economyEngine   = require('../engine/economyEngine');
 const tapInteractionEngine = require('../engine/tapInteractionEngine');
+const affectionEngine      = require('../engine/affectionEngine');
+const dailyCareEngine      = require('../engine/dailyCareEngine');
 const { MOVE_CATALOG_MAP } = require('../data/moveCatalog');
 const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
 const { optionalAuth } = require('../middleware/auth');
@@ -40,6 +42,55 @@ function averageNeed(needs = {}) {
 function criticalNeedCount(needs = {}) {
   const keys = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'];
   return keys.filter((key) => Number(needs?.[key] || 0) < 25).length;
+}
+
+function minNeedValue(needs = {}) {
+  const keys = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'];
+  return Math.min(...keys.map(k => Number(needs?.[k] ?? 100)));
+}
+
+/**
+ * Ensure byte has valid daily tasks assigned for today.
+ * Resets if tasks are stale (assigned before midnight UTC).
+ * Mutates byte in place — caller must save.
+ */
+function ensureDailyTasks(byte) {
+  const isEarlyGame = (byte.level || 1) <= 5;
+  if (dailyCareEngine.shouldResetTasks(byte.activeDailyTasks || [])) {
+    // Score and streak update before wiping tasks
+    if (byte.activeDailyTasks && byte.activeDailyTasks.length > 0) {
+      byte.dailyCareScore = dailyCareEngine.calcDailyCareScore(byte.activeDailyTasks);
+      dailyCareEngine.checkStreakReset(byte, dailyCareEngine.todayUTC());
+    }
+    byte.activeDailyTasks = dailyCareEngine.selectDailyTasks(isEarlyGame);
+    byte.markModified('activeDailyTasks');
+  }
+}
+
+/**
+ * Emit a care event to the daily task engine and award any task XP.
+ * Mutates byte.activeDailyTasks and byte.xp/level in place.
+ *
+ * @param {Object} byte     - Byte document
+ * @param {Object} event    - event object { type, ...payload }
+ * @returns {{ completedIds: string[], xpAwarded: number, fullSetComplete: boolean }}
+ */
+function emitCareEvent(byte, event) {
+  ensureDailyTasks(byte);
+  const { completedIds, xpAwarded } = dailyCareEngine.processEvent(byte.activeDailyTasks || [], event);
+  byte.markModified?.('activeDailyTasks');
+
+  let totalXP = xpAwarded;
+
+  // Full-set bonus
+  let fullSetComplete = false;
+  if (dailyCareEngine.isFullSetComplete(byte.activeDailyTasks || [])) {
+    fullSetComplete = true;
+    totalXP += dailyCareEngine.FULL_SET_BONUS_XP;
+    dailyCareEngine.checkStreakReset(byte, dailyCareEngine.todayUTC());
+  }
+
+  return { completedIds, xpAwarded: totalXP, fullSetComplete };
 }
 
 async function resolveKnownMoves(moveIds) {
@@ -195,16 +246,48 @@ router.post('/:id/sync', async (req, res) => {
     // Track last player activity for adaptive sleep scheduling
     byte.lastPlayerActivity = new Date();
 
+    // Capture elapsed time before snapshot overwrites lastNeedsUpdate
+    const syncDecayOpts = getDecayOptions(req);
+    const syncSpeedMult = syncDecayOpts.speedMultiplier || 1;
+    const syncRawMin = ((new Date() - new Date(byte.lastNeedsUpdate)) / (1000 * 60)) * syncSpeedMult;
+    const syncElapsedMin = Math.min(syncRawMin, (syncDecayOpts.maxWindowMinutes || 60));
+
     const snapshot = computeLiveByteSnapshot(byte, req);
     byte.needs = snapshot.needs;
     byte.lastNeedsUpdate = snapshot.lastNeedsUpdate;
     byte.corruption = snapshot.corruption;
+
+    // Affection: session bonus (first sync / returning player)
+    const lastLogin = byte.lastLoginAt ? new Date(byte.lastLoginAt).getTime() : 0;
+    const gapHours = (Date.now() - lastLogin) / (1000 * 60 * 60);
+    affectionEngine.applySessionBonus(byte);
+
+    // Emit session_start event to daily tasks
+    ensureDailyTasks(byte);
+    emitCareEvent(byte, {
+      type: 'session_start',
+      gapHours: Math.max(0, gapHours),
+      avgNeeds: averageNeed(byte.needs),
+    });
+
+    // Affection: tick decay/gain using elapsed minutes from before this sync
+    if (syncElapsedMin > 0.1) affectionEngine.tickAffection(byte, syncElapsedMin);
+
+    // Passive XP (time-based, from computeLiveByteSnapshot)
+    if (snapshot.passiveXPGain > 0) {
+      const passiveLevelUp = xpEngine.applyXPGain(byte.level, byte.xp || 0, snapshot.passiveXPGain);
+      byte.level = passiveLevelUp.level;
+      byte.xp = passiveLevelUp.xp;
+    }
+
     await byte.save();
 
     res.json({
       byte,
       computedStats: snapshot.computedStats,
       corruptionTier: snapshot.corruptionTier,
+      affection: byte.affection,
+      passiveXPGain: snapshot.passiveXPGain,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -267,9 +350,10 @@ router.patch('/:id/care', async (req, res) => {
     // Apply decay first, then care
     const decayed = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req));
 
-    // Timing window + spam penalty
+    // Capture stat before care (for affection waste-range check)
     const TIMING_NEED = { feed: 'Hunger', clean: 'Hygiene', rest: 'Bandwidth', play: 'Fun' };
     const targetNeed = TIMING_NEED[action];
+    const statBefore = targetNeed ? (decayed.needs[targetNeed] || 0) : 0;
     const timingWindow = targetNeed
       ? needDecay.getTimingWindow(action, decayed.needs[targetNeed] || 0)
       : { window: 'optimal', restoreMultiplier: 1.0 };
@@ -279,6 +363,14 @@ router.patch('/:id/care', async (req, res) => {
     const updatedNeeds = needDecay.applyCare(decayed.needs, action, grade || 'good', timingWindow.restoreMultiplier, spamMult);
     byte.needs = updatedNeeds;
     byte.lastNeedsUpdate = decayed.lastNeedsUpdate;
+
+    // Affection: care bonus (skipped if spam-suppressed or in waste range)
+    const affectionSpamSuppressed = affectionEngine.isSuppressedBySpam(byte, action);
+    if (!affectionSpamSuppressed) {
+      affectionEngine.applyCareBonus(byte, action, statBefore);
+    } else {
+      affectionEngine.applySpamPenalty(byte, action);
+    }
 
     // Record care action in rich history (for carePatternEngine)
     byte.careHistory = carePatternEngine.recordCareAction(action, timingWindow.window, byte.careHistory || []);
@@ -343,7 +435,23 @@ router.patch('/:id/care', async (req, res) => {
     const actionXP = xpEngine.calculateActionXP(action, grade || 'good', timingWindow.restoreMultiplier, spamMult);
     const carePatternResult = carePatternEngine.getCarePattern(byte.dailyCareScore || 50);
     const finalXP = xpEngine.applyPatternMultiplier(actionXP, carePatternResult.pattern || 'neutral');
-    const levelUp = xpEngine.applyXPGain(byte.level, byte.xp || 0, finalXP);
+
+    // Emit care event to daily task engine
+    const careEvent = {
+      type: action,
+      before: statBefore,
+      after: targetNeed ? (byte.needs[targetNeed] || 0) : 0,
+      delta: targetNeed ? (byte.needs[targetNeed] || 0) - statBefore : 0,
+      timingWindow: timingWindow.window,
+      optimal: timingWindow.window === 'optimal',
+      minNeed: minNeedValue(byte.needs),
+      avgNeeds: averageNeed(byte.needs),
+    };
+    const taskResult = emitCareEvent(byte, careEvent);
+
+    // Total XP = care action XP + task completion XP
+    const totalXP = finalXP + taskResult.xpAwarded;
+    const levelUp = xpEngine.applyXPGain(byte.level, byte.xp || 0, totalXP);
     byte.level = levelUp.level;
     byte.xp = levelUp.xp;
 
@@ -351,14 +459,17 @@ router.patch('/:id/care', async (req, res) => {
     await player.save();
     res.json({
       needs: byte.needs,
+      affection: byte.affection,
       earned: added,
-      xpGained: finalXP,
+      xpGained: totalXP,
       levelsGained: levelUp.levelsGained,
       level: byte.level,
       xp: byte.xp,
       timingWindow: timingWindow.window,
       spamMultiplier: spamMult,
       corruption: byte.corruption,
+      taskCompletions: taskResult.completedIds,
+      fullSetComplete: taskResult.fullSetComplete,
       corruptionTier: corruptionEngine.getCorruptionTier(byte.corruption),
       criticalNeeds: critCount,
     });
@@ -603,11 +714,18 @@ router.post('/:id/praise', async (req, res) => {
     byte.needs.Mood = clampNeed((byte.needs.Mood || 0) + 10);
     byte.needs.Social = clampNeed((byte.needs.Social || 0) + 5);
 
+    // Affection: direct praise with diminishing returns
+    const praiseResult = affectionEngine.applyPraise(byte);
+
     const metrics = behaviorTracker.recordInteraction(byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics, 'praise');
     byte.behaviorMetrics = metrics;
     await byte.save();
     res.json({
       praiseCount: byte.behaviorMetrics.praiseCount,
+      affection: byte.affection,
+      affectionDelta: praiseResult.delta,
+      affectionBlocked: praiseResult.blocked,
+      affectionBlockReason: praiseResult.reason,
       needs: {
         Mood: byte.needs.Mood,
         Social: byte.needs.Social
@@ -985,11 +1103,82 @@ router.post('/:id/wake-up', async (req, res) => {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
+    // Determine if sleep was uninterrupted (natural wake vs forced)
+    const wasForced = req.body?.forced === true;
+    const endEnergy = Number(byte.needs.Bandwidth || 0);
+
     byte.isSleeping = false;
     byte.sleepUntil = null;
+
+    // Emit rest_complete event for daily task tracking
+    const restResult = emitCareEvent(byte, {
+      type: 'rest_complete',
+      uninterrupted: !wasForced,
+      startEnergy: 0, // not tracked at sleep-start; endEnergy is what matters
+      endEnergy,
+    });
+
+    // Apply rest interrupt affection penalty if woken early
+    if (wasForced) {
+      affectionEngine.applyRestInterruptPenalty(byte);
+    }
+
+    if (restResult.xpAwarded > 0) {
+      const restLevelUp = xpEngine.applyXPGain(byte.level, byte.xp || 0, restResult.xpAwarded);
+      byte.level = restLevelUp.level;
+      byte.xp = restLevelUp.xp;
+    }
+
     await byte.save();
 
-    res.json({ isSleeping: false, sleepUntil: null });
+    res.json({
+      isSleeping: false,
+      sleepUntil: null,
+      affection: byte.affection,
+      taskCompletions: restResult.completedIds,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/byte/:id/daily-care — current task status + score + streak
+router.get('/:id/daily-care', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    ensureDailyTasks(byte);
+    const needsSave = dailyCareEngine.shouldResetTasks(byte.activeDailyTasks || []);
+    if (needsSave) await byte.save();
+
+    res.json({
+      activeDailyTasks: byte.activeDailyTasks,
+      dailyCareScore: dailyCareEngine.calcDailyCareScore(byte.activeDailyTasks || []),
+      dailyCareStreak: byte.dailyCareStreak || 0,
+      lastCareDate: byte.lastCareDate || null,
+      fullSetComplete: dailyCareEngine.isFullSetComplete(byte.activeDailyTasks || []),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/byte/:id/daily-care/reset — force reset tasks (admin/dev only)
+router.post('/:id/daily-care/reset', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    const isEarlyGame = (byte.level || 1) <= 5;
+    byte.activeDailyTasks = dailyCareEngine.selectDailyTasks(isEarlyGame);
+    byte.markModified('activeDailyTasks');
+    await byte.save();
+
+    res.json({
+      activeDailyTasks: byte.activeDailyTasks,
+      message: 'Daily tasks reset',
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

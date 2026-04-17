@@ -28,7 +28,6 @@ import { generateByteThought } from '../../services/byteThoughts';
 import { getByteMotionProfile } from '../../services/byteMotion';
 import { resolveByteSprite } from '../../services/byteSprites';
 import HomeRoomStage from '../../components/HomeRoomStage';
-import AchievementsSheet from './achievements-sheet';
 
 const { width, height } = Dimensions.get('window');
 
@@ -371,7 +370,6 @@ export default function HomeScreen() {
   const [playerData, setPlayerData] = useState<any>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
-  const [achievementsOpen, setAchievementsOpen] = useState(false);
   const [statusText, setStatusText] = useState('BYTE is scanning the network.');
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [clutter, setClutter] = useState(0);
@@ -738,39 +736,35 @@ export default function HomeScreen() {
     }
 
     if (key === 'praise') {
-      try {
-        await praiseByte();
-      } catch {}
-      await refreshData();
+      // Immediate feedback — don't await API
       playSfx('yes', 0.8);
       setEmotion('praise');
       if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
       emotionTimerRef.current = setTimeout(() => setEmotion(null), 2000);
       setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'praise' }]);
       setTransientStatus('Praise logged. BYTE mood and social confidence increased.', 2800);
+      praiseByte().catch(() => {});
+      refreshData().catch(() => {});
       return;
     }
 
     if (key === 'scold') {
-      try {
-        await scoldByte();
-      } catch {}
-      await refreshData();
+      // Immediate feedback — don't await API
       playSfx('no', 0.8);
       setEmotion('scold');
       if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
       emotionTimerRef.current = setTimeout(() => setEmotion(null), 2000);
       setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'scold' }]);
       setTransientStatus('Scold logged. BYTE is re-evaluating behavior routines.', 2800);
+      scoldByte().catch(() => {});
+      refreshData().catch(() => {});
     }
   }, [refreshData, router, setTransientStatus, transitionBusy]);
 
   const handleTopMenuNav = useCallback((route: string | undefined, action?: string) => {
     if (transitionBusy) return;
     playSfx('menu', 0.6);
-    if (action === 'achievements') {
-      setAchievementsOpen(true);
-    } else if (route) {
+    if (route) {
       router.push(route as any);
     }
   }, [router, transitionBusy]);
@@ -1240,7 +1234,6 @@ export default function HomeScreen() {
         }}
       />
 
-      <AchievementsSheet visible={achievementsOpen} onClose={() => setAchievementsOpen(false)} />
     </ImageBackground>
   );
 }

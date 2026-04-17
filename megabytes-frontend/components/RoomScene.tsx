@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { Animated, Dimensions, Image, ImageBackground, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import HomeNavBar from './HomeNavBar';
 import { useEvolution } from '../context/EvolutionContext';
 import { useActionGate } from '../hooks/useActionGate';
 import { consumeItem, getByte, getInventory, getShopItems } from '../services/api';
@@ -499,7 +500,7 @@ export default function RoomScene({
           </View>
         </View>
       ) : null}
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={[styles.sceneTint, { backgroundColor: sceneTint }]} />
 
         <View style={styles.header}>
@@ -677,6 +678,9 @@ export default function RoomScene({
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+
+      {/* Persistent home menu — ever-present across all rooms */}
+      <HomeNavBar />
 
       <Modal visible={itemsOpen} transparent animationType="slide">
         <TouchableOpacity style={styles.modalBg} activeOpacity={1} onPress={() => setItemsOpen(false)}>

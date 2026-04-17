@@ -7,6 +7,8 @@ import { useRouter } from 'expo-router';
 import { useEvolution } from '../context/EvolutionContext';
 import { useDemoMode } from '../hooks/useDemoMode';
 import { getOnboardingProgress } from '../services/api';
+import appConfig from '../app.json';
+const BUILD_VERSION = appConfig.expo.version;
 
 const { width, height } = Dimensions.get('window');
 
@@ -99,7 +101,7 @@ export default function SplashScreen() {
 
         <View style={styles.infoBlock}>
           <View style={styles.scanlines} pointerEvents="none" />
-          <Text style={styles.infoPrimary}>DEMO BUILD 2.2.3</Text>
+          <Text style={styles.infoPrimary}>DEMO BUILD {BUILD_VERSION}</Text>
           {demoMode ? <Text style={styles.infoDemo}>DEMO PROFILE ACTIVE</Text> : null}
           <Text style={styles.infoSecondary}>VOIDWORKS INTERACTIVE</Text>
           <Text style={styles.infoSecondary}>INTERNAL SHOWCASE BRANCH</Text>

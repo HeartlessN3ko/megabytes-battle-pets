@@ -4,9 +4,18 @@ const Player = require('../models/Player');
 const InboxMessage = require('../models/InboxMessage');
 const { SHOP_ITEMS } = require('../data/shopCatalog');
 const { optionalAuth } = require('../middleware/auth');
+const { generateMarketplaceEmail } = require('../services/marketplaceEmailFT');
 
 const router = express.Router();
 router.use(optionalAuth);
+
+// Dual-stage marketplace delivery timers
+const DELIVERY_DELAY_MS_DEMO = 5 * 60 * 1000;          // 5 minutes
+const DELIVERY_DELAY_MS_REAL = 24 * 60 * 60 * 1000;    // 24 hours
+
+function isDemoReq(req) {
+  return String(req?.headers?.['x-demo-mode'] || '') === '1';
+}
 
 function listingPayload(listing) {
   const now = Date.now();
@@ -46,27 +55,57 @@ function listingPayload(listing) {
   };
 }
 
-async function ensureMarketDelivery({ playerId, listing, acquiredBy }) {
+/**
+ * Dual-stage marketplace delivery:
+ *   1. Immediate "order_confirmed" email (no readyAt, no attachment — notification only).
+ *   2. Delayed "delivered" email with readyAt = now + DELAY (5min demo / 24h real) carrying the item.
+ * Deduped per stage via `kind` + `metadata.listingId`.
+ */
+async function ensureMarketDelivery({ playerId, listing, acquiredBy, demoMode = false }) {
   if (!playerId || !listing?._id) return false;
   const listingId = String(listing._id);
-  const existing = await InboxMessage.findOne({
-    playerId,
-    kind: 'market_delivery',
-    'metadata.listingId': listingId,
-  }).select('_id');
-  if (existing) return false;
 
-  await InboxMessage.create({
-    playerId,
-    kind: 'market_delivery',
-    subject: acquiredBy === 'auction_win' ? `Auction won: ${listing.itemName}` : `Marketplace delivery: ${listing.itemName}`,
-    body:
-      acquiredBy === 'auction_win'
-        ? 'Your winning bid has been processed. Claim the attachment to add it to inventory.'
-        : 'Purchase complete. Claim attachment to install into your inventory cache.',
-    attachments: [{ type: 'item', itemId: listing.itemId, itemName: listing.itemName, quantity: listing.quantity }],
-    metadata: { listingId, acquiredBy },
-  });
+  const [hasConfirmation, hasDelivery] = await Promise.all([
+    InboxMessage.findOne({ playerId, kind: 'market_confirmation', 'metadata.listingId': listingId }).select('_id'),
+    InboxMessage.findOne({ playerId, kind: 'market_delivery',     'metadata.listingId': listingId }).select('_id'),
+  ]);
+  if (hasConfirmation && hasDelivery) return false;
+
+  const subjectPrefix = acquiredBy === 'auction_win' ? 'Auction won' : 'Order';
+  const now = Date.now();
+  const delayMs = demoMode ? DELIVERY_DELAY_MS_DEMO : DELIVERY_DELAY_MS_REAL;
+
+  const writes = [];
+
+  // Stage 1: immediate confirmation (no attachment — it's a notification)
+  if (!hasConfirmation) {
+    const confirmFt = generateMarketplaceEmail('order_confirmed', listing.itemName);
+    writes.push(InboxMessage.create({
+      playerId,
+      kind: 'market_confirmation',
+      subject: `${subjectPrefix}: ${listing.itemName} — confirmed`,
+      body: confirmFt.body,
+      attachments: [],
+      metadata: { listingId, acquiredBy, stage: 'confirmation' },
+      readyAt: null,
+    }));
+  }
+
+  // Stage 2: delayed delivery (carries the item)
+  if (!hasDelivery) {
+    const deliveryFt = generateMarketplaceEmail('delivered', listing.itemName);
+    writes.push(InboxMessage.create({
+      playerId,
+      kind: 'market_delivery',
+      subject: `${subjectPrefix}: ${listing.itemName} — delivery`,
+      body: deliveryFt.body,
+      attachments: [{ type: 'item', itemId: listing.itemId, itemName: listing.itemName, quantity: listing.quantity }],
+      metadata: { listingId, acquiredBy, stage: 'delivered' },
+      readyAt: new Date(now + delayMs),
+    }));
+  }
+
+  await Promise.all(writes);
   return true;
 }
 
@@ -93,10 +132,12 @@ async function ensureSeedListings() {
       quantity: row.quantity || 1,
       sellerTag: 'BYTE_EXCHANGE',
       category: row.category,
+      status: 'open',
       startBid: row.startBid,
       currentBid: 0,
       minIncrement: row.minIncrement,
       buyNowPrice: row.buyNowPrice,
+      bidHistory: [],
       endsAt: new Date(now + (index + 2) * 60 * 60 * 1000),
     };
   });
@@ -104,7 +145,7 @@ async function ensureSeedListings() {
   await MarketplaceListing.insertMany(docs);
 }
 
-async function settleExpiredOpenListings() {
+async function settleExpiredOpenListings(demoMode = false) {
   const now = new Date();
   const expired = await MarketplaceListing.find({ status: 'open', endsAt: { $lte: now } });
   if (expired.length === 0) return;
@@ -113,7 +154,7 @@ async function settleExpiredOpenListings() {
     listing.status = listing.highestBidder ? 'sold' : 'expired';
     if (listing.highestBidder) {
       listing.soldToPlayer = listing.highestBidder;
-      await ensureMarketDelivery({ playerId: listing.highestBidder, listing, acquiredBy: 'auction_win' });
+      await ensureMarketDelivery({ playerId: listing.highestBidder, listing, acquiredBy: 'auction_win', demoMode });
     }
     await listing.save();
   }
@@ -122,7 +163,7 @@ async function settleExpiredOpenListings() {
 router.get('/listings', async (req, res) => {
   try {
     await ensureSeedListings();
-    await settleExpiredOpenListings();
+    await settleExpiredOpenListings(isDemoReq(req));
 
     const status = String(req.query.status || 'open');
     const query = status === 'all' ? {} : { status };
@@ -221,7 +262,7 @@ router.post('/buy-now', async (req, res) => {
     listing.status = 'sold';
 
     await Promise.all([player.save(), listing.save()]);
-    const deliveryQueued = await ensureMarketDelivery({ playerId: player._id, listing, acquiredBy: 'buy_now' });
+    const deliveryQueued = await ensureMarketDelivery({ playerId: player._id, listing, acquiredBy: 'buy_now', demoMode: isDemoReq(req) });
 
     res.json({
       ok: true,

@@ -58,6 +58,12 @@ interface RoomSceneProps {
   backgroundSource?: any;
   primaryActions: [RoomAction, RoomAction];
   secondaryActions?: RoomAction[];
+  /** When true, renders all actions as a uniform 2-column grid instead of primary/secondary split */
+  uniformGrid?: boolean;
+  /** When true, hides the byte pet sprite (e.g. Training Center) */
+  hidePet?: boolean;
+  /** When true, hides the roomTag + ambient description block for cleaner layout */
+  compactHeader?: boolean;
   onExit: () => void;
 }
 
@@ -87,6 +93,9 @@ export default function RoomScene({
   backgroundSource,
   primaryActions,
   secondaryActions = [],
+  uniformGrid = false,
+  hidePet = false,
+  compactHeader = false,
   onExit
 }: RoomSceneProps) {
   const { stage } = useEvolution();
@@ -501,12 +510,16 @@ export default function RoomScene({
         <View style={styles.stage}>
           <View style={[styles.roomHalo, { borderColor: `${accent}66` }]} />
           <View style={styles.roomMetaWrap}>
-          <View style={[styles.roomTag, { borderColor: `${accent}66` }]}>
-              <Text style={[styles.roomTagText, { color: accent }]}>{roomTag}</Text>
-            </View>
-            <View style={styles.ambientCard}>
-              <Text style={styles.ambientBody}>{ambient}</Text>
-            </View>
+          {!compactHeader && (
+            <>
+              <View style={[styles.roomTag, { borderColor: `${accent}66` }]}>
+                <Text style={[styles.roomTagText, { color: accent }]}>{roomTag}</Text>
+              </View>
+              <View style={styles.ambientCard}>
+                <Text style={styles.ambientBody}>{ambient}</Text>
+              </View>
+            </>
+          )}
             {metaProgress ? (
               <View style={styles.metaProgressCard}>
                 <View style={styles.metaProgressHeader}>
@@ -558,44 +571,24 @@ export default function RoomScene({
             ) : null}
           </View>
 
-          <Animated.View
-            style={[
-              styles.petWrap,
-              { transform: [{ translateX: driftX }, { translateY: driftY }, { translateY: bobY }, { scale: breathe }] },
-            ]}
-          >
-            <Image source={petSprite} style={styles.petSprite} resizeMode="contain" />
-          </Animated.View>
-        </View>
-
-        <View style={styles.primaryRow}>
-          {primaryActions.map((action) => (
-            <TouchableOpacity
-              key={action.key}
-              style={[styles.primaryBtn, (action.disabled || isLocked(action.key)) && styles.btnDisabled]}
-              onPress={() => {
-                runAction(action.key, () => {
-                  runProgramAction(action).catch(() => action.onPress());
-                });
-              }}
-              activeOpacity={0.85}
-              disabled={action.disabled || isLocked(action.key)}
+          {!hidePet ? (
+            <Animated.View
+              style={[
+                styles.petWrap,
+                { transform: [{ translateX: driftX }, { translateY: driftY }, { translateY: bobY }, { scale: breathe }] },
+              ]}
             >
-              <View style={[styles.actionIcon, { borderColor: `${action.color}88`, backgroundColor: `${action.color}22` }]}>
-                <Ionicons name={action.icon as any} size={20} color={action.color} />
-              </View>
-              <Text style={styles.actionTitle}>{action.title}</Text>
-              <Text style={styles.actionSub}>{action.subtitle}</Text>
-            </TouchableOpacity>
-          ))}
+              <Image source={petSprite} style={styles.petSprite} resizeMode="contain" />
+            </Animated.View>
+          ) : null}
         </View>
 
-        {secondaryActions.length > 0 ? (
-          <View style={styles.secondaryRow}>
-            {secondaryActions.map((action) => (
+        {uniformGrid ? (
+          <View style={styles.uniformGrid}>
+            {[...primaryActions, ...secondaryActions].map((action) => (
               <TouchableOpacity
                 key={action.key}
-                style={[styles.secondaryBtn, (action.disabled || isLocked(action.key)) && styles.btnDisabled]}
+                style={[styles.uniformCell, (action.disabled || isLocked(action.key)) && styles.btnDisabled]}
                 onPress={() => {
                   runAction(action.key, () => {
                     runProgramAction(action).catch(() => action.onPress());
@@ -604,12 +597,60 @@ export default function RoomScene({
                 activeOpacity={0.85}
                 disabled={action.disabled || isLocked(action.key)}
               >
-                <Ionicons name={action.icon as any} size={14} color={action.color} />
-                <Text style={styles.secondaryLabel}>{action.title}</Text>
+                <View style={[styles.actionIcon, { borderColor: `${action.color}88`, backgroundColor: `${action.color}22` }]}>
+                  <Ionicons name={action.icon as any} size={20} color={action.color} />
+                </View>
+                <Text style={styles.actionTitle}>{action.title}</Text>
+                <Text style={styles.actionSub}>{action.subtitle}</Text>
               </TouchableOpacity>
             ))}
           </View>
-        ) : null}
+        ) : (
+          <>
+            <View style={styles.primaryRow}>
+              {primaryActions.map((action) => (
+                <TouchableOpacity
+                  key={action.key}
+                  style={[styles.primaryBtn, (action.disabled || isLocked(action.key)) && styles.btnDisabled]}
+                  onPress={() => {
+                    runAction(action.key, () => {
+                      runProgramAction(action).catch(() => action.onPress());
+                    });
+                  }}
+                  activeOpacity={0.85}
+                  disabled={action.disabled || isLocked(action.key)}
+                >
+                  <View style={[styles.actionIcon, { borderColor: `${action.color}88`, backgroundColor: `${action.color}22` }]}>
+                    <Ionicons name={action.icon as any} size={20} color={action.color} />
+                  </View>
+                  <Text style={styles.actionTitle}>{action.title}</Text>
+                  <Text style={styles.actionSub}>{action.subtitle}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {secondaryActions.length > 0 ? (
+              <View style={styles.secondaryRow}>
+                {secondaryActions.map((action) => (
+                  <TouchableOpacity
+                    key={action.key}
+                    style={[styles.secondaryBtn, (action.disabled || isLocked(action.key)) && styles.btnDisabled]}
+                    onPress={() => {
+                      runAction(action.key, () => {
+                        runProgramAction(action).catch(() => action.onPress());
+                      });
+                    }}
+                    activeOpacity={0.85}
+                    disabled={action.disabled || isLocked(action.key)}
+                  >
+                    <Ionicons name={action.icon as any} size={14} color={action.color} />
+                    <Text style={styles.secondaryLabel}>{action.title}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
+          </>
+        )}
 
         <View style={styles.cornerNav}>
           <TouchableOpacity
@@ -620,7 +661,7 @@ export default function RoomScene({
             activeOpacity={0.85}
             disabled={isLocked('nav-exit')}
           >
-            <Ionicons name="arrow-back-outline" size={16} color="#ff6b6b" />
+            <Ionicons name="arrow-back-outline" size={16} color="#fff" />
             <Text style={styles.cornerTextExit}>EXIT</Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -925,6 +966,19 @@ const styles = StyleSheet.create({
   statusTextWrap: { flex: 1 },
   statusText: { color: 'rgba(230,244,255,0.88)', fontSize: 11.5, fontWeight: '600' },
   timerText: { color: '#8ee0ff', fontSize: 10.5, fontWeight: '700', marginTop: 2 },
+  uniformGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  uniformCell: {
+    width: '48%',
+    flexGrow: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(98,188,255,0.22)',
+    backgroundColor: 'rgba(8,18,62,0.88)',
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    gap: 5,
+  },
   primaryRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
   primaryBtn: {
     flex: 1,
@@ -996,14 +1050,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 5,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,107,107,0.4)',
-    backgroundColor: 'rgba(255,107,107,0.12)',
+    borderWidth: 0,
+    backgroundColor: '#ff6b6b',
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   cornerText: { color: '#d9efff', fontSize: 10.2, fontWeight: '800', letterSpacing: 1.1 },
-  cornerTextExit: { color: '#ff6b6b', fontSize: 10.2, fontWeight: '800', letterSpacing: 1.1 },
+  cornerTextExit: { color: '#fff', fontSize: 10.2, fontWeight: '800', letterSpacing: 1.1 },
   btnDisabled: { opacity: 0.5 },
   modalBg: {
     flex: 1,

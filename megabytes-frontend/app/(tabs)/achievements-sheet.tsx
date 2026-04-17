@@ -220,4 +220,5 @@ const styles = StyleSheet.create({
   rewardText: { fontSize: 10, fontWeight: '700', color: '#7cffb2' },
 
   demoNotice: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,225,142,0.12)', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,225,142,0.2)', paddingVertical: 10, paddingHorizontal: 12, marginBottom: 12 },
-  demoNoticeText: { fontSize: 11, fontWeight: '600', color: '#ffe18e', f
+  demoNoticeText: { fontSize: 11, fontWeight: '600', color: '#ffe18e', flexShrink: 1 },
+});

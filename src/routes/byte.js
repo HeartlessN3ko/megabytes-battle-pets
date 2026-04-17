@@ -161,7 +161,9 @@ function getDecayOptions(req) {
 function computeLiveByteSnapshot(byte, req) {
   const decayOpts = getDecayOptions(req);
   const now = new Date();
-  const minutesElapsed = (now - new Date(byte.lastNeedsUpdate)) / (1000 * 60);
+  const speedMult = decayOpts.speedMultiplier || 1;
+  const rawMinutes = ((now - new Date(byte.lastNeedsUpdate)) / (1000 * 60)) * speedMult;
+  const minutesElapsed = Math.min(rawMinutes, decayOpts.maxWindowMinutes || 60);
 
   const { needs, lastNeedsUpdate } = needDecay.applyDecay(
     byte.needs.toObject(),
@@ -169,8 +171,6 @@ function computeLiveByteSnapshot(byte, req) {
     now,
     decayOpts
   );
-
-  const speedMult = decayOpts.speedMultiplier || 1;
   let corruption = corruptionEngine.applyPassiveDecay(byte.corruption, needs);
   if (criticalNeedCount(needs) > 0) {
     corruption = corruptionEngine.applyGain(corruption, 'NEGLECT_TIME', needs, speedMult);

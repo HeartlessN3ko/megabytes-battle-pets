@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { enterRoom, getByte, interactByte } from '../../services/api';
+import { enterRoom, getByte, interactByte, praiseByte } from '../../services/api';
 import RoomScene, { RoomAction, RoomResultWindow } from '../../components/RoomScene';
 import { consumePendingMiniGameResult } from '../../services/minigameRuntime';
 
@@ -84,7 +84,33 @@ export default function PlayRoom() {
     },
   ];
 
-  const secondaryActions: RoomAction[] = [];
+  const secondaryActions: RoomAction[] = [
+    {
+      key: 'praise',
+      title: 'PRAISE',
+      subtitle: 'Boost affection',
+      icon: 'heart-outline',
+      color: '#ff93e2',
+      disabled: false,
+      programLabel: 'Sending praise...',
+      programMs: 900,
+      onPress: () => {
+        praiseByte()
+          .then(() => {
+            setResultWindow({
+              title: 'PRAISE SENT',
+              body: 'Your Byte feels appreciated. Affection and bond metrics updated.',
+            });
+          })
+          .catch(() => {
+            setResultWindow({
+              title: 'PRAISE FAILED',
+              body: 'Praise signal lost. Try again.',
+            });
+          });
+      },
+    },
+  ];
 
   return (
     <RoomScene

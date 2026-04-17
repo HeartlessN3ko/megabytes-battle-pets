@@ -51,7 +51,7 @@ const TOP_MENU = [
   { key: 'profile', label: 'PROFILE', icon: 'person-circle-outline', route: '/(tabs)/profile' },
   { key: 'inbox', label: 'INBOX', icon: 'mail-open-outline', route: '/(tabs)/inbox' },
   { key: 'events', label: 'EVENTS', icon: 'sparkles-outline', route: '/(tabs)/events', color: '#ffd45a' },
-  { key: 'achievements', label: 'DAILY CARE', icon: 'ribbon-outline', action: 'achievements' },
+  { key: 'achievements', label: 'DAILY CARE', icon: 'calendar-outline', action: 'achievements' },
 ];
 
 const CLUTTER_SPRITES = [

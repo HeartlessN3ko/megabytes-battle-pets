@@ -178,6 +178,7 @@ export default function TrainingCenterRoom() {
       statsMatrix={statsMatrix}
       primaryActions={[primaryActions[0], primaryActions[1]]}
       secondaryActions={secondaryActions}
+      backgroundSource={require('../../assets/backgrounds/battleground.jpg')}
       uniformGrid={true}
       hidePet={true}
       compactHeader={true}

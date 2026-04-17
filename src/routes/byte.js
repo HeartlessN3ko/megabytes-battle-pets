@@ -13,7 +13,6 @@ const needInterdependencyEngine = require('../engine/needInterdependencyEngine')
 const streakEngine         = require('../engine/streakEngine');
 const neglectEngine        = require('../engine/neglectEngine');
 const decorSystem          = require('../engine/decorSystem');
-const dailyCareGuideEngine = require('../engine/dailyCareGuideEngine');
 const behaviorTracker = require('../engine/behaviorTracker');
 const eggMetricsEngine = require('../engine/eggMetricsEngine');
 const eggHatchEngine   = require('../engine/eggHatchEngine');
@@ -223,6 +222,7 @@ router.get('/:id', async (req, res) => {
       neglectStage: snapshot.neglectStage,
       streakData: snapshot.streakData,
       passiveXPGain: snapshot.passiveXPGain,
+      affectionTier: affectionEngine.getAffectionTier(byte.affection || 50),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -324,6 +324,21 @@ router.patch('/:id/care', async (req, res) => {
     const { action, grade } = req.body;
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    // Affection: detached tier blocks optional actions (play) with 27.5% chance
+    const OPTIONAL_CARE_ACTIONS = new Set(['play']);
+    const affectionTier = affectionEngine.getAffectionTier(byte.affection || 50);
+    if (affectionTier === 'detached' && OPTIONAL_CARE_ACTIONS.has(action)) {
+      if (Math.random() < 0.275) {
+        return res.json({
+          affectionBlocked: true,
+          affectionTier,
+          reason: 'not_in_mood',
+          needs: byte.needs,
+          affection: byte.affection,
+        });
+      }
+    }
 
     // Egg care: record action, do not apply normal needs/decay
     if (byte.isEgg) {
@@ -436,6 +451,18 @@ router.patch('/:id/care', async (req, res) => {
     const carePatternResult = carePatternEngine.getCarePattern(byte.dailyCareScore || 50);
     const finalXP = xpEngine.applyPatternMultiplier(actionXP, carePatternResult.pattern || 'neutral');
 
+    // multi_action_sequence: track recent care actions with timestamps (60s window)
+    const nowMs = Date.now();
+    const SEQUENCE_WINDOW_MS = 60 * 1000;
+    const log = (byte.recentCareLog || []).filter(e => (nowMs - new Date(e.at).getTime()) < SEQUENCE_WINDOW_MS);
+    log.push({ type: action, at: new Date(nowMs) });
+    if (log.length > 10) log.shift(); // keep max 10 entries
+    byte.recentCareLog = log;
+    byte.markModified('recentCareLog');
+
+    const distinctTypes = new Set(log.map(e => e.type));
+    const sequenceTriggered = distinctTypes.size >= 3;
+
     // Emit care event to daily task engine
     const careEvent = {
       type: action,
@@ -449,6 +476,14 @@ router.patch('/:id/care', async (req, res) => {
     };
     const taskResult = emitCareEvent(byte, careEvent);
 
+    // Emit multi_action_sequence event if 3 distinct actions were performed within 60s
+    if (sequenceTriggered) {
+      emitCareEvent(byte, { type: 'multi_action_sequence' });
+      // Reset log after triggering so it doesn't fire repeatedly
+      byte.recentCareLog = [];
+      byte.markModified('recentCareLog');
+    }
+
     // Total XP = care action XP + task completion XP
     const totalXP = finalXP + taskResult.xpAwarded;
     const levelUp = xpEngine.applyXPGain(byte.level, byte.xp || 0, totalXP);
@@ -460,6 +495,7 @@ router.patch('/:id/care', async (req, res) => {
     res.json({
       needs: byte.needs,
       affection: byte.affection,
+      affectionTier: affectionEngine.getAffectionTier(byte.affection || 50),
       earned: added,
       xpGained: totalXP,
       levelsGained: levelUp.levelsGained,
@@ -711,6 +747,18 @@ router.post('/:id/praise', async (req, res) => {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
+    // Affection: detached tier blocks praise with 27.5% chance
+    const praiseTier = affectionEngine.getAffectionTier(byte.affection || 50);
+    if (praiseTier === 'detached' && Math.random() < 0.275) {
+      return res.json({
+        affectionBlocked: true,
+        affectionTier: praiseTier,
+        reason: 'not_in_mood',
+        affection: byte.affection,
+        needs: { Mood: byte.needs.Mood, Social: byte.needs.Social },
+      });
+    }
+
     byte.needs.Mood = clampNeed((byte.needs.Mood || 0) + 10);
     byte.needs.Social = clampNeed((byte.needs.Social || 0) + 5);
 
@@ -723,6 +771,7 @@ router.post('/:id/praise', async (req, res) => {
     res.json({
       praiseCount: byte.behaviorMetrics.praiseCount,
       affection: byte.affection,
+      affectionTier: affectionEngine.getAffectionTier(byte.affection || 50),
       affectionDelta: praiseResult.delta,
       affectionBlocked: praiseResult.blocked,
       affectionBlockReason: praiseResult.reason,

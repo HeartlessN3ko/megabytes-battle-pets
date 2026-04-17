@@ -134,6 +134,7 @@ const ByteSchema = new mongoose.Schema({
   tapWindow: { type: [Date], default: [] }, // Rolling 3s window of tap timestamps
   annoyanceStage: { type: Number, default: 0, min: 0, max: 3 }, // 0=none, 1=warn, 2=annoyed, 3=withdrawn
   lastCareActions: { type: [String], default: [] }, // Last 5 care action IDs for spam detection, most recent first
+  recentCareLog: [{ _id: false, type: String, at: Date }], // Rolling log for multi_action_sequence detection (60s window)
   withdrawalTimer: { type: Number, default: 0 }, // MS remaining in withdrawal state
   lastTapResponseTime: { type: Date, default: null }, // For cooldown tracking (1.5s between responses)
 

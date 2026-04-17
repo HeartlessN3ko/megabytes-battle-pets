@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
 import { ImageBackground, PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { careAction, earnCurrency, interactByte, trainStat, syncByte } from '../../services/api';
+import { careAction, earnCurrency, getByte, interactByte, trainStat, syncByte } from '../../services/api';
 import { markHomeClutterCleared } from '../../services/homeRuntimeState';
 import { MiniGameDef, getMiniGameById } from '../../services/minigames';
 import { MiniGameRoomId, recordTrainingUsage, setPendingMiniGameResult } from '../../services/minigameRuntime';
@@ -12,6 +13,28 @@ type Variant = 'quick' | 'long';
 
 const EMOTES = ['HAPPY', 'SLEEP', 'ANGRY', 'JOY'];
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+const TOUCH_HIT_SLOP = { top: 18, bottom: 18, left: 18, right: 18 };
+const LARGE_TOUCH_HIT_SLOP = { top: 28, bottom: 28, left: 28, right: 28 };
+const BOARD_WIDTH = 260;
+const BOARD_HEIGHT = 170;
+const BOARD_CENTER_Y = 85;
+const NEED_RESULT_ORDER = ['Hunger', 'Bandwidth', 'Hygiene', 'Fun', 'Social', 'Mood'];
+
+function familyLabelFor(game: MiniGameDef) {
+  return game.id.startsWith('training-') ? 'TRAINING SIMULATION' : 'CARE SIMULATION';
+}
+
+function kindLabelFor(kind: MiniGameDef['kind']) {
+  if (kind === 'tap-target') return 'REACTION';
+  if (kind === 'scrub') return 'SCRUB';
+  if (kind === 'trace') return 'TRACE';
+  if (kind === 'match') return 'MATCH';
+  if (kind === 'sequence') return 'SEQUENCE';
+  if (kind === 'timing') return 'TIMING';
+  if (kind === 'rapid-tap') return 'RAPID TAP';
+  if (kind === 'ordered-sequence') return 'ORDER';
+  return 'MODULE';
+}
 
 function gradeForQuality(q: number): Grade {
   if (q >= 0.85) return 'perfect';
@@ -55,6 +78,28 @@ function processLabelFor(game: MiniGameDef) {
   if (game.id === 'sync-link') return 'SYNCING LINKS...';
   if (game.id === 'emote-align') return 'ALIGNING EMOTES...';
   return 'COMPILING RESULTS...';
+}
+
+function gradeAccent(grade: Grade) {
+  if (grade === 'perfect') return '#79f7d0';
+  if (grade === 'good') return '#ffd978';
+  return '#ff8f9f';
+}
+
+function diffNeedResults(before: any, after: any) {
+  if (!before || !after) return [];
+  return NEED_RESULT_ORDER
+    .map((key) => {
+      const delta = Math.round(Number(after?.[key] || 0) - Number(before?.[key] || 0));
+      return delta > 0 ? `${key} +${delta}` : null;
+    })
+    .filter(Boolean) as string[];
+}
+
+function resultSummaryFor(game: MiniGameDef, grade: Grade, effectLines: string[]) {
+  if (grade === 'fail') return 'Run failed. No room effect was applied.';
+  if (effectLines.length > 0) return `${game.title} completed. Room effects are ready to apply when you return.`;
+  return `${game.title} completed.`;
 }
 
 function targetGoalFor(game: MiniGameDef, variant: Variant) {
@@ -127,6 +172,8 @@ export default function MiniGameRunnerScreen() {
   const [synced, setSynced] = useState(false);
   const [resultReady, setResultReady] = useState(false);
   const [resultSummary, setResultSummary] = useState('');
+  const [resultEffects, setResultEffects] = useState<string[]>([]);
+  const [resultMeta, setResultMeta] = useState<string[]>([]);
   const [resultBits, setResultBits] = useState(0);
   const [resultSkill, setResultSkill] = useState<string | null>(null);
   const [resultEnergyCost, setResultEnergyCost] = useState(0);
@@ -212,6 +259,8 @@ export default function MiniGameRunnerScreen() {
     setSynced(false);
     setResultReady(false);
     setResultSummary('');
+    setResultEffects([]);
+    setResultMeta([]);
     setResultBits(0);
     setResultSkill(null);
     setResultEnergyCost(0);
@@ -328,6 +377,7 @@ export default function MiniGameRunnerScreen() {
     setPostPercent(0);
 
     try {
+      let effectLines: string[] = [];
       const processDuration = variant === 'long' ? 950 : 650;
       await new Promise<void>((resolve) => {
         const started = Date.now();
@@ -344,21 +394,31 @@ export default function MiniGameRunnerScreen() {
 
       if (quality > 0 && grade !== 'fail') {
         if (game.id === 'feed-upload') {
-          await careAction('feed', grade);
-          if (variant === 'long') await careAction('feed', grade);
+          const beforeByte = await getByte().catch(() => null);
+          const first = await careAction('feed', grade);
+          const second = variant === 'long' ? await careAction('feed', grade) : null;
+          effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
         } else if (game.id === 'run-cleanup') {
-          await careAction('clean', grade);
-          if (variant === 'long') await careAction('clean', grade);
+          const beforeByte = await getByte().catch(() => null);
+          const first = await careAction('clean', grade);
+          const second = variant === 'long' ? await careAction('clean', grade) : null;
+          effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
           markHomeClutterCleared();
         } else if (game.id === 'stabilize-signal') {
-          await careAction('rest', grade);
-          if (variant === 'long') await careAction('rest', grade);
+          const beforeByte = await getByte().catch(() => null);
+          const first = await careAction('rest', grade);
+          const second = variant === 'long' ? await careAction('rest', grade) : null;
+          effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
         } else if (game.id === 'engage-simulation' || game.id === 'sync-link' || game.id === 'emote-align') {
-          await interactByte();
-          if (variant === 'long') await interactByte();
+          const beforeByte = await getByte().catch(() => null);
+          const first = await interactByte();
+          const second = variant === 'long' ? await interactByte() : null;
+          effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
         } else if (game.id.startsWith('training-') && game.stat) {
           try {
-            await trainStat(game.stat, grade);
+            const trainResult = await trainStat(game.stat, grade);
+            const gain = Math.max(0, Number(trainResult?.gain || 0));
+            effectLines = gain > 0 ? [`${game.stat} +${gain}`] : [`${game.stat} +0`];
             await syncByte(); // REFRESH byte data after training so stats persist
           } catch (err: any) {
             console.error(`trainStat failed for ${game.stat}:`, err?.message);
@@ -377,10 +437,16 @@ export default function MiniGameRunnerScreen() {
 
       setSynced(true);
       setResultReady(true);
+      setResultEffects(effectLines.length > 0 ? effectLines : ['No room effect applied']);
+      setResultMeta([
+        economy.byteBits > 0 ? `ByteBits +${economy.byteBits}` : '',
+        economy.energyCost > 0 ? `Energy -${economy.energyCost}` : '',
+        game.id.startsWith('training-') ? 'Training cooldown 10s' : '',
+      ].filter(Boolean));
       setResultBits(economy.byteBits);
       setResultSkill(economy.statGain);
       setResultEnergyCost(economy.energyCost);
-      setResultSummary(`Result synced. Grade ${grade.toUpperCase()}, quality ${Math.round(quality * 100)}%.`);
+      setResultSummary(resultSummaryFor(game, grade, effectLines));
       setStatus('Result ready. Return to room to continue.');
 
       // Set pending result for room UI
@@ -395,7 +461,7 @@ export default function MiniGameRunnerScreen() {
           skillGain: economy.statGain,
           energyCost: economy.energyCost,
           cooldownSeconds: 10,
-          summary: `${game.title} complete. ${economy.statGain || 'Gains applied'}. Grade: ${grade.toUpperCase()}.`,
+          summary: effectLines.length > 0 ? effectLines.join(' • ') : `${game.title} complete.`,
         });
       }
     } catch {
@@ -437,7 +503,7 @@ export default function MiniGameRunnerScreen() {
           if (!link) return false;
           const dx = evt.nativeEvent.locationX - link.start.x;
           const dy = evt.nativeEvent.locationY - link.start.y;
-          return Math.hypot(dx, dy) <= 24;
+          return Math.hypot(dx, dy) <= 40;
         },
         onMoveShouldSetPanResponder: () => running && game?.id === 'feed-upload',
         onPanResponderGrant: () => {
@@ -450,14 +516,14 @@ export default function MiniGameRunnerScreen() {
           if (!running || game?.id !== 'feed-upload') return;
           const link = feedLinks[feedStageRef.current];
           if (!link) return;
-          const x = clamp(evt.nativeEvent.locationX, 0, 260);
-          const y = clamp(evt.nativeEvent.locationY, 0, 170);
+          const x = clamp(evt.nativeEvent.locationX, 0, BOARD_WIDTH);
+          const y = clamp(evt.nativeEvent.locationY, 0, BOARD_HEIGHT);
           setFeedCursor({ x, y });
           setInteractions((v) => v + 1);
 
           const dx = x - link.target.x;
           const dy = y - link.target.y;
-          const reached = Math.hypot(dx, dy) <= 28;
+          const reached = Math.hypot(dx, dy) <= 42;
           if (!reached) return;
 
           const nextStage = feedStageRef.current + 1;
@@ -569,10 +635,10 @@ export default function MiniGameRunnerScreen() {
           if (!pattern) return;
           setInteractions((v) => v + 1);
 
-          const x = clamp(evt.nativeEvent.locationX, 0, 260);
-          const y = clamp(evt.nativeEvent.locationY, 0, 170);
-          const expected = 85 + pattern.offset + Math.sin((x / 260) * Math.PI * 2 + pattern.phase) * pattern.amplitude;
-          const tol = variant === 'long' ? 24 : 34;
+          const x = clamp(evt.nativeEvent.locationX, 0, BOARD_WIDTH);
+          const y = clamp(evt.nativeEvent.locationY, 0, BOARD_HEIGHT);
+          const expected = BOARD_CENTER_Y + pattern.offset + Math.sin((x / BOARD_WIDTH) * Math.PI * 2 + pattern.phase) * pattern.amplitude;
+          const tol = variant === 'long' ? 34 : 44;
           const ok = Math.abs(y - expected) <= tol;
 
           setTraceCursor({ x, y });
@@ -680,34 +746,6 @@ export default function MiniGameRunnerScreen() {
     }
   }, [cursor, finishRound, game?.kind, quality, running, timingAttempts, timingHits, zoneStart, zoneWidth]);
 
-  const progress = useMemo(() => {
-    if (!game) return '0';
-    if (game.id === 'feed-upload') return `Cycle ${Math.min(feedStage + 1, 3)}/3`;
-    if (game.kind === 'scrub') return `Panel ${Math.min(cleanupStage + 1, 3)}/3 - ${cleanedCount}/${scrubGoal} clean`;
-    if (game.kind === 'trace') return `Pattern ${Math.min(traceStage + 1, 3)}/3 - ${Math.min(traceAligned, traceGoal)}/${traceGoal}`;
-    if (game.kind === 'match') return `${pairCount}/${pairGoal} pairs`;
-    if (game.kind === 'sequence') return `${seqCorrect}/${seqPattern.length}`;
-    if (game.kind === 'ordered-sequence') return `${Math.min(orderedNext - 1, 6)}/6`;
-    if (game.kind === 'timing') return `${timingHits}/${timingAttempts}`;
-    return `${tapCount} taps`;
-  }, [cleanedCount, cleanupStage, feedStage, game, orderedNext, pairCount, pairGoal, scrubGoal, seqCorrect, seqPattern.length, tapCount, timingAttempts, timingHits, traceAligned, traceGoal, traceStage]);
-
-  const instruction = useMemo(() => {
-    if (!game) return '';
-    if (game.id === 'feed-upload') return 'Route the nutrient link into BYTE. Complete 3 meal cycles.';
-    if (game.kind === 'tap-target') return `Hit ${tapGoal} targets before time runs out.`;
-    if (game.kind === 'rapid-tap') return `Mash to ${tapGoal} taps as fast as possible.`;
-    if (game.kind === 'scrub') return `Scrub the nodes clean. Clear 3 panels of ${scrubGoal} bars.`;
-    if (game.kind === 'trace') return `Stabilize 3 signal patterns. Lock ${traceGoal} aligned points on this pattern.`;
-    if (game.kind === 'match') return `Match ${pairGoal} pairs.`;
-    if (game.kind === 'sequence') return sequencePreviewing
-      ? `Memorize: ${seqPattern.map((idx) => EMOTES[idx]).join(' -> ')}`
-      : 'Repeat the pattern in the same order.';
-    if (game.kind === 'ordered-sequence') return 'Tap the numbers in order from 1 to 6.';
-    if (game.kind === 'timing') return 'Stop the cursor inside the green zone 3 times.';
-    return '';
-  }, [game, pairGoal, scrubGoal, seqPattern, sequencePreviewing, tapGoal, traceGoal]);
-
   const goBackToRoom = useCallback(() => {
     if (!game || !roomPath) {
       router.back();
@@ -718,7 +756,7 @@ export default function MiniGameRunnerScreen() {
       router.back();
       return;
     }
-    const summary = resultSummary || `${game.title} complete.`;
+    const summary = resultEffects.length > 0 ? resultEffects.join(' • ') : (resultSummary || `${game.title} complete.`);
     setPendingMiniGameResult({
       room: payloadRoom,
       gameId: game.id,
@@ -732,7 +770,7 @@ export default function MiniGameRunnerScreen() {
       summary,
     });
     router.replace(roomPath as any);
-  }, [game, grade, quality, resultBits, resultEnergyCost, resultSkill, resultSummary, room, roomPath, router]);
+  }, [game, grade, quality, resultBits, resultEffects, resultEnergyCost, resultSkill, resultSummary, room, roomPath, router]);
 
   if (!game) {
     return (
@@ -742,70 +780,39 @@ export default function MiniGameRunnerScreen() {
     );
   }
 
+  const accent = game.accent;
+  const gradeColor = gradeAccent(grade);
+  const score = Math.round(quality * 100);
+  const navigationLocked = running || syncing || postProcessing;
+
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
+      <View style={styles.bgTint} />
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerTextBlock}>
+            <Text style={styles.eyebrow}>{familyLabelFor(game)}</Text>
             <Text style={styles.title}>{game.title}</Text>
-            <Text style={styles.sub}>{game.subtitle} - {variant.toUpperCase()}</Text>
+            <Text style={styles.sub}>{game.subtitle}</Text>
           </View>
-          <TouchableOpacity style={styles.cancelBtn} onPress={goBackToRoom} activeOpacity={0.85}>
-            <Text style={styles.cancelText}>CANCEL</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.hudRow}>
-          <View style={styles.hudCard}><Text style={styles.hudLabel}>TIME</Text><Text style={styles.hudVal}>{(remainingMs / 1000).toFixed(1)}s</Text></View>
-          <View style={styles.hudCard}><Text style={styles.hudLabel}>PROGRESS</Text><Text style={styles.hudVal}>{progress}</Text></View>
-          <View style={styles.hudCard}><Text style={styles.hudLabel}>QUALITY</Text><Text style={styles.hudVal}>{Math.round(quality * 100)}%</Text></View>
-        </View>
-
-        <View style={styles.alertStack}>
-          {postProcessing ? (
-            <View style={styles.processCard}>
-              <View style={styles.processHeader}>
-                <Text style={styles.processTitle}>{processLabelFor(game)}</Text>
-                <Text style={styles.processPercent}>{postPercent}%</Text>
-              </View>
-              <Text style={styles.processSub}>SYSTEM PROCESS</Text>
-              <View style={styles.processTrack}>
-                <View style={[styles.processFill, { width: `${postPercent}%` }]} />
-              </View>
-              <Text style={styles.processFooter}>Reward package and room sync in progress...</Text>
-            </View>
-          ) : null}
-
-          <View style={styles.statusCard}>
-            <Text style={styles.instruction}>{instruction}</Text>
-            <Text style={styles.status}>{syncing ? 'Syncing result...' : status}</Text>
-            <Text style={styles.grade}>Grade: {grade.toUpperCase()}</Text>
+          <View style={[styles.scoreBadge, { borderColor: `${accent}88`, backgroundColor: `${accent}20` }]}>
+            <Text style={styles.scoreLabel}>SCORE</Text>
+            <Text style={[styles.scoreValue, { color: gradeColor }]}>{score}</Text>
           </View>
-
-          {resultReady ? (
-            <View style={styles.resultCard}>
-              <Text style={styles.resultTitle}>PROGRAM RESULT READY</Text>
-              <Text style={styles.resultBody}>{resultSummary}</Text>
-              <Text style={styles.resultMeta}>BYTEBITS +{resultBits} - Energy -{resultEnergyCost}</Text>
-              {resultSkill ? <Text style={styles.resultMeta}>{resultSkill}</Text> : null}
-              <TouchableOpacity style={styles.btn} onPress={goBackToRoom} activeOpacity={0.85}>
-                <Text style={styles.btnText}>RETURN TO ROOM</Text>
-              </TouchableOpacity>
-            </View>
-          ) : null}
         </View>
 
-        <View style={styles.play}>
+        <View style={styles.playWrap}>
+          <View style={[styles.play, { borderColor: `${accent}50` }]}>
           {game.id === 'feed-upload' ? (
             <View style={styles.fill} {...feedPan.panHandlers}>
-              <Text style={styles.hint}>Connect the food line to BYTE</Text>
-              <Text style={styles.stageText}>Meal cycle {Math.min(feedStage + 1, 3)} of 3</Text>
-              <View style={styles.feedBoard}>
+              <View style={[styles.feedBoard, { borderColor: `${accent}66` }]}>
                 {feedLinks.map((link, idx) => {
                   const isDone = idx < feedStage;
                   const isActive = idx === feedStage;
                   return (
                     <View key={`feed-${idx}`} style={[styles.feedLane, { top: 0 }]}>
+                      <View style={[styles.feedTouchAura, { left: link.start.x - 28, top: link.start.y - 28 }, isActive && styles.feedTouchAuraActive]} />
+                      <View style={[styles.feedTargetAura, { left: link.target.x - 30, top: link.target.y - 30 }, isActive && styles.feedTargetAuraActive]} />
                       <View style={[styles.feedNode, styles.feedSource, { left: link.start.x - 15, top: link.start.y - 15 }, isDone && styles.feedNodeDone, isActive && styles.feedNodeActive]}>
                         <Text style={styles.feedNodeText}>FOOD</Text>
                       </View>
@@ -834,16 +841,14 @@ export default function MiniGameRunnerScreen() {
           ) : null}
 
           {(game.kind === 'tap-target' || game.kind === 'rapid-tap') && game.id !== 'feed-upload' ? (
-            <TouchableOpacity style={[styles.target, { left: targetPos.x, top: targetPos.y }]} onPress={onTapTarget} disabled={!running} hitSlop={20}>
+            <TouchableOpacity style={[styles.target, { left: targetPos.x, top: targetPos.y }]} onPress={onTapTarget} disabled={!running} hitSlop={LARGE_TOUCH_HIT_SLOP}>
               <Text style={styles.targetText}>{game.kind === 'rapid-tap' ? 'TAP' : 'GO'}</Text>
             </TouchableOpacity>
           ) : null}
 
           {game.kind === 'scrub' ? (
             <View style={styles.fill} {...scrubPan.panHandlers}>
-              <Text style={styles.hint}>Scrub the nodes clean</Text>
-              <Text style={styles.stageText}>Panel {Math.min(cleanupStage + 1, 3)} of 3</Text>
-              <View style={styles.scrubBoard}>
+              <View style={[styles.scrubBoard, styles.boardShell, { borderColor: `${accent}66` }]}>
                 {activeCleanupPanel?.bars.map((bar, idx) => (
                   <View
                     key={`${cleanupStage}-${idx}`}
@@ -860,23 +865,21 @@ export default function MiniGameRunnerScreen() {
 
           {game.kind === 'trace' ? (
             <View style={styles.fill} {...tracePan.panHandlers}>
-              <Text style={styles.stageText}>Pattern {Math.min(traceStage + 1, 3)} of 3</Text>
-              <View style={styles.traceBoard}>
+              <View style={[styles.traceBoard, { borderColor: `${accent}66` }]}>
                 {Array.from({ length: 28 }).map((_, idx) => {
-                  const x = (idx / 27) * 260;
-                  const y = 85 + (activeTracePattern?.offset ?? 0) + Math.sin((x / 260) * Math.PI * 2 + (activeTracePattern?.phase ?? 0)) * (activeTracePattern?.amplitude ?? 30);
+                  const x = (idx / 27) * BOARD_WIDTH;
+                  const y = BOARD_CENTER_Y + (activeTracePattern?.offset ?? 0) + Math.sin((x / BOARD_WIDTH) * Math.PI * 2 + (activeTracePattern?.phase ?? 0)) * (activeTracePattern?.amplitude ?? 30);
                   return <View key={idx} style={[styles.traceDot, { left: x, top: y }]} />;
                 })}
                 {traceCursor ? <View style={[styles.traceCursor, { left: traceCursor.x, top: traceCursor.y }]} /> : null}
               </View>
-              <Text style={styles.hint}>Drag the marker across each signal pattern</Text>
             </View>
           ) : null}
 
           {game.kind === 'match' ? (
             <View style={styles.grid}>
               {cards.map((c, idx) => (
-                <TouchableOpacity key={`${c}-${idx}`} style={[styles.cell, matched[idx] && styles.cellOk]} onPress={() => onCardPress(idx)} disabled={!running || matched[idx]}>
+                <TouchableOpacity key={`${c}-${idx}`} style={[styles.cell, matched[idx] && styles.cellOk]} onPress={() => onCardPress(idx)} disabled={!running || matched[idx]} hitSlop={TOUCH_HIT_SLOP}>
                   <Text style={styles.cellText}>{revealed[idx] || matched[idx] ? c : '?'}</Text>
                 </TouchableOpacity>
               ))}
@@ -886,7 +889,7 @@ export default function MiniGameRunnerScreen() {
           {game.kind === 'sequence' ? (
             <View style={styles.seq}>
               {EMOTES.map((e, idx) => (
-                <TouchableOpacity key={e} style={styles.seqBtn} onPress={() => onSequencePress(idx)} disabled={!running}>
+                <TouchableOpacity key={e} style={styles.seqBtn} onPress={() => onSequencePress(idx)} disabled={!running} hitSlop={TOUCH_HIT_SLOP}>
                   <Text style={styles.seqText}>{e}</Text>
                 </TouchableOpacity>
               ))}
@@ -896,7 +899,7 @@ export default function MiniGameRunnerScreen() {
           {game.kind === 'ordered-sequence' ? (
             <View style={styles.grid}>
               {[1, 2, 3, 4, 5, 6].map((n) => (
-                <TouchableOpacity key={n} style={[styles.cell, n < orderedNext && styles.cellOk]} onPress={() => onOrderedPress(n)} disabled={!running || n < orderedNext}>
+                <TouchableOpacity key={n} style={[styles.cell, n < orderedNext && styles.cellOk]} onPress={() => onOrderedPress(n)} disabled={!running || n < orderedNext} hitSlop={TOUCH_HIT_SLOP}>
                   <Text style={styles.cellText}>{n}</Text>
                 </TouchableOpacity>
               ))}
@@ -907,81 +910,177 @@ export default function MiniGameRunnerScreen() {
             <View style={styles.timing}>
               <View style={[styles.zone, { left: `${zoneStart}%`, width: `${zoneWidth}%` }]} />
               <View style={[styles.cursor, { left: `${cursor}%` }]} />
-              <TouchableOpacity style={styles.stop} onPress={onStopTiming} disabled={!running || timingAttempts >= 3}>
+              <TouchableOpacity style={[styles.stop, { borderColor: `${accent}88` }]} onPress={onStopTiming} disabled={!running || timingAttempts >= 3} hitSlop={LARGE_TOUCH_HIT_SLOP}>
                 <Text style={styles.btnText}>STOP ({Math.max(0, 3 - timingAttempts)})</Text>
               </TouchableOpacity>
             </View>
           ) : null}
+          </View>
         </View>
 
+        <Text style={styles.lockNotice}>
+          {navigationLocked ? 'ROOM SWITCHING IS LOCKED WHILE THE MINIGAME IS ACTIVE' : 'ROOM NAVIGATION READY'}
+        </Text>
+
+        <View style={styles.footerStack}>
+          <TouchableOpacity
+            style={styles.cornerBtnExit}
+            onPress={goBackToRoom}
+            activeOpacity={0.85}
+            hitSlop={TOUCH_HIT_SLOP}
+          >
+            <Ionicons name="arrow-back-outline" size={16} color="#fff" />
+            <Text style={styles.cornerTextExit}>EXIT</Text>
+          </TouchableOpacity>
+
+          <View style={styles.persistentTabBar}>
+            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
+              <Ionicons name="home-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : '#7ec8ff'} />
+              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled, styles.tabLabelActive]}>Home</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
+              <Ionicons name="map-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.45)'} />
+              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled]}>Story</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
+              <Ionicons name="flash-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.45)'} />
+              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled]}>Arena</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
+              <Ionicons name="settings-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.45)'} />
+              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled]}>Settings</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
+              <Ionicons name="ribbon-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.45)'} />
+              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled]}>Achievements</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </SafeAreaView>
+
+      {postProcessing ? (
+        <View pointerEvents="auto" style={styles.overlayScrim}>
+          <View style={[styles.centerPopup, { borderColor: `${accent}66` }]}>
+            <Text style={styles.popupEyebrow}>PROCESSING RESULT</Text>
+            <Text style={styles.popupTitle}>{processLabelFor(game)}</Text>
+            <Text style={styles.popupScoreLabel}>FINAL SCORE</Text>
+            <Text style={[styles.popupScoreValue, { color: gradeColor }]}>{score}</Text>
+            <View style={styles.processTrack}>
+              <View style={[styles.processFill, { width: `${postPercent}%` }]} />
+            </View>
+            <Text style={styles.popupBody}>Applying room effects and syncing the result package...</Text>
+          </View>
+        </View>
+      ) : null}
+
+      {resultReady ? (
+        <View pointerEvents="auto" style={styles.overlayScrim}>
+          <View style={[styles.centerPopup, { borderColor: `${accent}88` }]}>
+            <Text style={styles.popupEyebrow}>PROCESS RESULT</Text>
+            <Text style={styles.popupTitle}>RETURN TO ROOM</Text>
+            <Text style={styles.popupScoreLabel}>END SCORE</Text>
+            <Text style={[styles.popupScoreValue, { color: gradeColor }]}>{score}</Text>
+            <View style={styles.effectStack}>
+              {resultEffects.map((effect) => (
+                <View key={effect} style={[styles.effectPill, { borderColor: `${accent}66` }]}>
+                  <Text style={styles.effectText}>{effect}</Text>
+                </View>
+              ))}
+            </View>
+            {resultSummary ? <Text style={styles.popupBody}>{resultSummary}</Text> : null}
+            {resultMeta.length > 0 ? (
+              <View style={styles.metaList}>
+                {resultMeta.map((meta) => (
+                  <Text key={meta} style={styles.metaLine}>{meta}</Text>
+                ))}
+              </View>
+            ) : null}
+            <TouchableOpacity style={[styles.btn, { borderColor: `${accent}90` }]} onPress={goBackToRoom} activeOpacity={0.85} hitSlop={TOUCH_HIT_SLOP}>
+              <Text style={styles.btnText}>RETURN TO ROOM</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
     </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   bg: { flex: 1, width: '100%', height: '100%' },
+  bgTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(4, 9, 24, 0.72)',
+  },
   safe: { flex: 1, paddingHorizontal: 14, paddingBottom: 12 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { paddingTop: 10, gap: 2, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  title: { color: '#e9f4ff', fontSize: 21, fontWeight: '900', letterSpacing: 1.2 },
-  sub: { color: '#9dd5ff', fontSize: 10.5 },
-  cancelBtn: {
-    borderRadius: 10,
+  header: { paddingTop: 10, gap: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  headerTextBlock: { flex: 1, gap: 3 },
+  eyebrow: { color: '#8fdfff', fontSize: 9.5, fontWeight: '900', letterSpacing: 1.6 },
+  title: { color: '#f2f8ff', fontSize: 24, fontWeight: '900', letterSpacing: 1.2, lineHeight: 28 },
+  sub: { color: 'rgba(199,225,255,0.92)', fontSize: 11.5, lineHeight: 16 },
+  scoreBadge: {
+    minWidth: 96,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
-    backgroundColor: 'rgba(26,34,62,0.78)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  cancelText: { color: '#d9efff', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
-  hudRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  hudCard: {
-    flex: 1,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(120,190,255,0.28)',
-    backgroundColor: 'rgba(8,18,62,0.8)',
-    padding: 8,
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  hudLabel: { color: '#9dd5ff', fontSize: 9.5, fontWeight: '800', letterSpacing: 1 },
-  hudVal: { color: '#e9f4ff', fontSize: 10.8, fontWeight: '700' },
-  alertStack: { marginTop: 10, gap: 8 },
-  statusCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(120,190,255,0.26)',
-    backgroundColor: 'rgba(7,16,54,0.9)',
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  scoreLabel: { color: '#9dd5ff', fontSize: 9.2, fontWeight: '900', letterSpacing: 1.3 },
+  scoreValue: { fontSize: 26, fontWeight: '900', lineHeight: 30 },
+  playWrap: { flex: 1, marginTop: 8, marginBottom: 10 },
   play: {
-    marginTop: 10,
-    minHeight: 240,
-    borderRadius: 12,
+    flex: 1,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(120,190,255,0.28)',
-    backgroundColor: 'rgba(8,18,62,0.8)',
-    padding: 10,
+    backgroundColor: 'rgba(7,16,45,0.94)',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     overflow: 'hidden',
   },
-  fill: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
-  hint: { color: '#d9efff', fontSize: 11, fontWeight: '700' },
-  stageText: { color: '#8fdfff', fontSize: 10.2, fontWeight: '800', letterSpacing: 1 },
-  scrubBoard: { width: '100%', gap: 10, alignItems: 'center', justifyContent: 'center' },
+  fill: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14 },
+  boardShell: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    backgroundColor: 'rgba(14,33,73,0.82)',
+    paddingVertical: 18,
+    paddingHorizontal: 12,
+  },
+  scrubBoard: { width: '100%', gap: 14, alignItems: 'center', justifyContent: 'center' },
   feedBoard: {
-    width: 260,
-    height: 170,
-    borderRadius: 10,
+    width: BOARD_WIDTH,
+    height: BOARD_HEIGHT,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(120,190,255,0.28)',
-    backgroundColor: 'rgba(14,36,76,0.76)',
+    backgroundColor: 'rgba(14,36,76,0.82)',
     overflow: 'hidden',
   },
   feedLane: {
     ...StyleSheet.absoluteFillObject,
+  },
+  feedTouchAura: {
+    position: 'absolute',
+    width: 56,
+    height: 56,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255, 214, 117, 0.12)',
+  },
+  feedTouchAuraActive: {
+    backgroundColor: 'rgba(255, 214, 117, 0.22)',
+  },
+  feedTargetAura: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 999,
+    backgroundColor: 'rgba(126, 240, 194, 0.12)',
+  },
+  feedTargetAuraActive: {
+    backgroundColor: 'rgba(126, 240, 194, 0.2)',
   },
   feedNode: {
     position: 'absolute',
@@ -1045,18 +1144,22 @@ const styles = StyleSheet.create({
   },
   target: {
     position: 'absolute',
-    width: 70,
-    height: 70,
+    width: 88,
+    height: 88,
     borderRadius: 99,
     borderWidth: 2,
-    borderColor: 'rgba(255,221,120,0.8)',
+    borderColor: 'rgba(255,221,120,0.88)',
     backgroundColor: '#ffd47b',
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#ffd47b',
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
   },
-  targetText: { color: '#2a1a08', fontSize: 16, fontWeight: '900' },
+  targetText: { color: '#2a1a08', fontSize: 18, fontWeight: '900' },
   patch: {
-    height: 18,
+    height: 22,
     borderRadius: 99,
     borderWidth: 1,
     borderColor: 'rgba(255,207,138,0.34)',
@@ -1068,12 +1171,12 @@ const styles = StyleSheet.create({
     opacity: 0.18,
   },
   traceBoard: {
-    width: 260,
-    height: 170,
-    borderRadius: 10,
+    width: BOARD_WIDTH,
+    height: BOARD_HEIGHT,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(120,190,255,0.28)',
-    backgroundColor: 'rgba(14,36,76,0.76)',
+    backgroundColor: 'rgba(14,36,76,0.82)',
   },
   traceDot: {
     position: 'absolute',
@@ -1086,53 +1189,135 @@ const styles = StyleSheet.create({
   },
   traceCursor: {
     position: 'absolute',
-    width: 24,
-    height: 24,
-    borderRadius: 8,
-    marginLeft: -12,
-    marginTop: -12,
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    marginLeft: -15,
+    marginTop: -15,
     borderWidth: 2,
     borderColor: '#7ef0c2',
-    backgroundColor: 'rgba(126,240,194,0.32)',
+    backgroundColor: 'rgba(126,240,194,0.28)',
   },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
-  cell: { width: '31%', minWidth: 86, height: 70, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(120,190,255,0.25)', backgroundColor: 'rgba(17,47,84,0.86)', alignItems: 'center', justifyContent: 'center' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center' },
+  cell: { width: '31%', minWidth: 92, height: 82, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(120,190,255,0.25)', backgroundColor: 'rgba(17,47,84,0.92)', alignItems: 'center', justifyContent: 'center' },
   cellOk: { backgroundColor: 'rgba(46,139,90,0.94)' },
-  cellText: { color: '#e9f4ff', fontSize: 24, fontWeight: '900' },
-  seq: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' },
-  seqBtn: { width: '47%', minWidth: 108, height: 76, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(120,190,255,0.25)', backgroundColor: 'rgba(17,47,84,0.86)', alignItems: 'center', justifyContent: 'center' },
-  seqText: { color: '#e9f4ff', fontSize: 20, fontWeight: '800' },
-  timing: { flex: 1, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(120,190,255,0.25)', backgroundColor: 'rgba(17,47,84,0.86)', overflow: 'hidden', justifyContent: 'center' },
-  zone: { position: 'absolute', top: 36, height: 40, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(113,252,182,0.95)', backgroundColor: 'rgba(113,252,182,0.28)' },
-  cursor: { position: 'absolute', top: 22, width: 14, height: 68, borderRadius: 8, marginLeft: -7, backgroundColor: '#ffd672' },
-  stop: { position: 'absolute', bottom: 16, left: 12, right: 12, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(120,190,255,0.35)', backgroundColor: 'rgba(8,18,62,0.9)', paddingVertical: 10, alignItems: 'center' },
-  btn: { borderRadius: 10, borderWidth: 1, borderColor: 'rgba(120,190,255,0.35)', backgroundColor: 'rgba(8,18,62,0.92)', paddingVertical: 10, alignItems: 'center', marginTop: 8 },
-  btnText: { color: '#d9efff', fontSize: 11, fontWeight: '800', letterSpacing: 1.1 },
+  cellText: { color: '#e9f4ff', fontSize: 26, fontWeight: '900' },
+  seq: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center' },
+  seqBtn: { width: '47%', minWidth: 114, minHeight: 86, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(120,190,255,0.25)', backgroundColor: 'rgba(17,47,84,0.92)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 10 },
+  seqText: { color: '#e9f4ff', fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  timing: { flex: 1, minHeight: 240, borderRadius: 16, borderWidth: 1, borderColor: 'rgba(120,190,255,0.25)', backgroundColor: 'rgba(17,47,84,0.92)', overflow: 'hidden', justifyContent: 'center' },
+  zone: { position: 'absolute', top: 42, height: 52, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(113,252,182,0.95)', backgroundColor: 'rgba(113,252,182,0.28)' },
+  cursor: { position: 'absolute', top: 24, width: 18, height: 88, borderRadius: 10, marginLeft: -9, backgroundColor: '#ffd672' },
+  stop: { position: 'absolute', bottom: 18, left: 14, right: 14, minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(120,190,255,0.35)', backgroundColor: 'rgba(8,18,62,0.96)', paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
+  btn: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(120,190,255,0.35)', backgroundColor: 'rgba(8,18,62,0.95)', paddingVertical: 12, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  btnText: { color: '#d9efff', fontSize: 11.5, fontWeight: '800', letterSpacing: 1.2 },
+  lockNotice: { color: 'rgba(157,213,255,0.78)', fontSize: 9.8, fontWeight: '800', textAlign: 'center', letterSpacing: 1.05, marginBottom: 8 },
+  footerStack: { gap: 8 },
   processCard: {
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(95,182,255,0.28)',
-    backgroundColor: 'rgba(7,16,54,0.98)',
-    padding: 10,
-    gap: 6,
+    backgroundColor: 'rgba(8,16,44,0.98)',
+    padding: 12,
+    gap: 8,
   },
   processHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  processTitle: { color: '#dff6ff', fontSize: 11.8, fontWeight: '900', letterSpacing: 0.8 },
-  processPercent: { color: '#8be9ff', fontSize: 11, fontWeight: '800' },
+  processTitle: { color: '#dff6ff', fontSize: 12.5, fontWeight: '900', letterSpacing: 0.8 },
+  processPercent: { color: '#8be9ff', fontSize: 11.5, fontWeight: '800' },
   processSub: { color: 'rgba(116,178,255,0.7)', fontSize: 9.4, fontWeight: '700', letterSpacing: 1.2 },
-  processTrack: { height: 9, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
-  processFill: { height: 9, borderRadius: 5, backgroundColor: '#2de6f6' },
-  processFooter: { color: 'rgba(132,177,255,0.74)', fontSize: 9.4, fontWeight: '700' },
-  status: { marginTop: 6, color: '#9cdfff', fontSize: 10.5, textAlign: 'center' },
-  grade: { marginTop: 2, color: '#d9efff', fontSize: 10.5, textAlign: 'center', fontWeight: '700' },
-  resultCard: {
-    borderRadius: 12,
+  processTrack: { height: 12, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
+  processFill: { height: 12, borderRadius: 999, backgroundColor: '#2de6f6' },
+  centerPopup: {
+    alignSelf: 'center',
+    width: '92%',
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: 'rgba(120,190,255,0.3)',
-    backgroundColor: 'rgba(8,18,62,0.9)',
-    padding: 10,
+    backgroundColor: 'rgba(8,18,62,0.98)',
+    padding: 16,
+    gap: 10,
   },
-  resultTitle: { color: '#dff2ff', fontSize: 11.5, fontWeight: '900', letterSpacing: 1.1 },
-  resultBody: { color: 'rgba(218,238,255,0.82)', fontSize: 10.5, marginTop: 4 },
-  resultMeta: { color: '#9edfff', fontSize: 10.2, marginTop: 2, fontWeight: '700' },
-});
+  popupEyebrow: { color: '#8fdfff', fontSize: 9.5, fontWeight: '900', letterSpacing: 1.5, textAlign: 'center' },
+  popupTitle: { color: '#f2f8ff', fontSize: 18, fontWeight: '900', textAlign: 'center', letterSpacing: 1 },
+  popupScoreLabel: { color: 'rgba(157,213,255,0.82)', fontSize: 10, fontWeight: '800', letterSpacing: 1.2, textAlign: 'center' },
+  popupScoreValue: { fontSize: 40, fontWeight: '900', textAlign: 'center', lineHeight: 46 },
+  popupBody: { color: 'rgba(225,241,255,0.84)', fontSize: 11, lineHeight: 17, textAlign: 'center' },
+  effectStack: { gap: 8, marginTop: 2 },
+  effectPill: {
+    borderWidth: 1,
+    borderRadius: 12,
+    backgroundColor: 'rgba(18,34,86,0.84)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  effectText: { color: '#f3f8ff', fontSize: 13, fontWeight: '900', textAlign: 'center' },
+  metaList: { gap: 4, marginTop: 2 },
+  metaLine: { color: 'rgba(157,223,255,0.88)', fontSize: 10.3, fontWeight: '700', textAlign: 'center' },
+  cornerBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(120,190,255,0.28)',
+    backgroundColor: 'rgba(8,18,62,0.88)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  cornerBtnExit: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    borderRadius: 10,
+    borderWidth: 0,
+    backgroundColor: '#ff6b6b',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  cornerText: { color: '#d9efff', fontSize: 10.2, fontWeight: '800', letterSpacing: 1.1 },
+  cornerTextExit: { color: '#fff', fontSize: 10.2, fontWeight: '800', letterSpacing: 1.1 },
+  btnDisabled: { opacity: 0.5 },
+  persistentTabBar: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(5,12,40,0.97)',
+    borderTopColor: 'rgba(80,160,255,0.2)',
+    borderTopWidth: 1,
+    borderRadius: 14,
+    paddingTop: 8,
+    paddingBottom: 10,
+    paddingHorizontal: 4,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 4,
+  },
+  tabLabel: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 9,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  tabLabelActive: {
+    color: '#7ec8ff',
+  },
+  tabLabelDisabled: {
+    color: 'rgba(255,255,255,0.35)',
+  },
+  overlayScrim: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 112,
+    backgroundColor: 'rgba(0,0,18,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 12,
+  },
+  });

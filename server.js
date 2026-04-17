@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./src/config/db');
+const needTickService = require('./src/services/needTickService');
 
 const app = express();
 
@@ -34,4 +35,7 @@ app.use('/api/community-event', require('./src/routes/communityEvent'));
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => console.log(`MEGA-BYTES backend running on port ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`MEGA-BYTES backend running on port ${PORT}`);
+  needTickService.start(); // Begin need_tick job (1-min interval)
+});

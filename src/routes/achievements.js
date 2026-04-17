@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Achievement = require('../models/Achievement');
 const Player = require('../models/Player');
+const Byte = require('../models/Byte');
 
 // GET /api/achievements - get all achievements
 router.get('/', async (req, res) => {
@@ -84,7 +85,12 @@ router.post('/:achievementId/unlock', async (req, res) => {
 // POST /api/achievements/check - check and unlock eligible achievements
 router.post('/check', async (req, res) => {
   try {
-    const { playerId } = req.body;
+    // Disabled in demo mode
+    if (String(req.headers['x-is-demo'] || '') === 'true') {
+      return res.status(403).json({ error: 'Achievements do not track in demo mode' });
+    }
+
+    const { playerId, byteId } = req.body;
     if (!playerId) {
       return res.status(400).json({ error: 'playerId required' });
     }
@@ -94,11 +100,73 @@ router.post('/check', async (req, res) => {
       return res.status(404).json({ error: 'Player not found' });
     }
 
+    // Load active byte for byte-level criteria
+    let byte = null;
+    if (byteId) {
+      byte = await Byte.findById(byteId);
+    } else if (player.activeByteSlots && player.activeByteSlots.length > 0) {
+      byte = await Byte.findById(player.activeByteSlots[0]);
+    }
+
     const achievements = await Achievement.find();
-    const unlockedIds = new Set(player.achievements || []);
+    const unlockedIds = new Set((player.achievements || []).map(String));
     const newlyUnlocked = [];
 
-    // TODO: Implement achievement unlock logic based on player stats/milestones
+    // Resolver: maps statName → current value from available data.
+    // Returns null when tracking data isn't yet wired — those criteria are skipped.
+    function resolveValue(statName) {
+      switch (statName) {
+        case 'byteBits':        return player.byteBits || 0;
+        case 'winStreak':       return player.battleWinStreak || 0;
+        case 'evolutionStage':  return byte ? (byte.evolutionStage || 0) : null;
+        case 'affection':       return byte ? (byte.affection != null ? byte.affection : 50) : null;
+        case 'generation':      return byte ? (byte.generation || 1) : null;
+        case 'dailyCareStreak': return byte ? (byte.dailyCareStreak || 0) : null;
+        case 'power':           return byte ? (byte.stats.Power || 0) : null;
+        case 'speed':           return byte ? (byte.stats.Speed || 0) : null;
+        case 'defense':         return byte ? (byte.stats.Defense || 0) : null;
+        // Tracking fields not yet persisted — skip silently
+        default:                return null;
+      }
+    }
+
+    for (const achievement of achievements) {
+      if (unlockedIds.has(String(achievement._id))) continue;
+
+      const { type, target, statName } = achievement.criteria;
+
+      // one_time achievements are event-driven — call /unlock explicitly from game events
+      if (type === 'one_time') continue;
+
+      const currentValue = resolveValue(statName);
+      if (currentValue === null) continue; // tracking not yet wired
+
+      const met = (
+        (type === 'stat_threshold' && currentValue >= target) ||
+        (type === 'count'          && currentValue >= target) ||
+        (type === 'streak'         && currentValue >= target)
+      );
+
+      if (met) {
+        player.achievements.push(String(achievement._id));
+        player.byteBits += (achievement.reward.byteBits || 0);
+        unlockedIds.add(String(achievement._id));
+        if (byte && achievement.reward.xp) {
+          byte.xp = (byte.xp || 0) + achievement.reward.xp;
+        }
+        newlyUnlocked.push({
+          id: achievement._id,
+          name: achievement.name,
+          description: achievement.description,
+          reward: achievement.reward
+        });
+      }
+    }
+
+    if (newlyUnlocked.length > 0) {
+      await player.save();
+      if (byte) await byte.save();
+    }
 
     res.json({
       newlyUnlocked,

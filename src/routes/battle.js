@@ -12,6 +12,7 @@ const { xpRequired } = require('../engine/statEngine');
 const { findMoveInCatalog, MOVE_CATALOG } = require('../data/moveCatalog');
 const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
 const { optionalAuth } = require('../middleware/auth');
+const { getAffectionTier } = require('../engine/affectionEngine');
 
 const router = express.Router();
 
@@ -60,6 +61,20 @@ router.post('/start', async (req, res) => {
     byteA.needs = decayedA.needs;
     byteA.lastNeedsUpdate = decayedA.lastNeedsUpdate;
     byteA._computedStats = statEngine.applyNeedModifiers(byteA.stats.toObject(), decayedA.needs);
+
+    // Affection compliance modifier — bonded: +5%, detached: -10%. Disabled in demo mode.
+    if (String(req.headers['x-demo-mode'] || '') !== '1') {
+      const affTier = getAffectionTier(byteA.affection != null ? byteA.affection : 50);
+      if (affTier === 'bonded') {
+        Object.keys(byteA._computedStats).forEach(k => {
+          byteA._computedStats[k] = Math.min(100, Math.round(byteA._computedStats[k] * 1.05));
+        });
+      } else if (affTier === 'detached') {
+        Object.keys(byteA._computedStats).forEach(k => {
+          byteA._computedStats[k] = Math.max(0, Math.round(byteA._computedStats[k] * 0.90));
+        });
+      }
+    }
 
     // Resolve opponent
     let byteB;

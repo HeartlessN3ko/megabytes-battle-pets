@@ -51,7 +51,7 @@ const TOP_MENU = [
   { key: 'profile', label: 'PROFILE', icon: 'person-circle-outline', route: '/(tabs)/profile' },
   { key: 'inbox', label: 'INBOX', icon: 'mail-open-outline', route: '/(tabs)/inbox' },
   { key: 'events', label: 'EVENTS', icon: 'sparkles-outline', route: '/(tabs)/events', color: '#ffd45a' },
-  { key: 'achievements', label: 'AWARDS', icon: 'medal-outline', action: 'achievements' },
+  { key: 'achievements', label: 'DAILY CARE', icon: 'ribbon-outline', action: 'achievements' },
 ];
 
 const CLUTTER_SPRITES = [
@@ -61,8 +61,8 @@ const CLUTTER_SPRITES = [
 
 const CLUTTER_ZONES = [
   { leftMin: 10, leftMax: 22, bottomMin: 18, bottomMax: 54, frontChance: 0.65 },
-  { leftMin: 24, leftMax: 36, bottomMin: 8, bottomMax: 36, frontChance: 0.35 },
-  { leftMin: 64, leftMax: 76, bottomMin: 8, bottomMax: 36, frontChance: 0.35 },
+  { leftMin: 24, leftMax: 36, bottomMin: 8, bottomMax: 36, frontChance: 1.0 },  // center-left — always front so byte doesn't block taps
+  { leftMin: 64, leftMax: 76, bottomMin: 8, bottomMax: 36, frontChance: 1.0 },  // center-right — always front
   { leftMin: 78, leftMax: 90, bottomMin: 18, bottomMax: 54, frontChance: 0.65 },
 ];
 
@@ -210,7 +210,8 @@ function StatsModal({ visible, onClose, byteData, playerData, onEvolved }: { vis
   const [evolving, setEvolving] = React.useState(false);
   const [evolveError, setEvolveError] = React.useState<string | null>(null);
   const byte = byteData?.byte;
-  const stats = byte?.stats || {};
+  // Use computedStats (need-modified live values) over raw stored stats
+  const stats = byteData?.computedStats || byte?.stats || {};
   const needs = byte?.needs || {};
   const statKeys = ['Power', 'Speed', 'Defense', 'Special', 'Stamina', 'Accuracy'];
   const needKeys = ['Hunger', 'Bandwidth', 'Mood', 'Hygiene', 'Social', 'Fun'];

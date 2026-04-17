@@ -772,18 +772,20 @@ export default function RoomScene({
           <View style={styles.processCard}>
             <View style={styles.processHeader}>
               <Text style={styles.processHeaderTitle}>{processLabel.toUpperCase()}</Text>
-              <Text style={styles.processPercent}>{processPercent}%</Text>
             </View>
             <Text style={styles.processSub}>SYSTEM PROCESS</Text>
-            <View style={styles.installTrack}>
-              <Animated.View
-                style={[
-                  styles.installFill,
-                  {
-                    width: processProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
-                  },
-                ]}
-              />
+            <View style={styles.processBarWrap}>
+              <View style={styles.installTrack}>
+                <Animated.View
+                  style={[
+                    styles.installFill,
+                    {
+                      width: processProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.processPercent}>{processPercent}%</Text>
             </View>
             <Text style={styles.processFooter}>Executing runtime package...</Text>
           </View>
@@ -859,7 +861,7 @@ const styles = StyleSheet.create({
   header: { paddingTop: 14, alignItems: 'center', gap: 4 },
   roomTitle: { color: '#e1f1ff', fontSize: 22, fontWeight: '900', letterSpacing: 2 },
   roomSubtitle: { color: 'rgba(152,218,255,0.86)', fontSize: 11, fontWeight: '700', letterSpacing: 2 },
-  stage: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  stage: { flex: 1, maxHeight: height * 0.42, justifyContent: 'center', alignItems: 'center' },
   roomHalo: {
     position: 'absolute',
     bottom: 26,
@@ -1078,13 +1080,13 @@ const styles = StyleSheet.create({
   modalSub: { color: 'rgba(188,220,255,0.74)', fontSize: 10 },
   modalInfo: { color: '#9fe0ff', fontSize: 10.5, minHeight: 16 },
   installTrack: {
-    height: 7,
+    height: 20,
     borderRadius: 5,
     backgroundColor: 'rgba(255,255,255,0.12)',
     overflow: 'hidden',
   },
   installFill: {
-    height: 7,
+    height: 20,
     borderRadius: 5,
     backgroundColor: '#6bc7ff',
   },
@@ -1171,11 +1173,22 @@ const styles = StyleSheet.create({
   },
   processHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  processHeaderTitle: { color: '#dff6ff', fontSize: 12, fontWeight: '900', letterSpacing: 0.9 },
-  processPercent: { color: '#9ce7ff', fontSize: 11, fontWeight: '800' },
+  processHeaderTitle: { color: '#dff6ff', fontSize: 12, fontWeight: '900', letterSpacing: 0.9, flex: 1 },
+  processBarWrap: { position: 'relative' },
+  processPercent: {
+    position: 'absolute',
+    alignSelf: 'center',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    lineHeight: 20,
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
   processSub: { color: 'rgba(111,175,255,0.7)', fontSize: 9.6, fontWeight: '700', letterSpacing: 1.2 },
   processFooter: { color: 'rgba(140,178,255,0.74)', fontSize: 9.4, fontWeight: '700' },
 });

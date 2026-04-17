@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { consumeItem, getInventory, getPlayer, getShopItems } from '../../services/api';
 
 type InventoryRow = {
@@ -14,6 +16,7 @@ type InventoryRow = {
 const TYPE_ORDER = ['recovery', 'clutch', 'utility', 'stat_boost', 'evolution', 'battle_only'];
 
 export default function InventoryScreen() {
+  const router = useRouter();
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [status, setStatus] = useState('Syncing inventory...');
@@ -97,8 +100,13 @@ export default function InventoryScreen() {
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <Text style={styles.title}>INVENTORY</Text>
-        <Text style={styles.sub}>Track and sort owned items</Text>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.75}>
+            <Ionicons name="arrow-back-outline" size={22} color="#7ec8ff" />
+          </TouchableOpacity>
+          <Text style={styles.title}>INVENTORY</Text>
+          <View style={{ width: 40 }} />
+        </View>
 
         <View style={styles.statusCard}>
           <Text style={styles.statusText}>{status}</Text>
@@ -132,7 +140,6 @@ export default function InventoryScreen() {
                   <Text style={styles.rowName}>{row.name}</Text>
                   <Text style={styles.qty}>x{row.quantity}</Text>
                 </View>
-                <Text style={styles.rowMeta}>{row.id} • {row.type}</Text>
                 <Text style={styles.rowDesc}>{row.description}</Text>
                 <TouchableOpacity style={styles.useBtn} onPress={() => consumeInventoryItem(row.id)} activeOpacity={0.85}>
                   <Text style={styles.useText}>USE ITEM</Text>
@@ -149,8 +156,9 @@ export default function InventoryScreen() {
 const styles = StyleSheet.create({
   bg: { flex: 1 },
   safe: { flex: 1, paddingHorizontal: 14 },
-  title: { color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: 2, marginTop: 8 },
-  sub: { color: 'rgba(200,228,255,0.66)', fontSize: 11, marginTop: 4 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 4 },
+  backBtn: { width: 40, alignItems: 'flex-start' },
+  title: { color: '#fff', fontSize: 20, fontWeight: '900', letterSpacing: 2 },
   statusCard: {
     marginTop: 10,
     borderRadius: 10,
@@ -194,7 +202,6 @@ const styles = StyleSheet.create({
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   rowName: { color: '#fff', fontSize: 13, fontWeight: '800' },
   qty: { color: '#ffe08d', fontSize: 12, fontWeight: '900' },
-  rowMeta: { color: 'rgba(188,220,255,0.64)', fontSize: 10 },
   rowDesc: { color: 'rgba(220,240,255,0.8)', fontSize: 11 },
   useBtn: {
     marginTop: 4,

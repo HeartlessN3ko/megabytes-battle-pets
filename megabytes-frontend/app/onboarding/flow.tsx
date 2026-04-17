@@ -195,4 +195,5 @@ const styles = StyleSheet.create({
   skipBtnText: { fontSize: 12, fontWeight: '800', color: 'rgba(255,106,96,0.8)', letterSpacing: 1 },
 
   progressBar: { alignItems: 'center' },
-  progressText: { fontSize: 11, fontWeight
+  progressText: { fontSize: 11, fontWeight: '600', color: 'rgba(212,238,255,0.5)' },
+});

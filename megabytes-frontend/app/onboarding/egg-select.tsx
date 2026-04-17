@@ -159,4 +159,5 @@ const styles = StyleSheet.create({
 
   selectedIndicator: { position: 'absolute', top: 12, right: 12 },
 
-  loadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'cent
+  loadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
+});

@@ -128,4 +128,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  continueBtnText: { fontSize: 13, fontWeight: '900
+  continueBtnText: { fontSize: 13, fontWeight: '900', color: '#d9efff', letterSpacing: 1.2 },
+});

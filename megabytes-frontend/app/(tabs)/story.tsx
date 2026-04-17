@@ -394,4 +394,5 @@ const styles = StyleSheet.create({
   },
   claimBtnText: { fontSize: 12, fontWeight: '800', color: '#7cffb2', letterSpacing: 0.8 },
 
-  errorText: { color: '#ff6060', fontSize:
+  errorText: { color: '#ff6060', fontSize: 12, fontWeight: '600', textAlign: 'center', marginBottom: 10 },
+});

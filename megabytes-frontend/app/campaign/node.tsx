@@ -194,4 +194,5 @@ const styles = StyleSheet.create({
   },
   startBattleBtnText: { fontSize: 13, fontWeight: '900', color: '#d9efff', letterSpacing: 1.2 },
 
-  errorText: { color: '#ff6060', fontSize:
+  errorText: { color: '#ff6060', fontSize: 12, fontWeight: '600', textAlign: 'center', marginBottom: 10 },
+});

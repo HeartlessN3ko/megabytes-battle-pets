@@ -25,6 +25,7 @@ app.use('/api/campaign', require('./src/routes/campaign'));
 app.use('/api/pageant',  require('./src/routes/pageant'));
 app.use('/api/shop',     require('./src/routes/shop'));
 app.use('/api/marketplace', require('./src/routes/marketplace'));
+app.use('/api/decor', require('./src/routes/decor'));
 app.use('/api/inbox', require('./src/routes/inbox'));
 app.use('/api/economy',  require('./src/routes/economy'));
 app.use('/api/rooms',    require('./src/routes/rooms'));

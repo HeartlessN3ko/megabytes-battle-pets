@@ -3,6 +3,7 @@ const MarketplaceListing = require('../models/MarketplaceListing');
 const Player = require('../models/Player');
 const InboxMessage = require('../models/InboxMessage');
 const { SHOP_ITEMS } = require('../data/shopCatalog');
+const { DECOR_CATALOG } = require('../data/decorCatalog');
 const { optionalAuth } = require('../middleware/auth');
 const { generateMarketplaceEmail } = require('../services/marketplaceEmailFT');
 
@@ -145,6 +146,44 @@ async function ensureSeedListings() {
   await MarketplaceListing.insertMany(docs);
 }
 
+/**
+ * Ensure every catalog decor item has at least one open listing.
+ * Idempotent — runs every GET /listings, only creates listings missing from the open pool.
+ * Decor listings: buy-now only (startBid: 0, no auction), 48h rotation window.
+ */
+async function ensureDecorListings() {
+  if (!Array.isArray(DECOR_CATALOG) || DECOR_CATALOG.length === 0) return;
+
+  const decorIds = DECOR_CATALOG.map((d) => d.id);
+  const existing = await MarketplaceListing.find({
+    itemId: { $in: decorIds },
+    status: 'open',
+  }).select('itemId');
+  const haveOpen = new Set(existing.map((l) => l.itemId));
+
+  const now = Date.now();
+  const docs = DECOR_CATALOG
+    .filter((d) => !haveOpen.has(d.id))
+    .map((d) => ({
+      title:        `${d.name} (Decor)`,
+      description:  d.description,
+      itemId:       d.id,
+      itemName:     d.name,
+      quantity:     1,
+      sellerTag:    'BYTE_DECOR',
+      category:     'decor',
+      status:       'open',
+      startBid:     0,
+      currentBid:   0,
+      minIncrement: Math.max(5, Math.floor(Number(d.cost || 50) / 10)),
+      buyNowPrice:  Number(d.cost || 50),
+      bidHistory:   [],
+      endsAt:       new Date(now + 48 * 60 * 60 * 1000),
+    }));
+
+  if (docs.length > 0) await MarketplaceListing.insertMany(docs);
+}
+
 async function settleExpiredOpenListings(demoMode = false) {
   const now = new Date();
   const expired = await MarketplaceListing.find({ status: 'open', endsAt: { $lte: now } });
@@ -163,6 +202,7 @@ async function settleExpiredOpenListings(demoMode = false) {
 router.get('/listings', async (req, res) => {
   try {
     await ensureSeedListings();
+    await ensureDecorListings();
     await settleExpiredOpenListings(isDemoReq(req));
 
     const status = String(req.query.status || 'open');
@@ -242,6 +282,12 @@ router.post('/buy-now', async (req, res) => {
 
     const buyNowPrice = Number(listing.buyNowPrice || 0);
     if (buyNowPrice <= 0) return res.status(400).json({ error: 'Buy now is not available for this listing' });
+
+    // One-time unlock guard for decor items (player can only own each decor item once)
+    const isDecor = DECOR_CATALOG.some((d) => d.id === listing.itemId);
+    if (isDecor && Array.isArray(player.unlockedItems) && player.unlockedItems.includes(listing.itemId)) {
+      return res.status(400).json({ error: 'You already own this decor item' });
+    }
 
     const currentBid = Number(listing.currentBid || 0);
     const currentLeaderId = listing.highestBidder ? String(listing.highestBidder) : null;

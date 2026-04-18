@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { consumeItem, getInventory, getPlayer, getShopItems } from '../../services/api';
+import { consumeItem, equipDecor, getByte, getDecorCatalog, getInventory, getPlayer, getShopItems, unequipDecor } from '../../services/api';
 import { playSfx } from '../../services/sfx';
 
 type InventoryRow = {
@@ -11,6 +11,7 @@ type InventoryRow = {
   type: string;
   description: string;
   quantity: number;
+  layer?: string;
 };
 
 const TYPE_ORDER = ['recovery', 'clutch', 'utility', 'stat_boost', 'evolution', 'battle_only', 'decor'];
@@ -41,13 +42,25 @@ function typeColor(type: string) {
 
 export default function InventoryScreen() {
   const [rows, setRows] = useState<InventoryRow[]>([]);
+  const [equipped, setEquipped] = useState<Set<string>>(new Set());
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [status, setStatus] = useState('Syncing inventory...');
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [catalog, inv, player] = await Promise.all([getShopItems(), getInventory(), getPlayer()]);
-      const catalogById = new Map((catalog || []).map((item: any) => [item.id, item]));
+      const [catalog, decor, inv, player, byteRes] = await Promise.all([
+        getShopItems(),
+        getDecorCatalog().catch(() => []),
+        getInventory(),
+        getPlayer(),
+        getByte().catch(() => null),
+      ]);
+      const catalogById = new Map<string, any>((catalog || []).map((item: any) => [item.id, item]));
+      // Decor catalog overrides shop entries so type='decor' wins for the PLACE IN ROOM affordance
+      (Array.isArray(decor) ? decor : []).forEach((d: any) => {
+        catalogById.set(d.id, { ...d, type: 'decor' });
+      });
 
       const inventoryList = Array.isArray(inv?.itemInventory)
         ? inv.itemInventory
@@ -58,6 +71,14 @@ export default function InventoryScreen() {
 
       const legacyOwned = Array.isArray(inv?.unlockedItems) ? inv.unlockedItems : (player?.unlockedItems || []);
       const keys = new Set<string>([...Object.keys(inventoryMap || {}), ...legacyOwned]);
+
+      const byteData = (byteRes as any)?.byte || byteRes;
+      const decorEquipped = new Set<string>(
+        Array.isArray(byteData?.decorItems)
+          ? byteData.decorItems.map((e: any) => (e?.id || e))
+          : []
+      );
+      setEquipped(decorEquipped);
 
       const built: InventoryRow[] = [];
       keys.forEach((id) => {
@@ -70,6 +91,7 @@ export default function InventoryScreen() {
           type: c.type || 'utility',
           description: c.description || 'System item.',
           quantity: qty,
+          layer: c.layer,
         });
       });
 
@@ -126,6 +148,27 @@ export default function InventoryScreen() {
     }
   }, []);
 
+  const toggleDecorPlacement = useCallback(async (row: InventoryRow) => {
+    const id = row.id;
+    const isEquipped = equipped.has(id);
+    setBusyId(id);
+    setStatus(isEquipped ? `Removing ${row.name} from room...` : `Placing ${row.name} in ${row.layer || 'room'}...`);
+    try {
+      const res: any = isEquipped ? await unequipDecor(id) : await equipDecor(id);
+      playSfx(isEquipped ? 'tap' : 'positive', 0.6);
+      const nextIds = Array.isArray(res?.decorItems)
+        ? res.decorItems.map((e: any) => (e?.id || e))
+        : [];
+      setEquipped(new Set(nextIds));
+      setStatus(isEquipped ? `${row.name} removed.` : `${row.name} placed on ${row.layer || 'room'}.`);
+    } catch (err: any) {
+      setStatus(err?.message || `Failed to ${isEquipped ? 'remove' : 'place'} ${row.name}.`);
+      playSfx('no', 0.5);
+    } finally {
+      setBusyId(null);
+    }
+  }, [equipped]);
+
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -179,6 +222,14 @@ export default function InventoryScreen() {
             visibleRows.map((row) => {
               const accent = typeColor(row.type);
               const isDecor = row.type === 'decor';
+              const isEquipped = isDecor && equipped.has(row.id);
+              const isBusy = busyId === row.id;
+              const actionLabel = isDecor
+                ? (isEquipped ? 'REMOVE FROM ROOM' : `PLACE IN ${(row.layer || 'ROOM').toUpperCase()}`)
+                : 'USE ITEM';
+              const onAction = isDecor
+                ? () => toggleDecorPlacement(row)
+                : () => consumeInventoryItem(row.id);
               return (
                 <View key={row.id} style={styles.rowCard}>
                   {/* Type accent bar */}
@@ -193,22 +244,32 @@ export default function InventoryScreen() {
                       </View>
                     </View>
 
-                    {/* Type badge */}
-                    <Text style={[styles.typeBadge, { color: accent }]}>
-                      {TYPE_LABEL[row.type] || row.type.toUpperCase()}
-                    </Text>
+                    {/* Type badge + equipped tag */}
+                    <View style={styles.badgeRow}>
+                      <Text style={[styles.typeBadge, { color: accent }]}>
+                        {TYPE_LABEL[row.type] || row.type.toUpperCase()}
+                      </Text>
+                      {isEquipped ? (
+                        <Text style={styles.equippedTag}>● EQUIPPED</Text>
+                      ) : null}
+                    </View>
 
                     {/* Description */}
                     <Text style={styles.rowDesc}>{row.description}</Text>
 
                     {/* Action */}
                     <TouchableOpacity
-                      style={[styles.actionBtn, { borderColor: `${accent}55`, backgroundColor: `${accent}14` }]}
-                      onPress={() => !isDecor && consumeInventoryItem(row.id)}
+                      style={[
+                        styles.actionBtn,
+                        { borderColor: `${accent}55`, backgroundColor: `${accent}14` },
+                        isBusy && styles.actionBtnDisabled,
+                      ]}
+                      onPress={onAction}
+                      disabled={isBusy}
                       activeOpacity={0.8}
                     >
                       <Text style={[styles.actionText, { color: accent }]}>
-                        {isDecor ? 'PLACE IN ROOM' : 'USE ITEM'}
+                        {isBusy ? '...' : actionLabel}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -303,8 +364,10 @@ const styles = StyleSheet.create({
   },
   qtyText: { fontSize: 11, fontWeight: '900' },
 
-  typeBadge: { fontSize: 9, fontWeight: '800', letterSpacing: 1.2, opacity: 0.85 },
-  rowDesc:   { color: 'rgba(200,230,255,0.65)', fontSize: 11, lineHeight: 15 },
+  badgeRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  typeBadge:   { fontSize: 9, fontWeight: '800', letterSpacing: 1.2, opacity: 0.85 },
+  equippedTag: { color: '#9bffbf', fontSize: 9, fontWeight: '900', letterSpacing: 1.1 },
+  rowDesc:     { color: 'rgba(200,230,255,0.65)', fontSize: 11, lineHeight: 15 },
 
   actionBtn: {
     marginTop: 6,
@@ -313,5 +376,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 8,
   },
+  actionBtnDisabled: { opacity: 0.55 },
   actionText: { fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
 });

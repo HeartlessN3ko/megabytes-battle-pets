@@ -169,6 +169,13 @@ export const earnCurrency = (amount, source = 'home_clutter') =>
 export const enterRoom = (roomId, durationMinutes = 1) =>
   request('POST', '/api/rooms/enter', { playerId: activeIds().playerId, byteId: activeIds().byteId, roomId, durationMinutes });
 
+// Decor
+export const getDecorCatalog = () => request('GET', '/api/decor/catalog');
+export const equipDecor = (itemId) =>
+  request('POST', '/api/decor/equip', { playerId: activeIds().playerId, byteId: activeIds().byteId, itemId });
+export const unequipDecor = (itemId) =>
+  request('POST', '/api/decor/unequip', { playerId: activeIds().playerId, byteId: activeIds().byteId, itemId });
+
 // Shop
 export const getShopItems = () => request('GET', '/api/shop/items');
 export const getShopRooms = () => request('GET', '/api/shop/rooms');

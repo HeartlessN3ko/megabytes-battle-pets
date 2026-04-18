@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { getDailyCareStatus } from '../../services/api';
+import { playSfx } from '../../services/sfx';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -94,6 +95,7 @@ export default function DailyCareScreen() {
   const [data, setData] = useState<DailyCareData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const twinkleFired = React.useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -101,6 +103,10 @@ export default function DailyCareScreen() {
       const res = await getDailyCareStatus();
       setData(res);
       setError(null);
+      if (res?.fullSetComplete && !twinkleFired.current) {
+        twinkleFired.current = true;
+        playSfx('ui_twinkle', 0.8);
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load');
     } finally {

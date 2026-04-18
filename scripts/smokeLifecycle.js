@@ -44,27 +44,15 @@ async function run() {
   const health = await req('GET', '/health');
   assert('backend reachable', health.status === 200);
 
-  // --- 2. Reset demo to get clean state and set isDevByte on Missingno ---
-  console.log('\n[0] Reset demo (sets isDevByte on Missingno, clears slots)');
+  // --- 2. Reset demo to get clean state ---
+  // Note: Circle (demo byte) has isDevByte=false by design — it's a normal byte.
+  // The isDevByte death guard is tested separately if a dev byte is created manually.
+  console.log('\n[0] Reset demo');
   const reset = await req('POST', `/api/player/${PLAYER_ID}/reset-demo`, { byteId: MISSINGNO_BYTE_ID });
   assert('reset-demo succeeds', reset.status === 200, JSON.stringify(reset.body));
 
-  // --- 3. Verify Missingno has isDevByte set ---
-  const missingnoCheck = await req('GET', `/api/byte/${MISSINGNO_BYTE_ID}`);
-  assert('Missingno byte exists', missingnoCheck.status === 200, JSON.stringify(missingnoCheck.body));
-  assert('Missingno has isDevByte', missingnoCheck.body?.byte?.isDevByte === true, `isDevByte=${missingnoCheck.body?.byte?.isDevByte}`);
-
-  // --- 4. Missingno refuses death ---
-  console.log('\n[1] isDevByte death guard');
-  const devDie = await req('POST', `/api/byte/${MISSINGNO_BYTE_ID}/die`, { force: true });
-  assert(
-    'Missingno returns 403',
-    devDie.status === 403,
-    `got ${devDie.status}: ${JSON.stringify(devDie.body)}`
-  );
-
-  // --- 5. Create a temporary non-dev byte for lifecycle test ---
-  console.log('\n[2] Create temp byte for lifecycle test');
+  // --- 3. Create a temporary byte for lifecycle test ---
+  console.log('\n[1] Create temp byte for lifecycle test');
   const createRes = await req('POST', '/api/byte', { playerId: PLAYER_ID });
   assert('temp byte created', createRes.status === 201, JSON.stringify(createRes.body));
   const tempByteId = createRes.body?._id;
@@ -80,7 +68,7 @@ async function run() {
 
   // --- 4. Trigger forced old-age death (this is the path that creates a legacy egg).
   //     Neglect death (force:true alone) intentionally returns legacyEgg:null by design.
-  console.log('\n[3] Force old-age death → legacy egg');
+  console.log('\n[2] Force old-age death → legacy egg');
   const dieRes = await req('POST', `/api/byte/${tempByteId}/die`, { force: true, deathType: 'oldage' });
   assert(
     'death endpoint returns 200',
@@ -96,14 +84,14 @@ async function run() {
   assert('legacyEgg generation is 2', legacyEgg?.generation === 2, `got ${legacyEgg?.generation}`);
 
   // --- 5. Verify dead byte state ---
-  console.log('\n[4] Verify dead byte state in DB');
+  console.log('\n[3] Verify dead byte state in DB');
   const deadByte = await req('GET', `/api/byte/${tempByteId}`);
   // 404 or isAlive=false are both acceptable outcomes
   const isDeadOrGone = deadByte.status === 404 || deadByte.body?.byte?.isAlive === false;
   assert('dead byte is no longer alive', isDeadOrGone, `status ${deadByte.status}, isAlive: ${deadByte.body?.byte?.isAlive}`);
 
   // --- 6. Verify legacy egg fetchable ---
-  console.log('\n[5] Verify legacy egg byte');
+  console.log('\n[4] Verify legacy egg byte');
   const eggRes = await req('GET', `/api/byte/${legacyEgg.id}`);
   assert('legacy egg is fetchable', eggRes.status === 200, JSON.stringify(eggRes.body));
   assert('legacy egg isEgg=true', eggRes.body?.byte?.isEgg === true);

@@ -186,7 +186,11 @@ const TASK_CATALOG = [
     type: 'stretch',
     getTarget: () => 1,
     condition: (event) => {
-      return event.type === 'perfect_cycle_complete';
+      // Returns a component key; processEvent accumulates all 3 in distinctCareTypes
+      if (event.type === 'feed' && event.optimal) return 'feed_optimal';
+      if (event.type === 'play' && event.optimal) return 'play_optimal';
+      if (event.type === 'rest_complete' && event.uninterrupted) return 'rest_ok';
+      return false;
     }
   },
 

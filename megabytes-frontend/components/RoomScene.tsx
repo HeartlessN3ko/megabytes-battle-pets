@@ -51,6 +51,7 @@ interface RoomSceneProps {
   sceneTint: string;
   accent: string;
   statusLine: string;
+  actionLogLines?: string[];
   timerLine?: string | null;
   metaProgress?: RoomMetaProgress | null;
   statsMatrix?: { label: string; value: number }[];
@@ -86,6 +87,7 @@ export default function RoomScene({
   sceneTint,
   accent,
   statusLine,
+  actionLogLines = [],
   timerLine,
   metaProgress = null,
   statsMatrix = [],
@@ -502,6 +504,7 @@ export default function RoomScene({
       ) : null}
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={[styles.sceneTint, { backgroundColor: sceneTint }]} />
+        <View style={styles.safeContent}>
 
         <View style={styles.header}>
           <Text style={styles.roomTitle}>{title}</Text>
@@ -556,6 +559,15 @@ export default function RoomScene({
                 {timerLine ? <Text style={styles.timerText}>{timerLine}</Text> : null}
               </View>
             </View>
+            {actionLogLines.length > 0 ? (
+              <View style={styles.actionLog}>
+                {actionLogLines.map((line, i) => (
+                  <Text key={i} style={[styles.actionLogLine, i === 0 && styles.actionLogLineFresh]}>
+                    {line}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
 
             {statsMatrix.length > 0 ? (
               <View style={styles.matrixDock}>
@@ -677,10 +689,9 @@ export default function RoomScene({
             <Text style={styles.cornerText}>ITEMS</Text>
           </TouchableOpacity>
         </View>
+        </View>{/* end safeContent */}
+        <HomeNavBar />
       </SafeAreaView>
-
-      {/* Persistent home menu — ever-present across all rooms */}
-      <HomeNavBar />
 
       <Modal visible={itemsOpen} transparent animationType="slide">
         <TouchableOpacity style={styles.modalBg} activeOpacity={1} onPress={() => setItemsOpen(false)}>
@@ -832,6 +843,7 @@ export default function RoomScene({
 const styles = StyleSheet.create({
   bg: { flex: 1, width: '100%', height: '100%' },
   safe: { flex: 1, paddingHorizontal: 14 },
+  safeContent: { flex: 1 },
   sceneTint: { ...StyleSheet.absoluteFillObject },
   sceneFxOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -865,7 +877,7 @@ const styles = StyleSheet.create({
   header: { paddingTop: 14, alignItems: 'center', gap: 4 },
   roomTitle: { color: '#e1f1ff', fontSize: 22, fontWeight: '900', letterSpacing: 2 },
   roomSubtitle: { color: 'rgba(152,218,255,0.86)', fontSize: 11, fontWeight: '700', letterSpacing: 2 },
-  stage: { flex: 1, maxHeight: height * 0.42, justifyContent: 'center', alignItems: 'center' },
+  stage: { flex: 1, maxHeight: height * 0.52, justifyContent: 'center', alignItems: 'center' },
   roomHalo: {
     position: 'absolute',
     bottom: 26,
@@ -972,6 +984,24 @@ const styles = StyleSheet.create({
   statusTextWrap: { flex: 1 },
   statusText: { color: 'rgba(230,244,255,0.88)', fontSize: 11.5, fontWeight: '600' },
   timerText: { color: '#8ee0ff', fontSize: 10.5, fontWeight: '700', marginTop: 2 },
+  actionLog: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(100,192,255,0.16)',
+    backgroundColor: 'rgba(4,12,48,0.72)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 3,
+  },
+  actionLogLine: {
+    color: 'rgba(190,228,255,0.52)',
+    fontSize: 9.5,
+    fontWeight: '600',
+  },
+  actionLogLineFresh: {
+    color: 'rgba(220,244,255,0.82)',
+    fontWeight: '700',
+  },
   uniformGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
   uniformCell: {
     width: '48%',

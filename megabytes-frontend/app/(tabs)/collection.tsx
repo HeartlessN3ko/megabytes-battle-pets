@@ -1,51 +1,86 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, ImageBackground, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  ImageBackground,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { getPlayer, resetDemoData } from '../../services/api';
+import { resetDemoData } from '../../services/api';
 import { useEvolution } from '../../context/EvolutionContext';
+import { setSfxEnabled, isSfxEnabled } from '../../services/sfx';
 
-const DEMO_ACHIEVEMENTS = [
-  { id: 'first_hatch', title: 'First Hatch', desc: 'Successfully hatch your first Byte.' },
-  { id: 'care_cycle', title: 'Care Cycle', desc: 'Complete feed, clean, and rest in one session.' },
-  { id: 'battle_ready', title: 'Battle Ready', desc: 'Complete a full demo battle sequence.' },
-  { id: 'system_steward', title: 'System Steward', desc: 'Keep hygiene and mood high for a full care cycle.' },
-];
+const SETTINGS_KEY = '@megabytes_settings';
 
-export default function OptionsScreen() {
+interface Settings {
+  sfx: boolean;
+  notifications: boolean;
+  reducedMotion: boolean;
+  showCorruption: boolean;
+  demoSpeedFast: boolean;
+}
+
+const DEFAULTS: Settings = {
+  sfx: true,
+  notifications: true,
+  reducedMotion: false,
+  showCorruption: true,
+  demoSpeedFast: true,
+};
+
+async function loadSettings(): Promise<Settings> {
+  try {
+    const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+    return raw ? { ...DEFAULTS, ...JSON.parse(raw) } : DEFAULTS;
+  } catch {
+    return DEFAULTS;
+  }
+}
+
+async function saveSettings(s: Settings) {
+  try {
+    await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  } catch {}
+}
+
+// Export for other screens to read
+export { loadSettings };
+
+export default function SettingsScreen() {
   const router = useRouter();
   const { resetEvolutionProgress, reloadFromServer } = useEvolution();
-  const [achievements, setAchievements] = useState<string[]>([]);
-  const [audioOn, setAudioOn] = useState(true);
-  const [notificationsOn, setNotificationsOn] = useState(true);
-  const [reducedMotion, setReducedMotion] = useState(false);
+  const [settings, setSettings] = useState<Settings>(DEFAULTS);
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const player = await getPlayer();
-        setAchievements(player?.achievements || []);
-
-        if (player?.settings) {
-          setAudioOn(Boolean(player.settings.audio));
-          setNotificationsOn(Boolean(player.settings.notifications));
-          setReducedMotion(Boolean(player.settings.reducedMotion));
-        }
-      } catch {
-        setAchievements([]);
-      }
-    })();
+    loadSettings().then((s) => {
+      setSettings(s);
+      setSfxEnabled(s.sfx);
+    });
   }, []);
 
-  const unlockedCount = useMemo(
-    () => DEMO_ACHIEVEMENTS.filter((a) => achievements.includes(a.id)).length,
-    [achievements]
-  );
+  const update = useCallback(async (key: keyof Settings, val: boolean) => {
+    const next = { ...settings, [key]: val };
+    setSettings(next);
+    await saveSettings(next);
+
+    // Apply immediate effects
+    if (key === 'sfx') setSfxEnabled(val);
+
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1200);
+  }, [settings]);
 
   const handleResetDemo = () => {
     Alert.alert(
-      'Reset Demo Data',
-      'This will reset Byte progress, evolution stage, stats, currency, and behavior metrics for playtesting.',
+      'Reset Demo',
+      'Resets Byte progress, stats, currency, and behavior metrics to fresh egg state.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -54,12 +89,11 @@ export default function OptionsScreen() {
           onPress: async () => {
             try {
               const reset = await resetDemoData();
-              await resetEvolutionProgress(Number(reset?.evolutionStage ?? 0));
+              await resetEvolutionProgress(Number(reset?.evolutionStage ?? 1));
               await reloadFromServer();
-              setAchievements([]);
-              router.replace('/egg');
+              router.replace('/(tabs)');
             } catch (err: any) {
-              Alert.alert('Reset failed', err?.message || 'Unable to reset demo data right now.');
+              Alert.alert('Reset failed', err?.message || 'Unable to reset right now.');
             }
           },
         },
@@ -68,143 +102,177 @@ export default function OptionsScreen() {
   };
 
   return (
-    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <ScrollView contentContainerStyle={styles.content}>
-          <Text style={styles.title}>OPTIONS</Text>
-          <Text style={styles.sub}>Settings and progression overview</Text>
+    <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={s.bg} resizeMode="cover">
+      <SafeAreaView style={s.safe} edges={['top']}>
+        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>SYSTEM SETTINGS</Text>
-
-            <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>Audio</Text>
-              <Switch value={audioOn} onValueChange={setAudioOn} trackColor={{ true: '#67d0ff' }} />
-            </View>
-
-            <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>Notifications</Text>
-              <Switch value={notificationsOn} onValueChange={setNotificationsOn} trackColor={{ true: '#67d0ff' }} />
-            </View>
-
-            <View style={styles.settingRow}>
-              <Text style={styles.settingLabel}>Reduced Motion</Text>
-              <Switch value={reducedMotion} onValueChange={setReducedMotion} trackColor={{ true: '#67d0ff' }} />
-            </View>
-
-            <Text style={styles.hint}>These toggles are currently local demo controls.</Text>
+          <View style={s.titleRow}>
+            <Text style={s.title}>SETTINGS</Text>
+            {saved && <Text style={s.savedBadge}>SAVED</Text>}
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>ACHIEVEMENTS</Text>
-            <Text style={styles.progressText}>{unlockedCount}/{DEMO_ACHIEVEMENTS.length} unlocked</Text>
-
-            {DEMO_ACHIEVEMENTS.map((a) => {
-              const unlocked = achievements.includes(a.id);
-              return (
-                <View key={a.id} style={styles.achievementRow}>
-                  <Text style={[styles.badge, unlocked ? styles.badgeOn : styles.badgeOff]}>{unlocked ? 'UNLOCKED' : 'LOCKED'}</Text>
-                  <View style={styles.achievementBody}>
-                    <Text style={styles.achievementTitle}>{a.title}</Text>
-                    <Text style={styles.achievementDesc}>{a.desc}</Text>
-                  </View>
-                </View>
-              );
-            })}
+          {/* ── Audio ── */}
+          <View style={s.card}>
+            <Text style={s.cardTitle}>AUDIO</Text>
+            <SettingRow
+              label="Sound Effects"
+              desc="UI, battle, care, and minigame sounds"
+              value={settings.sfx}
+              onToggle={(v) => update('sfx', v)}
+            />
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>MEMORY GALLERY</Text>
-            <Text style={styles.bodyText}>You have no past Bytes yet. This section will store retired Byte profiles, snapshots, and memory notes.</Text>
+          {/* ── Display ── */}
+          <View style={s.card}>
+            <Text style={s.cardTitle}>DISPLAY</Text>
+            <SettingRow
+              label="Show Corruption Meter"
+              desc="Show corruption tier and value in home and battle screens"
+              value={settings.showCorruption}
+              onToggle={(v) => update('showCorruption', v)}
+            />
+            <SettingRow
+              label="Reduced Motion"
+              desc="Disable non-essential animations and particle effects"
+              value={settings.reducedMotion}
+              onToggle={(v) => update('reducedMotion', v)}
+            />
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>PLAYTEST TOOLS</Text>
-            <TouchableOpacity style={styles.secondaryBtn} activeOpacity={0.85} onPress={() => router.push('/(tabs)/loadout')}>
-              <Text style={styles.secondaryBtnText}>CONFIGURE LOADOUT</Text>
+          {/* ── Notifications ── */}
+          <View style={s.card}>
+            <Text style={s.cardTitle}>NOTIFICATIONS</Text>
+            <SettingRow
+              label="Care Reminders"
+              desc="Alerts when your Byte's needs are getting low"
+              value={settings.notifications}
+              onToggle={(v) => update('notifications', v)}
+            />
+            <Text style={s.hint}>Push notification delivery requires device permissions.</Text>
+          </View>
+
+          {/* ── Demo Tools ── */}
+          <View style={s.card}>
+            <Text style={s.cardTitle}>DEMO TOOLS</Text>
+            <SettingRow
+              label="Fast Demo Speed"
+              desc="Decay and XP run at 24× speed for playtesting"
+              value={settings.demoSpeedFast}
+              onToggle={(v) => update('demoSpeedFast', v)}
+            />
+            <TouchableOpacity style={s.secondaryBtn} onPress={() => router.push('/(tabs)/loadout')} activeOpacity={0.85}>
+              <Text style={s.secondaryBtnText}>CONFIGURE LOADOUT</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.resetBtn} activeOpacity={0.85} onPress={handleResetDemo}>
-              <Text style={styles.resetBtnText}>RESET DEMO DATA</Text>
+            <TouchableOpacity style={s.resetBtn} onPress={handleResetDemo} activeOpacity={0.85}>
+              <Text style={s.resetBtnText}>RESET DEMO DATA</Text>
             </TouchableOpacity>
-            <Text style={styles.hint}>Resets progress to fresh egg state for repeatable test runs.</Text>
+            <Text style={s.hint}>Reset returns Byte to a fresh state for repeatable test runs.</Text>
           </View>
+
+          <View style={{ height: 90 }} />
         </ScrollView>
       </SafeAreaView>
     </ImageBackground>
   );
 }
 
-const styles = StyleSheet.create({
-  bg: { flex: 1 },
+function SettingRow({
+  label,
+  desc,
+  value,
+  onToggle,
+}: {
+  label: string;
+  desc: string;
+  value: boolean;
+  onToggle: (v: boolean) => void;
+}) {
+  return (
+    <View style={s.row}>
+      <View style={s.rowText}>
+        <Text style={s.rowLabel}>{label}</Text>
+        <Text style={s.rowDesc}>{desc}</Text>
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onToggle}
+        trackColor={{ false: 'rgba(255,255,255,0.1)', true: '#7ec8ff' }}
+        thumbColor={value ? '#fff' : 'rgba(255,255,255,0.4)'}
+      />
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  bg:   { flex: 1 },
   safe: { flex: 1 },
-  content: { padding: 14, gap: 10, paddingBottom: 26 },
-  title: { color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: 2 },
-  sub: { color: 'rgba(200,228,255,0.66)', fontSize: 11 },
+  scroll: { padding: 14, gap: 12 },
+
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  title: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 2 },
+  savedBadge: {
+    color: '#7cffb2',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.5,
+    borderWidth: 1,
+    borderColor: 'rgba(124,255,178,0.35)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+
   card: {
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.28)',
-    backgroundColor: 'rgba(8,18,62,0.84)',
+    borderColor: 'rgba(120,195,255,0.2)',
+    backgroundColor: 'rgba(8,18,62,0.86)',
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 12,
     gap: 8,
   },
-  cardTitle: { color: '#dff2ff', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
-  settingRow: {
+  cardTitle: { color: '#7ec8ff', fontSize: 10, fontWeight: '900', letterSpacing: 2, marginBottom: 2 },
+
+  row: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(130,200,255,0.2)',
-    backgroundColor: 'rgba(22,34,84,0.55)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    borderColor: 'rgba(130,200,255,0.15)',
+    backgroundColor: 'rgba(22,34,84,0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  settingLabel: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  hint: { color: 'rgba(205,230,255,0.62)', fontSize: 10.5 },
-  progressText: { color: '#8fd8ff', fontSize: 11, fontWeight: '700' },
-  achievementRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
-  badge: {
-    width: 74,
-    textAlign: 'center',
-    borderRadius: 8,
+  rowText: { flex: 1 },
+  rowLabel: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  rowDesc:  { color: 'rgba(180,220,255,0.55)', fontSize: 10, marginTop: 2, lineHeight: 14 },
+
+  hint: { color: 'rgba(180,220,255,0.5)', fontSize: 10, lineHeight: 15 },
+
+  secondaryBtn: {
+    borderRadius: 10,
     borderWidth: 1,
-    fontSize: 9,
-    fontWeight: '900',
-    paddingVertical: 5,
-    overflow: 'hidden',
+    borderColor: 'rgba(120,195,255,0.4)',
+    backgroundColor: 'rgba(20,44,86,0.6)',
+    paddingVertical: 11,
+    alignItems: 'center',
   },
-  badgeOn: {
-    color: '#9bffbf',
-    borderColor: 'rgba(95,231,149,0.45)',
-    backgroundColor: 'rgba(20,72,44,0.55)',
-  },
-  badgeOff: {
-    color: 'rgba(255,255,255,0.5)',
-    borderColor: 'rgba(255,255,255,0.2)',
-    backgroundColor: 'rgba(35,42,64,0.55)',
-  },
-  achievementBody: { flex: 1, gap: 2 },
-  achievementTitle: { color: '#fff', fontSize: 11.5, fontWeight: '700' },
-  achievementDesc: { color: 'rgba(208,232,255,0.68)', fontSize: 10.5 },
-  bodyText: { color: 'rgba(220,240,255,0.8)', fontSize: 11, lineHeight: 17 },
+  secondaryBtnText: { color: '#b9e5ff', fontSize: 11, fontWeight: '900', letterSpacing: 1.1 },
+
   resetBtn: {
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255,110,110,0.55)',
-    backgroundColor: 'rgba(120,20,28,0.55)',
+    borderColor: 'rgba(255,110,110,0.5)',
+    backgroundColor: 'rgba(120,20,28,0.5)',
     paddingVertical: 11,
     alignItems: 'center',
   },
   resetBtnText: { color: '#ffd4d4', fontSize: 11, fontWeight: '900', letterSpacing: 1.4 },
-  secondaryBtn: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.45)',
-    backgroundColor: 'rgba(20,44,86,0.62)',
-    paddingVertical: 10,
-    alignItems: 'center',
-  },
-  secondaryBtnText: { color: '#b9e5ff', fontSize: 10.8, fontWeight: '900', letterSpacing: 1.1 },
 });

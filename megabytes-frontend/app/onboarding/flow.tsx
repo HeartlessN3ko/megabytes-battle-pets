@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getOnboardingProgress, advanceOnboarding, skipOnboarding } from '../../services/api';
 import { getDemoSessionHeaders } from '../../services/demoSession';
+import { playSfx } from '../../services/sfx';
 
 export default function OnboardingFlowScreen() {
   const router = useRouter();
@@ -46,6 +47,7 @@ export default function OnboardingFlowScreen() {
   };
 
   const handleAdvance = async () => {
+    playSfx('ui_snap', 0.7);
     try {
       setAdvancing(true);
       const data = await advanceOnboarding();

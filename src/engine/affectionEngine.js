@@ -138,8 +138,13 @@ function applyCareBonus(byte, actionType, statBefore) {
   if (!bonus) return 0;
   if (statBefore > WASTE_RANGE_THRESHOLD) return 0; // waste range — no affection gain
 
-  byte.affection = clamp((byte.affection || 50) + bonus);
-  return bonus;
+  // Detached tier: 25% gain reduction (spec: affection.MD)
+  const finalBonus = getAffectionTier(byte.affection || 50) === 'detached'
+    ? Math.max(0, Math.floor(bonus * 0.75))
+    : bonus;
+
+  byte.affection = clamp((byte.affection || 50) + finalBonus);
+  return finalBonus;
 }
 
 /**
@@ -168,6 +173,11 @@ function applyPraise(byte) {
   else if (windowCount === 1) gain = PRAISE_GAIN_2ND;
   else if (windowCount === 2) gain = PRAISE_GAIN_3RD;
   else gain = PRAISE_GAIN_MIN;
+
+  // Detached tier: 25% gain reduction (spec: affection.MD)
+  if (getAffectionTier(byte.affection || 50) === 'detached') {
+    gain = Math.max(0, Math.floor(gain * 0.75));
+  }
 
   byte.affection = clamp((byte.affection || 50) + gain);
   byte.affectionLastPraiseAt = new Date(now);

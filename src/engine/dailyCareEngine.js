@@ -28,8 +28,8 @@ const SELECTION = {
 };
 
 // XP bonuses fed back to xpEngine call site
-const TASK_COMPLETE_XP   = 20;  // Per task completed
-const FULL_SET_BONUS_XP  = 50;  // All tasks completed in one day
+const TASK_COMPLETE_XP   = 100; // Per task completed (~20% of daily XP via 5 tasks + bonus)
+const FULL_SET_BONUS_XP  = 150; // All tasks completed in one day
 
 // Score weight: each task worth equal share of 100 points
 const SCORE_PER_TASK = (taskCount) => Math.floor(100 / taskCount);
@@ -79,9 +79,16 @@ function selectDailyTasks(isEarlyGame = true) {
 
 // ─── Event Processing ─────────────────────────────────────────────────────────
 
+// Keys that must all be present for perfect_cycle to complete
+const PERFECT_CYCLE_KEYS = ['feed_optimal', 'play_optimal', 'rest_ok'];
+
 /**
  * Process a single event against the byte's active daily tasks.
  * Mutates the activeDailyTasks array in place.
+ *
+ * Boolean-target tasks (avoid_critical, zero_neglect) are treated as
+ * "passing" unless explicitly failed — calcDailyCareScore handles their
+ * completion state. processEvent only sets failed=true on them.
  *
  * @param {Array}  activeTasks - byte.activeDailyTasks (mongoose subdoc array)
  * @param {Object} event       - { type, ...payload }
@@ -92,41 +99,66 @@ function processEvent(activeTasks, event) {
   let xpAwarded = 0;
 
   for (const task of activeTasks) {
-    if (task.completed || task.failed) continue;
+    if (task.failed) continue;
 
     const taskDef = TASK_CATALOG_MAP[task.id];
     if (!taskDef) continue;
+
+    // Boolean-target (avoid) tasks: check for fail even when completed
+    const isBooleanTarget = task.target === true;
+    if (!isBooleanTarget && task.completed) continue;
 
     const result = taskDef.condition(event);
 
     if (result === 'fail') {
       task.failed = true;
+      task.completed = false; // Un-complete if it was passing
       continue;
     }
 
     if (!result) continue;
 
-    // Numeric result = add that amount (time-based tasks use deltaTime)
+    // Boolean-target tasks never progress via result — they're handled by scoring fns
+    if (isBooleanTarget) continue;
+
+    // ── balanced_care: accumulate distinct action types in persistable array ──
+    if (task.id === 'balanced_care' && typeof result === 'string') {
+      if (!task.distinctCareTypes) task.distinctCareTypes = [];
+      if (!task.distinctCareTypes.includes(result)) {
+        task.distinctCareTypes.push(result);
+        task.progress = task.distinctCareTypes.length;
+      }
+      if (task.progress >= task.target) {
+        task.completed = true;
+        completedIds.push(task.id);
+        xpAwarded += TASK_COMPLETE_XP;
+      }
+      continue;
+    }
+
+    // ── perfect_cycle: accumulate component keys; complete when all 3 present ──
+    if (task.id === 'perfect_cycle' && typeof result === 'string') {
+      if (!task.distinctCareTypes) task.distinctCareTypes = [];
+      if (!task.distinctCareTypes.includes(result)) {
+        task.distinctCareTypes.push(result);
+        task.progress = task.distinctCareTypes.length;
+      }
+      if (PERFECT_CYCLE_KEYS.every(k => task.distinctCareTypes.includes(k))) {
+        task.completed = true;
+        completedIds.push(task.id);
+        xpAwarded += TASK_COMPLETE_XP;
+      }
+      continue;
+    }
+
+    // ── Numeric result: time-based tasks add deltaTime seconds ──
     if (typeof result === 'number') {
       task.progress = (task.progress || 0) + result;
     } else {
-      // Boolean true or string (distinct action type for balanced_care)
-      if (task.id === 'balanced_care' && typeof result === 'string') {
-        // Track distinct action types in progress metadata via a bitmask-like counter
-        // Simple approach: progress counts distinct types seen (handled separately)
-        task._distinctActions = task._distinctActions || new Set();
-        task._distinctActions.add(result);
-        task.progress = task._distinctActions.size;
-      } else {
-        task.progress = (task.progress || 0) + 1;
-      }
+      task.progress = (task.progress || 0) + 1;
     }
 
-    // Check completion
-    if (task.target === true) {
-      // Boolean target — task is "avoid" style, remains complete unless failed
-      if (!task.failed) task.completed = true;
-    } else if ((task.progress || 0) >= task.target) {
+    if ((task.progress || 0) >= task.target) {
       task.completed = true;
       completedIds.push(task.id);
       xpAwarded += TASK_COMPLETE_XP;
@@ -139,6 +171,18 @@ function processEvent(activeTasks, event) {
 // ─── Score + Streak ───────────────────────────────────────────────────────────
 
 /**
+ * A task counts as effectively complete if:
+ *  - Its completed flag is true, OR
+ *  - It's a boolean-target (avoid) task and hasn't been failed
+ * Failed tasks are excluded from scoring entirely.
+ */
+function isEffectivelyComplete(task) {
+  if (task.failed) return false;
+  if (task.target === true) return true; // avoid tasks: complete unless failed
+  return task.completed;
+}
+
+/**
  * Calculate the daily care score (0–100) from completed tasks.
  *
  * @param {Array} activeTasks - byte.activeDailyTasks
@@ -148,7 +192,7 @@ function calcDailyCareScore(activeTasks) {
   if (!activeTasks || activeTasks.length === 0) return 0;
 
   const countable = activeTasks.filter(t => !t.failed);
-  const completed = countable.filter(t => t.completed).length;
+  const completed = countable.filter(isEffectivelyComplete).length;
   const total = countable.length;
 
   if (total === 0) return 0;
@@ -161,7 +205,7 @@ function calcDailyCareScore(activeTasks) {
 function isFullSetComplete(activeTasks) {
   if (!activeTasks || activeTasks.length === 0) return false;
   const countable = activeTasks.filter(t => !t.failed);
-  return countable.length > 0 && countable.every(t => t.completed);
+  return countable.length > 0 && countable.every(isEffectivelyComplete);
 }
 
 /**

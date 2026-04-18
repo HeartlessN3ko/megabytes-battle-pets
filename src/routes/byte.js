@@ -23,6 +23,7 @@ const affectionEngine      = require('../engine/affectionEngine');
 const dailyCareEngine      = require('../engine/dailyCareEngine');
 const { MOVE_CATALOG_MAP } = require('../data/moveCatalog');
 const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
+const { getActiveDecorEffects } = require('../data/decorCatalog');
 const { optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -165,11 +166,14 @@ function computeLiveByteSnapshot(byte, req) {
   const rawMinutes = ((now - new Date(byte.lastNeedsUpdate)) / (1000 * 60)) * speedMult;
   const minutesElapsed = Math.min(rawMinutes, decayOpts.maxWindowMinutes || 60);
 
+  const decorEffects = getActiveDecorEffects((byte.decorItems || []).map(i => i.id || i));
+
   const { needs, lastNeedsUpdate } = needDecay.applyDecay(
     byte.needs.toObject(),
     byte.lastNeedsUpdate,
     now,
-    decayOpts
+    decayOpts,
+    decorEffects
   );
   let corruption = corruptionEngine.applyPassiveDecay(byte.corruption, needs);
   if (criticalNeedCount(needs) > 0) {
@@ -192,7 +196,16 @@ function computeLiveByteSnapshot(byte, req) {
     needs,
     lastNeedsUpdate,
     corruption,
-    computedStats: statEngine.applyNeedModifiers(byte.stats.toObject(), needs),
+    computedStats: statEngine.applyNeedModifiers(
+      statEngine.applyEvolutionBiases(byte.stats.toObject(), {
+        shape:       byte.shape       || null,
+        animal:      byte.animal      || null,
+        element:     byte.element     || null,
+        feature:     byte.feature     || null,
+        branch:      byte.branch      || null,
+      }),
+      needs
+    ),
     corruptionTier: corruptionEngine.getCorruptionTier(corruption),
     carePattern,
     passiveXPGain,
@@ -269,6 +282,15 @@ router.post('/:id/sync', async (req, res) => {
       gapHours: Math.max(0, gapHours),
       avgNeeds: averageNeed(byte.needs),
     });
+
+    // Emit mood_change event when byte is thriving (feeds reach_happy_state task)
+    const syncAvgNeeds = averageNeed(byte.needs);
+    if (syncAvgNeeds >= 75) {
+      emitCareEvent(byte, {
+        type: 'mood_change',
+        avgNeeds: syncAvgNeeds,
+      });
+    }
 
     // Affection: tick decay/gain using elapsed minutes from before this sync
     if (syncElapsedMin > 0.1) affectionEngine.tickAffection(byte, syncElapsedMin);
@@ -362,8 +384,42 @@ router.patch('/:id/care', async (req, res) => {
       });
     }
 
+    // ── Quick-feed rate limit (5 uses per 2-hour window, quick feed only) ──
+    // mealCycle:true bypasses the limit — meal minigame results are not rate-limited
+    if (action === 'feed' && !req.body.mealCycle) {
+      const QUICK_FEED_LIMIT = 5;
+      const QUICK_FEED_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+      const now = Date.now();
+      const resetAt = byte.quickFeedResetAt ? new Date(byte.quickFeedResetAt).getTime() : 0;
+      if (now > resetAt) {
+        byte.quickFeedCount = 0;
+        byte.quickFeedResetAt = new Date(now + QUICK_FEED_WINDOW_MS);
+      }
+      if (byte.quickFeedCount >= QUICK_FEED_LIMIT) {
+        return res.json({
+          blocked: true,
+          reason: 'limit_reached',
+          quickFeedCount: byte.quickFeedCount,
+          quickFeedResetAt: byte.quickFeedResetAt,
+        });
+      }
+    }
+
+    // ── Overfeed guard — byte isn't hungry (skipped for meal cycle completions) ──
+    if (action === 'feed' && !req.body.mealCycle) {
+      const currentHunger = (byte.needs?.Hunger ?? 0);
+      if (currentHunger >= 90) {
+        return res.json({
+          blocked: true,
+          reason: 'not_hungry',
+          hunger: currentHunger,
+        });
+      }
+    }
+
     // Apply decay first, then care
-    const decayed = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req));
+    const careDecorEffects = getActiveDecorEffects((byte.decorItems || []).map(i => i.id || i));
+    const decayed = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req), careDecorEffects);
 
     // Capture stat before care (for affection waste-range check)
     const TIMING_NEED = { feed: 'Hunger', clean: 'Hygiene', rest: 'Bandwidth', play: 'Fun' };
@@ -375,7 +431,7 @@ router.patch('/:id/care', async (req, res) => {
     const actionStrings = (byte.lastCareActions || []).map(a => (typeof a === 'object' ? a.action : a));
     const spamMult = needDecay.applySpamPenalty(actionStrings, action);
 
-    const updatedNeeds = needDecay.applyCare(decayed.needs, action, grade || 'good', timingWindow.restoreMultiplier, spamMult);
+    const updatedNeeds = needDecay.applyCare(decayed.needs, action, grade || 'good', timingWindow.restoreMultiplier, spamMult, careDecorEffects);
     byte.needs = updatedNeeds;
     byte.lastNeedsUpdate = decayed.lastNeedsUpdate;
 
@@ -490,6 +546,11 @@ router.patch('/:id/care', async (req, res) => {
     byte.level = levelUp.level;
     byte.xp = levelUp.xp;
 
+    // Increment quick-feed counter on successful feed
+    if (action === 'feed') {
+      byte.quickFeedCount = (byte.quickFeedCount || 0) + 1;
+    }
+
     await byte.save();
     await player.save();
     res.json({
@@ -508,6 +569,8 @@ router.patch('/:id/care', async (req, res) => {
       fullSetComplete: taskResult.fullSetComplete,
       corruptionTier: corruptionEngine.getCorruptionTier(byte.corruption),
       criticalNeeds: critCount,
+      quickFeedCount: byte.quickFeedCount,
+      quickFeedResetAt: byte.quickFeedResetAt,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -576,8 +639,8 @@ router.patch('/:id/train', async (req, res) => {
     byte.markModified('stats'); // Ensure Mongoose tracks subdoc field change
     byte.trainingSessionsToday += 1;
 
-    // XP gain from training (10 base * grade multiplier * need multiplier)
-    const baseXP = 10;
+    // XP gain from training (50 base * grade multiplier * need multiplier)
+    const baseXP = 50;
     const xpGain = Math.max(1, Math.round(baseXP * gainMult * needMult));
     byte.xp = (byte.xp || 0) + xpGain;
 

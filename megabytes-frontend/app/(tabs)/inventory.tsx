@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { consumeItem, getInventory, getPlayer, getShopItems } from '../../services/api';
+import { playSfx } from '../../services/sfx';
 
 type InventoryRow = {
   id: string;
@@ -13,10 +13,33 @@ type InventoryRow = {
   quantity: number;
 };
 
-const TYPE_ORDER = ['recovery', 'clutch', 'utility', 'stat_boost', 'evolution', 'battle_only'];
+const TYPE_ORDER = ['recovery', 'clutch', 'utility', 'stat_boost', 'evolution', 'battle_only', 'decor'];
+
+const TYPE_COLOR: Record<string, string> = {
+  recovery:    '#7cffc0',
+  clutch:      '#ff9a72',
+  utility:     '#9bd7ff',
+  stat_boost:  '#ffe08d',
+  evolution:   '#d4a8ff',
+  battle_only: '#ff6b6b',
+  decor:       '#f9c0e8',
+};
+
+const TYPE_LABEL: Record<string, string> = {
+  recovery:    'RECOVERY',
+  clutch:      'CLUTCH',
+  utility:     'UTILITY',
+  stat_boost:  'STAT BOOST',
+  evolution:   'EVOLUTION',
+  battle_only: 'BATTLE',
+  decor:       'DECOR',
+};
+
+function typeColor(type: string) {
+  return TYPE_COLOR[type] || '#9bd7ff';
+}
 
 export default function InventoryScreen() {
-  const router = useRouter();
   const [rows, setRows] = useState<InventoryRow[]>([]);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [status, setStatus] = useState('Syncing inventory...');
@@ -60,21 +83,26 @@ export default function InventoryScreen() {
       });
 
       setRows(built);
-      setStatus(`Inventory synced: ${built.length} item types loaded.`);
+      setStatus(`${built.length} item${built.length !== 1 ? 's' : ''} loaded across ${new Set(built.map(r => r.type)).size} categories.`);
     } catch (err: any) {
       const msg = err?.message || '';
-      setStatus(msg.toLowerCase().includes('waking up') ? 'Server is waking up... inventory will sync soon.' : 'Inventory sync failed.');
+      setStatus(msg.toLowerCase().includes('waking up') ? 'Server waking up — inventory syncing soon.' : 'Inventory sync failed.');
       setRows([]);
     }
   }, []);
 
   useEffect(() => {
+    playSfx('inventory_open', 0.7);
     load();
   }, [load]);
 
   const typeOptions = useMemo(() => {
     const set = new Set(rows.map((r) => r.type));
-    return ['all', ...Array.from(set).sort()];
+    return ['all', ...Array.from(set).sort((a, b) => {
+      const ai = TYPE_ORDER.indexOf(a);
+      const bi = TYPE_ORDER.indexOf(b);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+    })];
   }, [rows]);
 
   const visibleRows = useMemo(() => {
@@ -86,6 +114,7 @@ export default function InventoryScreen() {
     setStatus(`Using ${id}...`);
     try {
       const res = await consumeItem(id);
+      playSfx('item_use', 0.8);
       setRows((prev) =>
         prev
           .map((r) => (r.id === id ? { ...r, quantity: Math.max(0, Number(res?.quantityRemaining ?? r.quantity - 1)) } : r))
@@ -99,118 +128,190 @@ export default function InventoryScreen() {
 
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.75}>
-            <Ionicons name="arrow-back-outline" size={22} color="#7ec8ff" />
-          </TouchableOpacity>
-          <Text style={styles.title}>INVENTORY</Text>
-          <View style={{ width: 40 }} />
+      <SafeAreaView style={styles.safe} edges={['top']}>
+
+        {/* Compact top bar: title + status + filters */}
+        <View style={styles.topBar}>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>INVENTORY</Text>
+            <Text style={styles.subtitle}>ITEM STORAGE SYSTEM</Text>
+          </View>
+          <View style={styles.statusBar}>
+            <Ionicons name="server-outline" size={10} color="#4a9eff" style={{ marginRight: 5 }} />
+            <Text style={styles.statusText}>{status}</Text>
+          </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
+          >
+            {typeOptions.map((t) => {
+              const active = typeFilter === t;
+              const accent = t === 'all' ? '#7ec8ff' : typeColor(t);
+              return (
+                <TouchableOpacity
+                  key={t}
+                  style={[
+                    styles.filterChip,
+                    active && { borderColor: accent, backgroundColor: `${accent}22` },
+                  ]}
+                  onPress={() => setTypeFilter(t)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.filterText, active && { color: accent }]}>
+                    {t === 'all' ? 'ALL' : (TYPE_LABEL[t] || t.toUpperCase())}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
 
-        <View style={styles.statusCard}>
-          <Text style={styles.statusText}>{status}</Text>
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-          {typeOptions.map((t) => {
-            const active = typeFilter === t;
-            return (
-              <TouchableOpacity
-                key={t}
-                style={[styles.filterChip, active && styles.filterChipActive]}
-                onPress={() => setTypeFilter(t)}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.filterText, active && styles.filterTextActive]}>{t.toUpperCase()}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        <ScrollView contentContainerStyle={styles.list}>
+        {/* Item list — fills remaining space */}
+        <ScrollView style={styles.listScroll} contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
           {visibleRows.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Text style={styles.emptyText}>No items in this filter yet.</Text>
+              <Ionicons name="cube-outline" size={28} color="rgba(120,195,255,0.3)" style={{ marginBottom: 8 }} />
+              <Text style={styles.emptyTitle}>NO ITEMS</Text>
+              <Text style={styles.emptySub}>Nothing in this category yet.</Text>
             </View>
           ) : (
-            visibleRows.map((row) => (
-              <View key={row.id} style={styles.rowCard}>
-                <View style={styles.rowTop}>
-                  <Text style={styles.rowName}>{row.name}</Text>
-                  <Text style={styles.qty}>x{row.quantity}</Text>
+            visibleRows.map((row) => {
+              const accent = typeColor(row.type);
+              const isDecor = row.type === 'decor';
+              return (
+                <View key={row.id} style={styles.rowCard}>
+                  {/* Type accent bar */}
+                  <View style={[styles.accentBar, { backgroundColor: accent }]} />
+
+                  <View style={styles.rowInner}>
+                    {/* Top row: name + qty */}
+                    <View style={styles.rowTop}>
+                      <Text style={styles.rowName}>{row.name}</Text>
+                      <View style={[styles.qtyBadge, { borderColor: `${accent}66` }]}>
+                        <Text style={[styles.qtyText, { color: accent }]}>×{row.quantity}</Text>
+                      </View>
+                    </View>
+
+                    {/* Type badge */}
+                    <Text style={[styles.typeBadge, { color: accent }]}>
+                      {TYPE_LABEL[row.type] || row.type.toUpperCase()}
+                    </Text>
+
+                    {/* Description */}
+                    <Text style={styles.rowDesc}>{row.description}</Text>
+
+                    {/* Action */}
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { borderColor: `${accent}55`, backgroundColor: `${accent}14` }]}
+                      onPress={() => !isDecor && consumeInventoryItem(row.id)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.actionText, { color: accent }]}>
+                        {isDecor ? 'PLACE IN ROOM' : 'USE ITEM'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-                <Text style={styles.rowDesc}>{row.description}</Text>
-                <TouchableOpacity style={styles.useBtn} onPress={() => consumeInventoryItem(row.id)} activeOpacity={0.85}>
-                  <Text style={styles.useText}>USE ITEM</Text>
-                </TouchableOpacity>
-              </View>
-            ))
+              );
+            })
           )}
+          <View style={{ height: 90 }} />
         </ScrollView>
+
       </SafeAreaView>
     </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  bg: { flex: 1 },
+  bg:   { flex: 1 },
   safe: { flex: 1, paddingHorizontal: 14 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 4 },
-  backBtn: { width: 40, alignItems: 'flex-start' },
-  title: { color: '#fff', fontSize: 20, fontWeight: '900', letterSpacing: 2 },
-  statusCard: {
-    marginTop: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.3)',
-    backgroundColor: 'rgba(8,18,62,0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+
+  topBar: {
+    gap: 4,
+    paddingTop: 8,
+    paddingBottom: 6,
   },
-  statusText: { color: '#d9efff', fontSize: 11 },
-  filterRow: { gap: 6, paddingVertical: 8, paddingRight: 8, alignItems: 'center' },
-  filterChip: {
-    borderRadius: 8,
+  titleRow: { alignItems: 'center', marginBottom: 2 },
+  title:    { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 3 },
+  subtitle: { color: 'rgba(120,195,255,0.6)', fontSize: 8.5, fontWeight: '700', letterSpacing: 2, marginTop: 1 },
+
+  statusBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(4,12,40,0.7)',
+    borderRadius: 7,
     borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.28)',
-    backgroundColor: 'rgba(8,18,62,0.8)',
-    paddingHorizontal: 9,
+    borderColor: 'rgba(74,158,255,0.2)',
+    paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  filterChipActive: { borderColor: 'rgba(255,214,114,0.62)', backgroundColor: 'rgba(88,64,20,0.74)' },
-  filterText: { color: '#9ccfff', fontSize: 9.5, fontWeight: '700', letterSpacing: 0.8 },
-  filterTextActive: { color: '#ffe08d' },
-  list: { gap: 10, paddingBottom: 24 },
+  statusText: { color: 'rgba(160,210,255,0.7)', fontSize: 9.5, fontFamily: 'monospace' },
+
+  filterRow: { gap: 5, paddingVertical: 4, paddingRight: 8, alignItems: 'center' },
+  filterChip: {
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(120,195,255,0.2)',
+    backgroundColor: 'rgba(8,18,62,0.6)',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+  },
+  filterText: {
+    color: 'rgba(160,210,255,0.5)',
+    fontSize: 8.5,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+  },
+
+  listScroll: { flex: 1 },
+  list: { gap: 10, paddingTop: 4 },
+
   emptyCard: {
-    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.28)',
-    backgroundColor: 'rgba(8,18,62,0.84)',
-    padding: 14,
+    borderColor: 'rgba(120,195,255,0.15)',
+    backgroundColor: 'rgba(8,18,62,0.7)',
+    paddingVertical: 40,
+    marginTop: 20,
   },
-  emptyText: { color: 'rgba(220,240,255,0.78)', fontSize: 12 },
+  emptyTitle: { color: 'rgba(220,240,255,0.5)', fontSize: 13, fontWeight: '900', letterSpacing: 2 },
+  emptySub:   { color: 'rgba(160,210,255,0.35)', fontSize: 10, marginTop: 4 },
+
   rowCard: {
+    flexDirection: 'row',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.28)',
-    backgroundColor: 'rgba(8,18,62,0.84)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 5,
+    borderColor: 'rgba(120,195,255,0.18)',
+    backgroundColor: 'rgba(6,14,50,0.88)',
+    overflow: 'hidden',
   },
+  accentBar: { width: 4, borderRadius: 0 },
+  rowInner:  { flex: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
+
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  rowName: { color: '#fff', fontSize: 13, fontWeight: '800' },
-  qty: { color: '#ffe08d', fontSize: 12, fontWeight: '900' },
-  rowDesc: { color: 'rgba(220,240,255,0.8)', fontSize: 11 },
-  useBtn: {
-    marginTop: 4,
-    borderRadius: 9,
+  rowName: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 0.5, flex: 1 },
+  qtyBadge: {
     borderWidth: 1,
-    borderColor: 'rgba(107,188,255,0.45)',
-    backgroundColor: 'rgba(26,44,88,0.6)',
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+  },
+  qtyText: { fontSize: 11, fontWeight: '900' },
+
+  typeBadge: { fontSize: 9, fontWeight: '800', letterSpacing: 1.2, opacity: 0.85 },
+  rowDesc:   { color: 'rgba(200,230,255,0.65)', fontSize: 11, lineHeight: 15 },
+
+  actionBtn: {
+    marginTop: 6,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: 'center',
     paddingVertical: 8,
   },
-  useText: { color: '#9bd7ff', fontSize: 11, fontWeight: '800', letterSpacing: 1.1 },
+  actionText: { fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
 });

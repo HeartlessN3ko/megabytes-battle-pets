@@ -7,21 +7,22 @@
 // CARE ACTION XP VALUES
 // ─────────────────────────────────────────────────────────────────
 const CARE_ACTION_XP = {
-  feed: 8,
-  clean: 10,
-  play: 9,
-  rest: 5,
-  pet: 2, // cooldown gated, not farmable
+  feed: 40,
+  clean: 45,
+  play: 45,
+  rest: 35,
+  pet: 25, // cooldown gated, not farmable
 };
 
 // ─────────────────────────────────────────────────────────────────
 // PASSIVE XP RATES (per minute)
 // ─────────────────────────────────────────────────────────────────
-const PASSIVE_XP_RATE = 0.8; // per minute when avg needs ≥ 40
+const PASSIVE_XP_RATE = 0.45; // per minute when avg needs ≥ 40
+// 20% of daily XP target (648 XP/day = 0.45 * 1440)
 
 // Reduced passive if needs declining
-const PASSIVE_XP_REDUCED = 0.3; // per minute when avg needs 20–39
-const PASSIVE_XP_CRITICAL = 0; // per minute when avg needs < 20
+const PASSIVE_XP_REDUCED = 0.15; // per minute when avg needs 20–39
+const PASSIVE_XP_CRITICAL = 0;   // per minute when avg needs < 20
 
 // ─────────────────────────────────────────────────────────────────
 // GRADE MULTIPLIERS (from minigames)
@@ -39,12 +40,13 @@ const GRADE_XP_MULTIPLIERS = {
 
 /**
  * XP required to reach a level.
- * levels 1–50: 45 * level
- * levels 51–100: 45 * (level^2)
+ * Sqrt curve: front-loaded (cheap early, expensive late).
+ * Level 1: 450 XP, Level 25: 2,250 XP, Level 50: 3,182 XP
+ * Total to level 50: ~103,000 XP
+ * Cap: level 50 (Phase 3 raises cap when evolution stages 2-6 ship)
  */
 function xpRequiredForLevel(level) {
-  if (level <= 50) return 45 * level;
-  return 45 * Math.pow(level, 2);
+  return Math.round(450 * Math.sqrt(level));
 }
 
 /**
@@ -141,25 +143,25 @@ function applyPatternMultiplier(baseXP, pattern) {
  * @param {number} xpGain - XP to add
  * @returns {Object} { level, xp, levelsGained }
  */
+const LEVEL_CAP = 50; // Phase 3 raises cap when evo stages 2-6 ship
+
 function applyXPGain(currentLevel, currentXP, xpGain) {
-  if (currentLevel >= 100) {
-    return { level: 100, xp: currentXP, levelsGained: 0 };
+  if (currentLevel >= LEVEL_CAP) {
+    return { level: LEVEL_CAP, xp: currentXP, levelsGained: 0 };
   }
 
   let level = currentLevel;
   let xp = currentXP + xpGain;
   let levelsGained = 0;
 
-  // Check for level ups
-  while (xp >= xpRequiredForLevel(level) && level < 100) {
+  while (xp >= xpRequiredForLevel(level) && level < LEVEL_CAP) {
     xp -= xpRequiredForLevel(level);
     level++;
     levelsGained++;
   }
 
-  // Clamp
-  if (level >= 100) {
-    level = 100;
+  if (level >= LEVEL_CAP) {
+    level = LEVEL_CAP;
     xp = 0;
   }
 
@@ -174,7 +176,7 @@ function applyXPGain(currentLevel, currentXP, xpGain) {
  * @returns {number} 0–100
  */
 function getProgressToNextLevel(level, xp) {
-  if (level >= 100) return 100;
+  if (level >= LEVEL_CAP) return 100;
 
   const required = xpRequiredForLevel(level);
   return Math.round((xp / required) * 100);
@@ -184,6 +186,7 @@ module.exports = {
   CARE_ACTION_XP,
   PASSIVE_XP_RATE,
   GRADE_XP_MULTIPLIERS,
+  LEVEL_CAP,
   xpRequiredForLevel,
   cumulativeXpForLevel,
   calculateActionXP,

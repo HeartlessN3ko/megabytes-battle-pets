@@ -65,7 +65,7 @@ const ByteSchema = new mongoose.Schema({
   evolutionStage: { type: Number, default: 0, min: 0, max: 5 },
 
   // Stats
-  stats: { type: StatsSchema, default: () => ({}) },
+  stats: { type: StatsSchema, default: () => ({ Power: 10, Speed: 10, Defense: 10, Stamina: 10, Special: 10, Accuracy: 10 }) },
 
   // Needs
   needs: { type: NeedsSchema, default: () => ({}) },
@@ -143,6 +143,10 @@ const ByteSchema = new mongoose.Schema({
   affectionLastPraiseAt:  { type: Date,   default: null },   // For 2-min cooldown + 5-min window
   affectionPraiseCount:   { type: Number, default: 0 },      // Count within rolling 5-min window
 
+  // Quick-feed rate limit (5 uses per 2-hour window)
+  quickFeedCount:   { type: Number, default: 0 },
+  quickFeedResetAt: { type: Date,   default: null },
+
   // Session tracking
   lastLoginAt: { type: Date, default: null },
 
@@ -175,13 +179,14 @@ const ByteSchema = new mongoose.Schema({
 
   // Active daily care tasks (structured, event-driven)
   activeDailyTasks: [{
-    _id:        false,
-    id:         { type: String },
-    target:     { type: Number },
-    progress:   { type: Number, default: 0 },
-    completed:  { type: Boolean, default: false },
-    failed:     { type: Boolean, default: false },
-    assignedAt: { type: Date }
+    _id:              false,
+    id:               { type: String },
+    target:           { type: mongoose.Schema.Types.Mixed }, // Number or true (boolean avoid-tasks)
+    progress:         { type: Number, default: 0 },
+    completed:        { type: Boolean, default: false },
+    failed:           { type: Boolean, default: false },
+    assignedAt:       { type: Date },
+    distinctCareTypes: { type: [String], default: [] }, // Persistent accumulator for balanced_care + perfect_cycle
   }],
 
 }, { timestamps: true });

@@ -10,12 +10,12 @@ const NEEDS = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'];
 // DECAY RATES (per minute, awake)
 // ─────────────────────────────────────────────────────────────────
 const DECAY_RATES = {
-  Hunger: 0.055,
-  Bandwidth: 0.040, // awake; +0.090 while sleeping
-  Hygiene: 0.035,
-  Social: 0.025,
-  Fun: 0.045,
-  Mood: 0.025,
+  Hunger:    0.060, // full→empty ~28h ignored
+  Bandwidth: 0.050, // full→empty ~33h ignored
+  Hygiene:   0.045, // full→empty ~37h ignored
+  Fun:       0.055, // full→empty ~30h ignored
+  Social:    0.025,
+  Mood:      0.025,
 };
 
 // Sleep-time Bandwidth/Mood regen is handled in needInterdependencyEngine.applySleepEffects,
@@ -57,7 +57,7 @@ const TIMING_WINDOWS = {
 // CARE RESTORE VALUES (base, before timing/grade multipliers)
 // ─────────────────────────────────────────────────────────────────
 const CARE_RESTORE = {
-  feed: { Hunger: 24, Mood: 4 },
+  feed: { Hunger: 35, Mood: 4 },
   clean: { Hygiene: 26, Mood: 4 },
   'perfect-clean': { Hygiene: 40, Mood: 6 },
   rest: { Bandwidth: 28, Mood: 14 },
@@ -131,7 +131,7 @@ function calcNeedLoss(minutesElapsed, needs = {}, wasOffline = false) {
  * @param {Object} [options] - { speedMultiplier, maxWindowMinutes }
  * @returns {{ needs: Object, lastNeedsUpdate: Date }}
  */
-function applyDecay(needs, lastNeedsUpdate, now = new Date(), options = {}) {
+function applyDecay(needs, lastNeedsUpdate, now = new Date(), options = {}, decorEffects = {}) {
   const speedMultiplier = Number(options?.speedMultiplier || 1);
   const maxWindowMinutes = Number(options?.maxWindowMinutes || 60);
   const safeSpeed = Number.isFinite(speedMultiplier) && speedMultiplier > 0 ? speedMultiplier : 1;
@@ -145,10 +145,22 @@ function applyDecay(needs, lastNeedsUpdate, now = new Date(), options = {}) {
 
   const loss = calcNeedLoss(minutesElapsed, needs);
 
+  // Neglect scaling: accelerate decay when avg needs are low
+  const avgNeed = getAverageNeed(needs);
+  let neglectMult = 1.0;
+  if (avgNeed < 15) neglectMult = 2.0;      // +100% (death spiral)
+  else if (avgNeed < 25) neglectMult = 1.6; // +60%
+  else if (avgNeed < 40) neglectMult = 1.25; // +25%
+
+  // Sunset painting: reduce Mood decay rate
+  const moodDecayMult = 1 - Math.min(0.5, Number(decorEffects.moodDecayReduction || 0));
+
   const updated = {};
   for (const need of NEEDS) {
     const current = Number(needs?.[need] ?? 100);
-    updated[need] = Math.max(0, Math.min(100, current - loss[need]));
+    let needLoss = loss[need] * neglectMult;
+    if (need === 'Mood') needLoss *= moodDecayMult;
+    updated[need] = Math.max(0, Math.min(100, current - needLoss));
   }
 
   return { needs: updated, lastNeedsUpdate: now };
@@ -202,7 +214,7 @@ function applySpamPenalty(lastCareActions = [], currentAction) {
  * @param {number} [spamMult=1.0] - spam penalty multiplier
  * @returns {Object} - updated needs
  */
-function applyCare(needs, action, grade = 'good', timingMult = 1.0, spamMult = 1.0) {
+function applyCare(needs, action, grade = 'good', timingMult = 1.0, spamMult = 1.0, decorEffects = {}) {
   const restore = CARE_RESTORE[action];
   if (!restore) throw new Error(`[NeedDecay] Unknown care action: "${action}"`);
 
@@ -214,6 +226,12 @@ function applyCare(needs, action, grade = 'good', timingMult = 1.0, spamMult = 1
     const scaledAmount = Math.round(baseAmount * finalMult);
     updated[need] = Math.min(100, (updated[need] ?? 0) + scaledAmount);
   }
+
+  // Pet bed: flat Bandwidth bonus on rest actions (applied after multipliers)
+  if (action === 'rest' && decorEffects.restRecoveryBonus) {
+    updated.Bandwidth = Math.min(100, (updated.Bandwidth ?? 0) + Number(decorEffects.restRecoveryBonus));
+  }
+
   return updated;
 }
 

@@ -56,8 +56,10 @@ function applyNeedModifiers(baseStats, needs) {
     }
   }
 
+  const STAT_KEYS = ['Power', 'Speed', 'Defense', 'Stamina', 'Special', 'Accuracy'];
   const finalStats = {};
-  for (const [stat, base] of Object.entries(baseStats)) {
+  for (const stat of STAT_KEYS) {
+    const base = Number(baseStats?.[stat] ?? 10);
     finalStats[stat] = Math.max(0, Math.min(100, Math.round(base * modifiers[stat])));
   }
   return finalStats;

@@ -15,19 +15,17 @@ type SpriteOptions = {
 };
 
 const BYTE_SPRITES = {
-  egg: require('../assets/bytes/missingno-egg.png'),
-  stage1Base: require('../assets/bytes/missingno-stage1.png'),
-  stage1Neutral: require('../assets/bytes/missingno-idleblink.gif'),
-  stage1Smile: require('../assets/bytes/missingno-smile.gif'),
-  stage1Frown: require('../assets/bytes/missingno-sad.gif'),
-  stage1Sleep: require('../assets/bytes/missingno-sleeping.gif'),
-  stage1Tired: require('../assets/bytes/missingno-tired.gif'),
-  stage1Exhausted: require('../assets/bytes/missingno-exhausted.gif'),
-  stage1Anxious: require('../assets/bytes/missingno-anxious.gif'),
-  stage1IdleGif: require('../assets/bytes/missingno-idleblink.gif'),
-  stage1WalkLeftGif: require('../assets/bytes/missingno-left.gif'),
-  stage1WalkRightGif: require('../assets/bytes/missingno-right.gif'),
-  stage2: require('../assets/bytes/missingno-stage2-frog.png'),
+  egg:               require('../assets/bytes/Circle/Circle-Egg.gif'),
+  base:              require('../assets/bytes/Circle/Circle-base.gif'),
+  neutral:           require('../assets/bytes/Circle/Circle-blink-bounce.gif'),
+  smile:             require('../assets/bytes/Circle/Circle-idle.gif'),
+  frown:             require('../assets/bytes/Circle/Circle-looklowerleft1.gif'),
+  sleep:             require('../assets/bytes/Circle/Circle-sleeping.gif'),
+  tired:             require('../assets/bytes/Circle/Circle-tired.gif'),
+  anxious:           require('../assets/bytes/Circle/Circle-looklowerleft-right.gif'),
+  idleGif:           require('../assets/bytes/Circle/Circle-idle.gif'),
+  walkLeft:          require('../assets/bytes/Circle/Circle-leftmove.gif'),
+  walkRight:         require('../assets/bytes/Circle/Circle-rightmove.gif'),
 } as const;
 
 function n(value: unknown, fallback = 60) {
@@ -44,36 +42,22 @@ export function resolveByteSprite(stage: number, options: SpriteOptions = {}) {
 
   if (stage <= 0) return BYTE_SPRITES.egg;
 
-  // For stage 2+: use static stage2 sprite unless animation is explicitly requested
-  if (stage >= 2) {
-    // If animation preference is set, show emotion even for stage 2 (use stage1 sprites as placeholder until stage2 assets ready)
-    if (options.preferAnimatedWalk) {
-      if (options.facing === 'left') return BYTE_SPRITES.stage1WalkLeftGif;
-      if (options.facing === 'right') return BYTE_SPRITES.stage1WalkRightGif;
-    }
-    if (options.preferAnimatedIdle) {
-      return BYTE_SPRITES.stage1IdleGif;
-    }
-    // Return base stage2 if no animation requested
-    return BYTE_SPRITES.stage2;
-  }
-
-  // Stage 1: full emotion/need handling
+  // All live stages use Circle stage 1 sprites until further evo art is ready
   if (options.preferAnimatedWalk) {
-    if (options.facing === 'left') return BYTE_SPRITES.stage1WalkLeftGif;
-    if (options.facing === 'right') return BYTE_SPRITES.stage1WalkRightGif;
+    if (options.facing === 'left') return BYTE_SPRITES.walkLeft;
+    if (options.facing === 'right') return BYTE_SPRITES.walkRight;
   }
 
   if (options.preferAnimatedIdle) {
-    return BYTE_SPRITES.stage1IdleGif;
+    return BYTE_SPRITES.idleGif;
   }
 
-  if (bandwidth < 15) return BYTE_SPRITES.stage1Exhausted;
-  if (bandwidth < 35) return BYTE_SPRITES.stage1Tired;
-  if (bandwidth < 28) return BYTE_SPRITES.stage1Sleep;
-  if (mood < 30) return BYTE_SPRITES.stage1Anxious;
-  if (mood < 35 || hygiene < 25) return BYTE_SPRITES.stage1Frown;
-  if (mood >= 80) return BYTE_SPRITES.stage1Smile;
+  if (bandwidth < 15) return BYTE_SPRITES.tired;
+  if (bandwidth < 35) return BYTE_SPRITES.tired;
+  if (bandwidth < 28) return BYTE_SPRITES.sleep;
+  if (mood < 30) return BYTE_SPRITES.anxious;
+  if (mood < 35 || hygiene < 25) return BYTE_SPRITES.frown;
+  if (mood >= 80) return BYTE_SPRITES.smile;
 
-  return BYTE_SPRITES.stage1Neutral;
+  return BYTE_SPRITES.neutral;
 }

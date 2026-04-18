@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { getPlayerAchievements } from '../../services/api';
 import { getDemoSessionHeaders } from '../../services/demoSession';
+import { playSfx } from '../../services/sfx';
 
 const RARITY_COLORS: Record<string, string> = {
   common:    '#7ec8ff',
@@ -36,13 +37,20 @@ export default function AchievementsScreen() {
   const [loading, setLoading] = useState(false);
   const [unlockedCount, setUnlockedCount] = useState(0);
   const isDemo = getDemoSessionHeaders()['x-is-demo'] === 'true';
+  const twinkleFired = React.useRef(false);
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
       const data = await getPlayerAchievements();
       setAchievements(data.achievements || []);
-      setUnlockedCount(data.unlockedCount || 0);
+      const count = data.unlockedCount || 0;
+      setUnlockedCount(count);
+      if (count > 0 && !twinkleFired.current) {
+        twinkleFired.current = true;
+        playSfx('ui_twinkle', 0.7);
+        playSfx('confetti', 0.6);
+      }
     } catch {
       // silent — empty state shown
     } finally {

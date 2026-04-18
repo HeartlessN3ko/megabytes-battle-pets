@@ -8,6 +8,7 @@ import { useRouter } from 'expo-router';
 import { useEvolution } from '../context/EvolutionContext';
 import { careAction, hatchByte } from '../services/api';
 import { toDemoSeconds } from '../services/demoSession';
+import { playSfx } from '../services/sfx';
 
 const { width } = Dimensions.get('window');
 
@@ -111,14 +112,19 @@ export default function EggScreen() {
   }, []);
 
   const triggerEvolution = useCallback(() => {
+    playSfx('egg_hatch', 0.7);
     Animated.sequence([
       Animated.timing(eggScale, { toValue: 1.2, duration: 300, useNativeDriver: true }),
       Animated.timing(whiteFlash, { toValue: 1, duration: 500, useNativeDriver: true }),
     ]).start(async () => {
       try {
         await hatchByte();
-        // Don't auto-advance stage; byte remains at stage 1 until natural evolution triggers
-      } catch {}
+        playSfx('evolve_complete', 0.9);
+      } catch {
+        // Hatch API failed (server sleeping etc.) — retry once after 1.5s
+        await new Promise(r => setTimeout(r, 1500));
+        try { await hatchByte(); playSfx('evolve_complete', 0.9); } catch {}
+      }
       router.replace('/(tabs)');
     });
   }, []);
@@ -181,7 +187,7 @@ export default function EggScreen() {
         <View style={styles.eggStage}>
           <Animated.View style={{ transform: [{ translateY: eggBob }, { scale: eggScale }] }}>
             <Image
-              source={require('../assets/bytes/missingno-egg.png')}
+              source={require('../assets/bytes/Circle/Circle-Egg.gif')}
               style={styles.eggSprite}
               resizeMode="contain"
             />

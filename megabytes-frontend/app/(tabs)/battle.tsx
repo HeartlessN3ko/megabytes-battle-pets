@@ -15,6 +15,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { cheerBattle, getByte, getByteMoves, startBattle, suggestBattleUlt, completeCampaignNode } from '../../services/api';
 import { useEvolution } from '../../context/EvolutionContext';
 import { resolveByteSprite } from '../../services/byteSprites';
+import { playSfx } from '../../services/sfx';
 
 const { width } = Dimensions.get('window');
 
@@ -373,10 +374,12 @@ export default function BattleScreen() {
       }
       if (won) {
         setLog(rnd(VICTORY_LOGS));
+        playSfx('win_big', 0.9);
         Animated.timing(enemyOp, { toValue: 0, duration: 800, useNativeDriver: true }).start();
         recordBattle();
       } else {
         setLog(rnd(DEFEAT_LOGS));
+        playSfx('defeat', 0.9);
       }
       setTimeout(() => {
         Animated.timing(overlayOp, { toValue: 1, duration: 600, useNativeDriver: true }).start();
@@ -429,6 +432,7 @@ export default function BattleScreen() {
         case 'damage': {
           const dmg = Math.round(Number(ev.damage || 0));
           const targetIsSelf = ev.target === selfId;
+          playSfx('battle_hit', 0.6);
           if (targetIsSelf) {
             const next = Math.max(0, playerHpRef.current - dmg);
             playerHpRef.current = next;

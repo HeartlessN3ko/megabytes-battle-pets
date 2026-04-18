@@ -3,6 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { playSfx } from '../services/sfx';
 
 const NAV_GATE_MS = 1500;
 
@@ -25,6 +26,7 @@ export default function HomeNavBar() {
     const now = Date.now();
     if (now - lastNavAt.current < NAV_GATE_MS) return;
     lastNavAt.current = now;
+    playSfx('menu_press', 0.6);
     fn();
   }
 

@@ -156,6 +156,8 @@ function criticalNeeds(needs = {}) {
   return ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'].filter((k) => Number(needs[k] || 0) < 25).length;
 }
 
+export { THOUGHTS };
+
 export function generateByteThought({
   byteName,
   needs,

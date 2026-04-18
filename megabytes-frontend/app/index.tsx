@@ -1,12 +1,11 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
   View, Text, ImageBackground, Image, TouchableOpacity,
   StyleSheet, Animated, Dimensions, StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useEvolution } from '../context/EvolutionContext';
 import { useDemoMode } from '../hooks/useDemoMode';
-import { getOnboardingProgress } from '../services/api';
+import { playSfx } from '../services/sfx';
 import appConfig from '../app.json';
 const BUILD_VERSION = appConfig.expo.version;
 
@@ -14,8 +13,7 @@ const { width, height } = Dimensions.get('window');
 
 export default function SplashScreen() {
   const router    = useRouter();
-  const { stage, hydrated } = useEvolution();
-  const { demoMode, hydrated: demoHydrated } = useDemoMode();
+  const { enableDemoMode, hydrated: demoHydrated } = useDemoMode();
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeIn    = useRef(new Animated.Value(0)).current;
   const logoY     = useRef(new Animated.Value(-30)).current;
@@ -34,37 +32,21 @@ export default function SplashScreen() {
     ).start();
   }, [fadeIn, logoY, pulseAnim]);
 
-  const handleStart = async () => {
+  const fadeOut = (cb: () => void) => {
+    Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(cb);
+  };
+
+  const handleDemo = async () => {
     if (!demoHydrated) return;
+    playSfx('press_start', 0.8);
+    await enableDemoMode();
+    fadeOut(() => router.replace('/(tabs)' as any));
+  };
 
-    // If demo mode, skip onboarding and go straight to tabs
-    if (demoMode) {
-      Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
-        router.replace('/(tabs)' as any);
-      });
-      return;
-    }
-
-    // Check onboarding status if player exists
-    if (stage > 0) {
-      try {
-        const onboarding = await getOnboardingProgress();
-        const destination = onboarding.isComplete ? '/(tabs)' : '/onboarding/flow';
-        Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
-          router.replace(destination as any);
-        });
-      } catch (err) {
-        // If onboarding check fails, go to tabs
-        Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
-          router.replace('/(tabs)' as any);
-        });
-      }
-    } else {
-      // No byte yet, go to egg creation
-      Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
-        router.replace('/egg' as any);
-      });
-    }
+  const handleNewPlayer = () => {
+    if (!demoHydrated) return;
+    playSfx('press_start', 0.8);
+    fadeOut(() => router.replace('/onboarding/flow' as any));
   };
 
   const handleCredits = () => {
@@ -88,11 +70,23 @@ export default function SplashScreen() {
             />
           </Animated.View>
 
-          <TouchableOpacity onPress={handleStart} activeOpacity={0.8} style={styles.startWrap}>
-            <Animated.Text style={[styles.pressStart, { opacity: pulseAnim }]}>
-              {hydrated && demoHydrated ? 'PRESS START' : 'SYNCING...'}
-            </Animated.Text>
-          </TouchableOpacity>
+          {demoHydrated ? (
+            <View style={styles.choiceBlock}>
+              <TouchableOpacity onPress={handleDemo} activeOpacity={0.8} style={styles.demoBtn}>
+                <Animated.Text style={[styles.demoBtnText, { opacity: pulseAnim }]}>
+                  DEMO MODE
+                </Animated.Text>
+                <Text style={styles.btnSub}>Jump in with a test profile</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={handleNewPlayer} activeOpacity={0.8} style={styles.newPlayerBtn}>
+                <Text style={styles.newPlayerText}>NEW PLAYER</Text>
+                <Text style={styles.btnSub}>Full onboarding + egg selection</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={[styles.demoBtnText, { opacity: 0.5 }]}>SYNCING...</Text>
+          )}
 
           <TouchableOpacity onPress={handleCredits} activeOpacity={0.85} style={styles.creditsBtn}>
             <Text style={styles.creditsText}>CREDITS</Text>
@@ -102,7 +96,6 @@ export default function SplashScreen() {
         <View style={styles.infoBlock}>
           <View style={styles.scanlines} pointerEvents="none" />
           <Text style={styles.infoPrimary}>DEMO BUILD {BUILD_VERSION}</Text>
-          {demoMode ? <Text style={styles.infoDemo}>DEMO PROFILE ACTIVE</Text> : null}
           <Text style={styles.infoSecondary}>VOIDWORKS INTERACTIVE</Text>
           <Text style={styles.infoSecondary}>INTERNAL SHOWCASE BRANCH</Text>
         </View>
@@ -122,13 +115,57 @@ const styles = StyleSheet.create({
   },
   logoWrap:  { width: '100%', alignItems: 'center', justifyContent: 'center' },
   logo:      { width: width * 1.22, height: height * 0.5 },
-  startWrap: { marginTop: -8 },
-  pressStart: {
-    color: '#7ec8ff', fontSize: 22, fontWeight: '800', letterSpacing: 4,
-    textShadowColor: '#00aaff', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 12,
+
+  choiceBlock: {
+    width: '78%',
+    gap: 14,
+    marginTop: -8,
   },
+
+  demoBtn: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#7ec8ff',
+    backgroundColor: 'rgba(4,18,40,0.72)',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  demoBtnText: {
+    color: '#7ec8ff',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: 4,
+    textShadowColor: '#00aaff',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 10,
+  },
+
+  newPlayerBtn: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: 'rgba(126,200,255,0.38)',
+    backgroundColor: 'rgba(4,18,40,0.52)',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  newPlayerText: {
+    color: 'rgba(210,238,255,0.92)',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 3,
+  },
+
+  btnSub: {
+    color: 'rgba(170,218,245,0.55)',
+    fontSize: 9.5,
+    letterSpacing: 1,
+    marginTop: 4,
+  },
+
   creditsBtn: {
-    marginTop: 14,
+    marginTop: 18,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(126,200,255,0.24)',
@@ -142,6 +179,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: 1.8,
   },
+
   infoBlock: {
     alignItems: 'center',
     gap: 4,
@@ -182,11 +220,4 @@ const styles = StyleSheet.create({
     letterSpacing: 1.6,
     fontWeight: '600',
   },
-  infoDemo: {
-    color: '#ffe082',
-    fontSize: 10,
-    letterSpacing: 1.6,
-    fontWeight: '800',
-  },
 });
-

@@ -55,8 +55,8 @@ async function main() {
   console.log('2) reset:', reset.ok ? 'ok' : 'failed');
 
   const byte0 = await req('GET', `/api/byte/${BYTE_ID}`);
-  if ((byte0?.byte?.evolutionStage ?? -1) !== 0) throw new Error('Reset did not return evolutionStage 0');
-  console.log('3) byte stage after reset: 0');
+  if ((byte0?.byte?.evolutionStage ?? -1) !== 1) throw new Error('Reset did not return evolutionStage 1');
+  console.log('3) byte stage after reset: 1 (Circle — normal byte)');
 
   await req('POST', `/api/byte/${BYTE_ID}/praise`);
   await req('POST', `/api/byte/${BYTE_ID}/scold`);

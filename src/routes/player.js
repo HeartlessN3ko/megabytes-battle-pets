@@ -109,41 +109,54 @@ router.post('/:id/reset-demo', optionalAuth, async (req, res) => {
     }
 
     if (byte) {
-      byte.evolutionStage = 0;
-      byte.isEgg = true;
-      byte.level = 1;
-      byte.xp = 0;
-      byte.corruption = 0;
-      byte.isDevByte = true;   // Missingno — skips death/legacy, keeps demo rates
-      byte.trainingSessionsToday = 0;
-      byte.lastNeedsUpdate = new Date();
-      byte.stats = {
-        Power: 10, Speed: 10, Defense: 10, Stamina: 10, Special: 10, Accuracy: 10
-      };
-      byte.needs = {
-        Hunger: 100, Bandwidth: 100, Hygiene: 100, Social: 100, Fun: 100, Mood: 100
-      };
-      byte.behaviorMetrics = {
-        loginFrequency: 0,
-        sessionGapTime: 0,
-        recoveryDelayTime: 0,
-        feedRatio: 0,
-        cleanDelayTime: 0,
-        needResponseTime: 0,
-        tapFrequency: 0,
-        nonRewardCheckins: 0,
-        roomTimeDistribution: {},
-        lowEnergyTrainingCount: 0,
-        statFocusDistribution: {},
-        sessionLength: 0,
-        timeOfDayPattern: {},
-        playVsTrainRatio: 0,
-        restEnforcementRate: 0,
-        praiseCount: 0,
-        scoldCount: 0,
-        moodRecoveryTime: 0
-      };
-      await byte.save();
+      // Use findByIdAndUpdate with $set/$unset to bypass Mongoose change-detection
+      // and guarantee null fields are written to MongoDB.
+      // Stage 1 = shape only. animal/element/feature/branch/temperament are
+      // reveals at stages 2/3/4/5/5 per evolutionEngine. Leave them null.
+      await Byte.findByIdAndUpdate(byte._id, {
+        $set: {
+          evolutionStage:      1,
+          isEgg:               false,
+          isAlive:             true,
+          isDevByte:           false,
+          level:               1,
+          xp:                  0,
+          corruption:          0,
+          trainingSessionsToday: 0,
+          lastNeedsUpdate:     new Date(),
+          bornAt:              new Date(),
+          generation:          1,
+          shape:               'Circle',
+          affection:           50,
+          dailyCareStreak:     0,
+          dailyCareScore:      0,
+          'stats.Power':       10,
+          'stats.Speed':       10,
+          'stats.Defense':     10,
+          'stats.Stamina':     10,
+          'stats.Special':     10,
+          'stats.Accuracy':    10,
+          'needs.Hunger':      100,
+          'needs.Bandwidth':   100,
+          'needs.Hygiene':     100,
+          'needs.Social':      100,
+          'needs.Fun':         100,
+          'needs.Mood':        100,
+          'behaviorMetrics.praiseCount':  0,
+          'behaviorMetrics.scoldCount':   0,
+          'behaviorMetrics.tapFrequency': 0,
+          'behaviorMetrics.playVsTrainRatio': 0,
+        },
+        $unset: {
+          animal:      '',
+          element:     '',
+          feature:     '',
+          branch:      '',
+          temperament: '',
+        },
+      });
+      // Reload so the response has accurate data
+      byte = await Byte.findById(byte._id);
     }
 
     res.json({

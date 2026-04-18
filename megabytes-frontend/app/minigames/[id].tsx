@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { ImageBackground, PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ImageBackground, PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { careAction, earnCurrency, getByte, interactByte, trainStat, syncByte } from '../../services/api';
+import { careAction, earnCurrency, getByte, trainStat, syncByte } from '../../services/api';
 import { markHomeClutterCleared } from '../../services/homeRuntimeState';
 import { MiniGameDef, getMiniGameById } from '../../services/minigames';
 import { MiniGameRoomId, recordTrainingUsage, setPendingMiniGameResult } from '../../services/minigameRuntime';
+import { initSfx, playSfx, startLoopSfx, stopLoopSfx, type SfxKey } from '../../services/sfx';
 
 type Grade = 'fail' | 'good' | 'perfect';
 type Variant = 'quick' | 'long';
@@ -15,9 +16,16 @@ const EMOTES = ['HAPPY', 'SLEEP', 'ANGRY', 'JOY'];
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 const TOUCH_HIT_SLOP = { top: 18, bottom: 18, left: 18, right: 18 };
 const LARGE_TOUCH_HIT_SLOP = { top: 28, bottom: 28, left: 28, right: 28 };
-const BOARD_WIDTH = 260;
-const BOARD_HEIGHT = 170;
-const BOARD_CENTER_Y = 85;
+// Board sizing is now measured live via onLayout. Internal coords are normalized (0–1) and scaled at render/hit-test.
+const NUTRIENT_IMAGES = [
+  require('../../assets/minigame/minigame-images/nutrient_alpha.png'),
+  require('../../assets/minigame/minigame-images/nutrient_beta.png'),
+  require('../../assets/minigame/minigame-images/nutrient_gamma.png'),
+  require('../../assets/minigame/minigame-images/nutrient_delta.png'),
+];
+const FEED_TARGET_SPRITE = require('../../assets/bytes/Circle/Circle-blink-bounce.gif');
+const FEED_SNAP_RADIUS_PX = 54; // pixel threshold for reaching a target node (center-to-finger)
+const FEED_GRAB_RADIUS_PX = 48; // pixel threshold for starting a drag on a source node
 const NEED_RESULT_ORDER = ['Hunger', 'Bandwidth', 'Hygiene', 'Fun', 'Social', 'Mood'];
 
 function familyLabelFor(game: MiniGameDef) {
@@ -62,11 +70,18 @@ function resolveRoomPath(room: string | undefined) {
 
 function calcEconomy(def: MiniGameDef, grade: Grade, variant: Variant, quality: number) {
   const training = def.id.startsWith('training-');
-  const baseBits = training ? (variant === 'long' ? 26 : 4) : (variant === 'long' ? 18 : 3);
+  // Energy-costly games: training (Bandwidth -12 on backend) + play-room games (Bandwidth -4 via careAction('play')).
+  const isPlayGame = def.id === 'engage-simulation' || def.id === 'sync-link' || def.id === 'emote-align';
+  // 2026-04-17: payouts doubled — prev 3/18 care, 4/26 training felt punitive for the effort.
+  const baseBits = training ? (variant === 'long' ? 55 : 10) : (variant === 'long' ? 40 : 8);
   const qualityScale = grade === 'perfect' ? 1.35 : grade === 'good' ? 1 : 0.35;
   const byteBits = Math.max(1, Math.round(baseBits * qualityScale * clamp(0.7 + quality * 0.4, 0.7, 1.2)));
-  const energyCost = training ? (variant === 'long' ? 18 : 11) : (variant === 'long' ? 10 : 6);
-  const statGain = training && def.stat ? `${def.stat} +${grade === 'perfect' ? 2 : grade === 'good' ? 1 : 0}` : null;
+  // No energy penalty for feed/clean/rest/recovery. Only play + training cost energy.
+  const energyCost = training
+    ? (variant === 'long' ? 18 : 11)
+    : isPlayGame ? (variant === 'long' ? 10 : 6) : 0;
+  // Display matches backend TRAINING_GAIN * ~1.0 avg dailyMult * ~0.9 needMult → +3/+2/+1.
+  const statGain = training && def.stat ? `${def.stat} +${grade === 'perfect' ? 3 : grade === 'good' ? 2 : 1}` : null;
   return { byteBits, energyCost, statGain };
 }
 
@@ -78,6 +93,41 @@ function processLabelFor(game: MiniGameDef) {
   if (game.id === 'sync-link') return 'SYNCING LINKS...';
   if (game.id === 'emote-align') return 'ALIGNING EMOTES...';
   return 'COMPILING RESULTS...';
+}
+
+function startCueFor(game: MiniGameDef): SfxKey {
+  if (game.id === 'feed-upload') return 'minigame_feed_upload';
+  if (game.id === 'run-cleanup') return 'minigame_cleanup_scrub';
+  if (game.id === 'stabilize-signal') return 'minigame_signal_trace';
+  if (game.id === 'sync-link') return 'minigame_sync_connect';
+  if (game.id === 'emote-align') return 'minigame_emote_match';
+  if (game.id === 'training-accuracy') return 'training_accuracy_lock';
+  if (game.id === 'training-defense') return 'training_defense_merge';
+  if (game.id === 'training-special') return 'training_special_charge';
+  if (game.kind === 'tap-target' || game.kind === 'rapid-tap') return 'minigame_target_spawn';
+  return 'minigame_score_tick';
+}
+
+function successCueFor(game: MiniGameDef): SfxKey {
+  if (game.id === 'feed-upload') return 'minigame_feed_upload';
+  if (game.id === 'run-cleanup') return 'minigame_cleanup_scrub';
+  if (game.id === 'stabilize-signal') return 'minigame_signal_trace';
+  if (game.id === 'sync-link') return 'minigame_sync_connect';
+  if (game.id === 'emote-align') return 'minigame_emote_match';
+  if (game.id === 'training-power') return 'training_power_hit';
+  if (game.id === 'training-agility') return 'training_agility_ping';
+  if (game.id === 'training-accuracy') return 'training_accuracy_lock';
+  if (game.id === 'training-defense') return 'training_defense_merge';
+  if (game.id === 'training-special') return 'training_special_charge';
+  if (game.id === 'training-stamina') return 'training_stamina_mash';
+  if (game.id === 'training-speed') return 'training_speed_step';
+  return 'minigame_target_hit';
+}
+
+function resultCueFor(grade: Grade): SfxKey {
+  if (grade === 'perfect') return 'minigame_score_perfect';
+  if (grade === 'good') return 'minigame_score_good';
+  return 'minigame_score_fail';
 }
 
 function gradeAccent(grade: Grade) {
@@ -124,10 +174,11 @@ function buildCleanupPanels() {
 }
 
 function buildTracePatterns(variant: Variant) {
+  // amplitude/offset are normalized fractions of board height (centerline = 0.5).
   const configs = [
-    { amplitude: variant === 'long' ? 24 : 20, phase: 0, offset: -10, goal: variant === 'long' ? 7 : 5 },
-    { amplitude: variant === 'long' ? 32 : 26, phase: Math.PI / 3, offset: 6, goal: variant === 'long' ? 8 : 5 },
-    { amplitude: variant === 'long' ? 28 : 24, phase: Math.PI / 1.7, offset: 0, goal: variant === 'long' ? 9 : 6 },
+    { amplitude: variant === 'long' ? 0.14 : 0.12, phase: 0, offset: -0.06, goal: variant === 'long' ? 7 : 5 },
+    { amplitude: variant === 'long' ? 0.19 : 0.15, phase: Math.PI / 3, offset: 0.04, goal: variant === 'long' ? 8 : 5 },
+    { amplitude: variant === 'long' ? 0.16 : 0.14, phase: Math.PI / 1.7, offset: 0, goal: variant === 'long' ? 9 : 6 },
   ];
   return configs.map((pattern, index) => ({
     id: `trace-${index}`,
@@ -136,20 +187,21 @@ function buildTracePatterns(variant: Variant) {
 }
 
 function buildFeedLinks() {
-  // Shuffle positions for difficulty — start always left, targets randomized
+  // Normalized 0–1 coords. Sources pinned to the left column (x≈0.14), targets on the right (x 0.72–0.90).
+  // Render scales these against the live measured board size.
   const baseTargets = [
-    { x: randomRange(180, 230), y: randomRange(30, 55) },
-    { x: randomRange(180, 230), y: randomRange(75, 105) },
-    { x: randomRange(180, 230), y: randomRange(120, 150) },
+    { x: 0.72 + Math.random() * 0.18, y: 0.14 + Math.random() * 0.18 }, // top band
+    { x: 0.72 + Math.random() * 0.18, y: 0.42 + Math.random() * 0.18 }, // middle band
+    { x: 0.72 + Math.random() * 0.18, y: 0.72 + Math.random() * 0.18 }, // bottom band
   ];
-  // Randomize order to vary difficulty
   const order = [0, 1, 2].sort(() => Math.random() - 0.5);
-  const shuffled = order.map(i => baseTargets[i]);
-
+  const shuffled = order.map((i) => baseTargets[i]);
+  // Pick 3 random nutrient indices from [0,1,2,3] — one random nutrient is unused each round.
+  const nutrientPool = [0, 1, 2, 3].sort(() => Math.random() - 0.5).slice(0, 3);
   return [
-    { start: { x: 48, y: 40 }, target: shuffled[0] },
-    { start: { x: 48, y: 88 }, target: shuffled[1] },
-    { start: { x: 48, y: 136 }, target: shuffled[2] },
+    { start: { x: 0.14, y: 0.22 }, target: shuffled[0], nutrient: nutrientPool[0] },
+    { start: { x: 0.14, y: 0.52 }, target: shuffled[1], nutrient: nutrientPool[1] },
+    { start: { x: 0.14, y: 0.82 }, target: shuffled[2], nutrient: nutrientPool[2] },
   ];
 }
 
@@ -182,10 +234,16 @@ export default function MiniGameRunnerScreen() {
 
   const [tapCount, setTapCount] = useState(0);
   const [targetPos, setTargetPos] = useState({ x: 30, y: 30 });
-  const [feedLinks, setFeedLinks] = useState<{ start: { x: number; y: number }; target: { x: number; y: number } }[]>([]);
+  const [feedLinks, setFeedLinks] = useState<{ start: { x: number; y: number }; target: { x: number; y: number }; nutrient: number }[]>([]);
   const [feedStage, setFeedStage] = useState(0);
-  const [feedCursor, setFeedCursor] = useState<{ x: number; y: number } | null>(null);
+  const [feedCursor, setFeedCursor] = useState<{ x: number; y: number } | null>(null); // normalized 0–1
   const [feedDragging, setFeedDragging] = useState(false);
+  // Drag-active gate: true from source-grab to target-reach. Forces lift-and-re-grab between stages.
+  const feedDragActiveRef = useRef(false);
+  // Live-measured board size (pixels). Updated via onLayout on the active play board.
+  const [boardSize, setBoardSize] = useState({ w: 260, h: 170 });
+  const boardSizeRef = useRef(boardSize);
+  useEffect(() => { boardSizeRef.current = boardSize; }, [boardSize]);
 
   const [cleanedCount, setCleanedCount] = useState(0);
   const [cleanupPanels, setCleanupPanels] = useState<{ barCount: number; bars: { width: number; need: number }[] }[]>([]);
@@ -249,6 +307,15 @@ export default function MiniGameRunnerScreen() {
   }, []);
 
   const cleanupStageLockRef = useRef(0);
+  const sfxThrottleRef = useRef<Partial<Record<SfxKey, number>>>({});
+
+  const playGameSfx = useCallback((key: SfxKey, volume = 0.9, minGapMs = 0) => {
+    const now = Date.now();
+    const last = sfxThrottleRef.current[key] ?? 0;
+    if (minGapMs > 0 && now - last < minGapMs) return;
+    sfxThrottleRef.current[key] = now;
+    void playSfx(key, volume);
+  }, []);
 
   const resetRoundState = useCallback((def: MiniGameDef) => {
     roundClosedRef.current = false;
@@ -337,9 +404,18 @@ export default function MiniGameRunnerScreen() {
 
   useEffect(() => () => cleanupTimers(), [cleanupTimers]);
 
+  useEffect(() => {
+    void initSfx();
+    playGameSfx('minigame_ui_open', 0.82, 250);
+    return () => {
+      stopLoopSfx('minigame_process_loop');
+    };
+  }, [playGameSfx]);
+
   const startRound = useCallback(() => {
     if (!game || running) return;
     resetRoundState(game);
+    playGameSfx(startCueFor(game), 0.72, 100);
     setRunning(true);
 
     timerRef.current = setInterval(() => {
@@ -362,7 +438,7 @@ export default function MiniGameRunnerScreen() {
         setCursor(wave * 100);
       }, 40);
     }
-  }, [finishRound, game, resetRoundState, running, variant]);
+  }, [finishRound, game, playGameSfx, resetRoundState, running, variant]);
 
   useEffect(() => {
     if (!game || autoStarted.current) return;
@@ -375,9 +451,11 @@ export default function MiniGameRunnerScreen() {
     setSyncing(true);
     setPostProcessing(true);
     setPostPercent(0);
+    void startLoopSfx('minigame_process_loop', 0.42);
 
     try {
       let effectLines: string[] = [];
+      let feedBlockedMessage: string | null = null;
       const processDuration = variant === 'long' ? 950 : 650;
       await new Promise<void>((resolve) => {
         const started = Date.now();
@@ -395,9 +473,20 @@ export default function MiniGameRunnerScreen() {
       if (quality > 0 && grade !== 'fail') {
         if (game.id === 'feed-upload') {
           const beforeByte = await getByte().catch(() => null);
-          const first = await careAction('feed', grade);
-          const second = variant === 'long' ? await careAction('feed', grade) : null;
-          effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
+          const first = await careAction('feed', grade, { mealCycle: true });
+          const second = variant === 'long' ? await careAction('feed', grade, { mealCycle: true }) : null;
+          const result = second || first;
+          if (result?.blocked) {
+            const reason = result.reason === 'not_hungry'
+              ? 'Byte isn\u2019t hungry right now.'
+              : result.reason === 'limit_reached'
+                ? 'Feed limit reached. Try again later.'
+                : 'Feed blocked. No effect applied.';
+            effectLines = [reason];
+            feedBlockedMessage = reason;
+          } else {
+            effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
+          }
         } else if (game.id === 'run-cleanup') {
           const beforeByte = await getByte().catch(() => null);
           const first = await careAction('clean', grade);
@@ -410,9 +499,11 @@ export default function MiniGameRunnerScreen() {
           const second = variant === 'long' ? await careAction('rest', grade) : null;
           effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
         } else if (game.id === 'engage-simulation' || game.id === 'sync-link' || game.id === 'emote-align') {
+          // Route play minigames through careAction('play') so Bandwidth -4 actually applies
+          // and Fun/Social/Mood gains use CARE_RESTORE values (20/8/12) instead of interact's smaller 10/5/5.
           const beforeByte = await getByte().catch(() => null);
-          const first = await interactByte();
-          const second = variant === 'long' ? await interactByte() : null;
+          const first = await careAction('play', grade);
+          const second = variant === 'long' ? await careAction('play', grade) : null;
           effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
         } else if (game.id.startsWith('training-') && game.stat) {
           try {
@@ -435,6 +526,9 @@ export default function MiniGameRunnerScreen() {
         await earnCurrency(economy.byteBits, `minigame:${game.id}`).catch(() => {});
       }
 
+      stopLoopSfx('minigame_process_loop');
+      playGameSfx('minigame_process_done', 0.84, 100);
+      playGameSfx(resultCueFor(grade), 0.88, 100);
       setSynced(true);
       setResultReady(true);
       setResultEffects(effectLines.length > 0 ? effectLines : ['No room effect applied']);
@@ -446,7 +540,7 @@ export default function MiniGameRunnerScreen() {
       setResultBits(economy.byteBits);
       setResultSkill(economy.statGain);
       setResultEnergyCost(economy.energyCost);
-      setResultSummary(resultSummaryFor(game, grade, effectLines));
+      setResultSummary(feedBlockedMessage || resultSummaryFor(game, grade, effectLines));
       setStatus('Result ready. Return to room to continue.');
 
       // Set pending result for room UI
@@ -465,12 +559,14 @@ export default function MiniGameRunnerScreen() {
         });
       }
     } catch {
+      stopLoopSfx('minigame_process_loop');
       setStatus('Sync failed right now. You can cancel and retry.');
     } finally {
+      stopLoopSfx('minigame_process_loop');
       setPostProcessing(false);
       setSyncing(false);
     }
-  }, [game, grade, quality, synced, syncing, variant]);
+  }, [game, grade, playGameSfx, quality, synced, syncing, variant]);
 
   useEffect(() => {
     if (running) return;
@@ -480,7 +576,10 @@ export default function MiniGameRunnerScreen() {
   }, [applyOutcome, durationMs, interactions, remainingMs, running, synced, syncing]);
 
   const onTapTarget = useCallback(() => {
-    if (!running) return;
+    if (!running || !game) return;
+    playGameSfx(successCueFor(game), 0.76, 65);
+    playGameSfx('minigame_score_tick', 0.56, 90);
+    playGameSfx('minigame_target_spawn', 0.44, 65);
     setInteractions((v) => v + 1);
     setTapCount((v) => {
       const next = v + 1;
@@ -492,7 +591,7 @@ export default function MiniGameRunnerScreen() {
       return next;
     });
     setTargetPos({ x: 24 + Math.random() * 220, y: 24 + Math.random() * 130 });
-  }, [finishRound, running, tapGoal, variant]);
+  }, [finishRound, game, playGameSfx, running, tapGoal, variant]);
 
   const feedPan = useMemo(
     () =>
@@ -501,34 +600,47 @@ export default function MiniGameRunnerScreen() {
           if (!running || game?.id !== 'feed-upload') return false;
           const link = feedLinks[feedStageRef.current];
           if (!link) return false;
-          const dx = evt.nativeEvent.locationX - link.start.x;
-          const dy = evt.nativeEvent.locationY - link.start.y;
-          return Math.hypot(dx, dy) <= 40;
+          const { w, h } = boardSizeRef.current;
+          const sx = link.start.x * w;
+          const sy = link.start.y * h;
+          const dx = evt.nativeEvent.locationX - sx;
+          const dy = evt.nativeEvent.locationY - sy;
+          return Math.hypot(dx, dy) <= FEED_GRAB_RADIUS_PX;
         },
         onMoveShouldSetPanResponder: () => running && game?.id === 'feed-upload',
         onPanResponderGrant: () => {
           const link = feedLinks[feedStageRef.current];
           if (!link) return;
+          playGameSfx('minigame_feed_upload', 0.66, 110);
+          feedDragActiveRef.current = true;
           setFeedDragging(true);
           setFeedCursor(link.start);
         },
         onPanResponderMove: (evt) => {
           if (!running || game?.id !== 'feed-upload') return;
+          if (!feedDragActiveRef.current) return;
           const link = feedLinks[feedStageRef.current];
           if (!link) return;
-          const x = clamp(evt.nativeEvent.locationX, 0, BOARD_WIDTH);
-          const y = clamp(evt.nativeEvent.locationY, 0, BOARD_HEIGHT);
-          setFeedCursor({ x, y });
+          const { w, h } = boardSizeRef.current;
+          if (w <= 0 || h <= 0) return;
+          const px = clamp(evt.nativeEvent.locationX, 0, w);
+          const py = clamp(evt.nativeEvent.locationY, 0, h);
+          setFeedCursor({ x: px / w, y: py / h });
           setInteractions((v) => v + 1);
 
-          const dx = x - link.target.x;
-          const dy = y - link.target.y;
-          const reached = Math.hypot(dx, dy) <= 42;
+          const tx = link.target.x * w;
+          const ty = link.target.y * h;
+          const dx = px - tx;
+          const dy = py - ty;
+          const reached = Math.hypot(dx, dy) <= FEED_SNAP_RADIUS_PX;
           if (!reached) return;
 
           const nextStage = feedStageRef.current + 1;
           const nextQuality = clamp(0.4 + (nextStage / 3) * 0.6, 0, 1);
+          playGameSfx('minigame_feed_upload', 0.78, 110);
+          playGameSfx('minigame_score_tick', 0.58, 90);
           setQuality(nextQuality);
+          feedDragActiveRef.current = false;
           setFeedDragging(false);
           setFeedCursor(null);
 
@@ -543,15 +655,17 @@ export default function MiniGameRunnerScreen() {
           setStatus(`Meal cycle ${nextStage + 1} loaded. Route the next nutrient line.`);
         },
         onPanResponderRelease: () => {
+          feedDragActiveRef.current = false;
           setFeedDragging(false);
           setFeedCursor(null);
         },
         onPanResponderTerminate: () => {
+          feedDragActiveRef.current = false;
           setFeedDragging(false);
           setFeedCursor(null);
         },
       }),
-    [feedLinks, finishRound, game?.id, running]
+    [feedLinks, finishRound, game?.id, playGameSfx, running]
   );
 
   const scrubPan = useMemo(
@@ -560,6 +674,7 @@ export default function MiniGameRunnerScreen() {
         onStartShouldSetPanResponder: () => running && game?.kind === 'scrub',
         onMoveShouldSetPanResponder: () => running && game?.kind === 'scrub',
         onPanResponderGrant: (_, g) => {
+          playGameSfx('minigame_cleanup_scrub', 0.7, 120);
           lastPointRef.current = { x: g.moveX, y: g.moveY };
         },
         onPanResponderMove: (_, g) => {
@@ -593,6 +708,7 @@ export default function MiniGameRunnerScreen() {
             const nextQuality = clamp(0.32 + (totalProgress / 3) * 0.68, 0, 1);
             setQuality(nextQuality);
             if (nextClean >= panel.barCount) {
+              playGameSfx('minigame_score_tick', 0.58, 90);
               // Lock stage switch to prevent immediate progression if hand is still on screen
               const now = Date.now();
               if (cleanupStageLockRef.current > now) {
@@ -621,7 +737,7 @@ export default function MiniGameRunnerScreen() {
           lastPointRef.current = null;
         },
       }),
-    [cleanupPanels, finishRound, game?.kind, running]
+    [cleanupPanels, finishRound, game?.kind, playGameSfx, running]
   );
 
   const tracePan = useMemo(
@@ -629,19 +745,25 @@ export default function MiniGameRunnerScreen() {
       PanResponder.create({
         onStartShouldSetPanResponder: () => running && game?.kind === 'trace',
         onMoveShouldSetPanResponder: () => running && game?.kind === 'trace',
+        onPanResponderGrant: () => {
+          playGameSfx('minigame_signal_trace', 0.64, 110);
+        },
         onPanResponderMove: (evt) => {
           if (!running || game?.kind !== 'trace') return;
           const pattern = tracePatterns[traceStageRef.current];
           if (!pattern) return;
+          const { w, h } = boardSizeRef.current;
+          if (w <= 0 || h <= 0) return;
           setInteractions((v) => v + 1);
 
-          const x = clamp(evt.nativeEvent.locationX, 0, BOARD_WIDTH);
-          const y = clamp(evt.nativeEvent.locationY, 0, BOARD_HEIGHT);
-          const expected = BOARD_CENTER_Y + pattern.offset + Math.sin((x / BOARD_WIDTH) * Math.PI * 2 + pattern.phase) * pattern.amplitude;
+          const x = clamp(evt.nativeEvent.locationX, 0, w);
+          const y = clamp(evt.nativeEvent.locationY, 0, h);
+          // expected y in pixels: centerline + (offset + sine) * h
+          const expected = (0.5 + pattern.offset + Math.sin((x / w) * Math.PI * 2 + pattern.phase) * pattern.amplitude) * h;
           const tol = variant === 'long' ? 34 : 44;
           const ok = Math.abs(y - expected) <= tol;
 
-          setTraceCursor({ x, y });
+          setTraceCursor({ x: x / w, y: y / h });
           setTraceSamples((s) => s + 1);
           if (ok) setTraceAligned((a) => a + 1);
           const samples = traceSamples + 1;
@@ -649,6 +771,8 @@ export default function MiniGameRunnerScreen() {
           const nextQuality = clamp(((traceStageRef.current + aligned / Math.max(1, pattern.goal)) / 3) * 0.9 + aligned / Math.max(1, samples) * 0.1, 0, 1);
           setQuality(nextQuality);
           if (aligned >= pattern.goal && nextQuality >= 0.45) {
+            playGameSfx('minigame_signal_trace', 0.74, 110);
+            playGameSfx('minigame_score_tick', 0.58, 90);
             if (traceStageRef.current >= 2) {
               setTimeout(() => finishRound(nextQuality), 60);
             } else {
@@ -663,7 +787,7 @@ export default function MiniGameRunnerScreen() {
           }
         },
       }),
-    [finishRound, game?.kind, running, traceAligned, tracePatterns, traceSamples, variant]
+    [finishRound, game?.kind, playGameSfx, running, traceAligned, tracePatterns, traceSamples, variant]
   );
 
   const onCardPress = useCallback((idx: number) => {
@@ -683,6 +807,8 @@ export default function MiniGameRunnerScreen() {
     if (first === second) return;
 
     if (cards[first] === cards[second]) {
+      playGameSfx(successCueFor(game), 0.76, 90);
+      playGameSfx('minigame_score_tick', 0.58, 90);
       setMatched((prev) => prev.map((v, i) => (i === first || i === second ? true : v)));
       setSelected(null);
       setPairCount((count) => {
@@ -694,19 +820,22 @@ export default function MiniGameRunnerScreen() {
       return;
     }
 
+    playGameSfx('minigame_target_miss', 0.72, 90);
     const a = first;
     const b = second;
     setTimeout(() => {
       setRevealed((prev) => prev.map((v, i) => (i === a || i === b ? false : v)));
       setSelected(null);
     }, 230);
-  }, [cards, finishRound, game?.kind, matched, pairGoal, revealed, running, selected]);
+  }, [cards, finishRound, game, matched, pairGoal, playGameSfx, revealed, running, selected]);
 
   const onSequencePress = useCallback((idx: number) => {
     if (!running || game?.kind !== 'sequence' || sequencePreviewing) return;
     setInteractions((v) => v + 1);
     const expected = seqPattern[seqIndex];
     if (idx === expected) {
+      playGameSfx(successCueFor(game), 0.74, 90);
+      playGameSfx('minigame_score_tick', 0.58, 90);
       const next = seqIndex + 1;
       setSeqIndex(next);
       setSeqCorrect((c) => c + 1);
@@ -714,20 +843,25 @@ export default function MiniGameRunnerScreen() {
       if (next >= seqPattern.length) setTimeout(() => finishRound(clamp(0.45 + next * 0.18, 0, 1)), 100);
       return;
     }
+    playGameSfx('minigame_target_miss', 0.72, 90);
     setSeqIndex(0);
     setStatus(`Pattern broke. Retry: ${seqPattern.map((value) => EMOTES[value]).join(' -> ')}`);
-  }, [finishRound, game?.kind, running, seqIndex, seqPattern, sequencePreviewing]);
+  }, [finishRound, game, playGameSfx, running, seqIndex, seqPattern, sequencePreviewing]);
 
   const onOrderedPress = useCallback((n: number) => {
     if (!running || game?.kind !== 'ordered-sequence') return;
     setInteractions((v) => v + 1);
     if (n === orderedNext) {
+      playGameSfx(successCueFor(game), 0.76, 80);
+      playGameSfx('minigame_score_tick', 0.58, 90);
       const next = n + 1;
       setOrderedNext(next);
       setQuality(clamp(0.45 + n * 0.1, 0, 1));
       if (n >= 6) setTimeout(() => finishRound(1), 80);
+      return;
     }
-  }, [finishRound, game?.kind, orderedNext, running]);
+    playGameSfx('minigame_target_miss', 0.72, 90);
+  }, [finishRound, game, orderedNext, playGameSfx, running]);
 
   const onStopTiming = useCallback(() => {
     if (!running || game?.kind !== 'timing' || timingAttempts >= 3) return;
@@ -736,6 +870,12 @@ export default function MiniGameRunnerScreen() {
     const center = zoneStart + zoneWidth / 2;
     const dist = Math.abs(cursor - center);
     const shot = clamp(1 - dist / Math.max(zoneWidth * 0.7, 1), 0, 1);
+    if (shot >= 0.35) {
+      playGameSfx(successCueFor(game), 0.78, 100);
+      playGameSfx('minigame_score_tick', 0.58, 100);
+    } else {
+      playGameSfx('minigame_target_miss', 0.72, 100);
+    }
     setTimingAttempts((a) => a + 1);
     if (shot >= 0.35) setTimingHits((h) => h + 1);
     setQuality((q) => clamp(Math.max(q, shot, shot >= 0.35 ? 0.55 : q), 0, 1));
@@ -744,9 +884,12 @@ export default function MiniGameRunnerScreen() {
       const estimate = clamp(Math.max(quality, shot, (timingHits + (shot >= 0.35 ? 1 : 0)) / 3), 0, 1);
       setTimeout(() => finishRound(estimate), 100);
     }
-  }, [cursor, finishRound, game?.kind, quality, running, timingAttempts, timingHits, zoneStart, zoneWidth]);
+  }, [cursor, finishRound, game, playGameSfx, quality, running, timingAttempts, timingHits, zoneStart, zoneWidth]);
 
   const goBackToRoom = useCallback(() => {
+    stopLoopSfx('minigame_process_loop');
+    playGameSfx('minigame_return_room', 0.8, 120);
+    playGameSfx('minigame_ui_close', 0.7, 120);
     if (!game || !roomPath) {
       router.back();
       return;
@@ -770,7 +913,7 @@ export default function MiniGameRunnerScreen() {
       summary,
     });
     router.replace(roomPath as any);
-  }, [game, grade, quality, resultBits, resultEffects, resultEnergyCost, resultSkill, resultSummary, room, roomPath, router]);
+  }, [game, grade, playGameSfx, quality, resultBits, resultEffects, resultEnergyCost, resultSkill, resultSummary, room, roomPath, router]);
 
   if (!game) {
     return (
@@ -804,39 +947,73 @@ export default function MiniGameRunnerScreen() {
         <View style={styles.playWrap}>
           <View style={[styles.play, { borderColor: `${accent}50` }]}>
           {game.id === 'feed-upload' ? (
-            <View style={styles.fill} {...feedPan.panHandlers}>
-              <View style={[styles.feedBoard, { borderColor: `${accent}66` }]}>
-                {feedLinks.map((link, idx) => {
-                  const isDone = idx < feedStage;
-                  const isActive = idx === feedStage;
-                  return (
-                    <View key={`feed-${idx}`} style={[styles.feedLane, { top: 0 }]}>
-                      <View style={[styles.feedTouchAura, { left: link.start.x - 28, top: link.start.y - 28 }, isActive && styles.feedTouchAuraActive]} />
-                      <View style={[styles.feedTargetAura, { left: link.target.x - 30, top: link.target.y - 30 }, isActive && styles.feedTargetAuraActive]} />
-                      <View style={[styles.feedNode, styles.feedSource, { left: link.start.x - 15, top: link.start.y - 15 }, isDone && styles.feedNodeDone, isActive && styles.feedNodeActive]}>
-                        <Text style={styles.feedNodeText}>FOOD</Text>
-                      </View>
-                      <View style={[styles.feedTargetNode, { left: link.target.x - 18, top: link.target.y - 18 }, isDone && styles.feedNodeDone, isActive && styles.feedTargetActive]}>
-                        <Text style={styles.feedTargetText}>BYTE</Text>
-                      </View>
-                      {isDone ? (
+            <View
+              style={[styles.feedBoardFill, { borderColor: `${accent}66` }]}
+              onLayout={(e) => setBoardSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+              {...feedPan.panHandlers}
+            >
+              {feedLinks.map((link, idx) => {
+                const isDone = idx < feedStage;
+                const isActive = idx === feedStage;
+                const sx = link.start.x * boardSize.w;
+                const sy = link.start.y * boardSize.h;
+                const tx = link.target.x * boardSize.w;
+                const ty = link.target.y * boardSize.h;
+                const cx = feedCursor ? feedCursor.x * boardSize.w : sx;
+                const cy = feedCursor ? feedCursor.y * boardSize.h : sy;
+                return (
+                  <View key={`feed-${idx}`} style={styles.feedLane} pointerEvents="none">
+                    <View style={[styles.feedTouchAura, { left: sx - 28, top: sy - 28 }, isActive && styles.feedTouchAuraActive]} />
+                    <View style={[styles.feedTargetAura, { left: tx - 30, top: ty - 30 }, isActive && styles.feedTargetAuraActive]} />
+                    {isDone ? (() => {
+                      const dx = tx - sx;
+                      const dy = ty - sy;
+                      const length = Math.hypot(dx, dy);
+                      const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+                      const midX = (sx + tx) / 2;
+                      const midY = (sy + ty) / 2;
+                      return (
                         <View style={[styles.feedLineDone, {
-                          left: link.start.x + 8,
-                          top: link.start.y - 3,
-                          width: Math.max(20, link.target.x - link.start.x - 10),
+                          left: midX - length / 2,
+                          top: midY - 3,
+                          width: length,
+                          transform: [{ rotate: `${angle}deg` }],
                         }]} />
-                      ) : null}
-                      {isActive && feedDragging && feedCursor ? (
+                      );
+                    })() : null}
+                    {isActive && feedDragging && feedCursor ? (() => {
+                      const dxCur = cx - sx;
+                      const dyCur = cy - sy;
+                      const dxTgt = tx - sx;
+                      const dyTgt = ty - sy;
+                      const curLen = Math.hypot(dxCur, dyCur);
+                      const tgtLen = Math.hypot(dxTgt, dyTgt);
+                      if (curLen < 2) return null;
+                      const length = Math.min(curLen, tgtLen);
+                      const angle = (Math.atan2(dyCur, dxCur) * 180) / Math.PI;
+                      const rad = (angle * Math.PI) / 180;
+                      const endX = sx + Math.cos(rad) * length;
+                      const endY = sy + Math.sin(rad) * length;
+                      const midX = (sx + endX) / 2;
+                      const midY = (sy + endY) / 2;
+                      return (
                         <View style={[styles.feedLineActive, {
-                          left: link.start.x + 8,
-                          top: link.start.y - 3,
-                          width: Math.max(12, feedCursor.x - link.start.x),
+                          left: midX - length / 2,
+                          top: midY - 3,
+                          width: length,
+                          transform: [{ rotate: `${angle}deg` }],
                         }]} />
-                      ) : null}
+                      );
+                    })() : null}
+                    <View style={[styles.feedNode, styles.feedSource, { left: sx - 28, top: sy - 28 }, isDone && styles.feedNodeDone, isActive && styles.feedNodeActive]}>
+                      <Image source={NUTRIENT_IMAGES[link.nutrient] || NUTRIENT_IMAGES[0]} style={styles.feedNodeImage} resizeMode="contain" />
                     </View>
-                  );
-                })}
-              </View>
+                    <View style={[styles.feedTargetNode, { left: tx - 30, top: ty - 30 }, isDone && styles.feedNodeDone, isActive && styles.feedTargetActive]}>
+                      <Image source={FEED_TARGET_SPRITE} style={styles.feedTargetImage} resizeMode="contain" />
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           ) : null}
 
@@ -864,15 +1041,17 @@ export default function MiniGameRunnerScreen() {
           ) : null}
 
           {game.kind === 'trace' ? (
-            <View style={styles.fill} {...tracePan.panHandlers}>
-              <View style={[styles.traceBoard, { borderColor: `${accent}66` }]}>
-                {Array.from({ length: 28 }).map((_, idx) => {
-                  const x = (idx / 27) * BOARD_WIDTH;
-                  const y = BOARD_CENTER_Y + (activeTracePattern?.offset ?? 0) + Math.sin((x / BOARD_WIDTH) * Math.PI * 2 + (activeTracePattern?.phase ?? 0)) * (activeTracePattern?.amplitude ?? 30);
-                  return <View key={idx} style={[styles.traceDot, { left: x, top: y }]} />;
-                })}
-                {traceCursor ? <View style={[styles.traceCursor, { left: traceCursor.x, top: traceCursor.y }]} /> : null}
-              </View>
+            <View
+              style={[styles.traceBoardFill, { borderColor: `${accent}66` }]}
+              onLayout={(e) => setBoardSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+              {...tracePan.panHandlers}
+            >
+              {Array.from({ length: 28 }).map((_, idx) => {
+                const nx = idx / 27;
+                const ny = 0.5 + (activeTracePattern?.offset ?? 0) + Math.sin(nx * Math.PI * 2 + (activeTracePattern?.phase ?? 0)) * (activeTracePattern?.amplitude ?? 0.15);
+                return <View key={idx} style={[styles.traceDot, { left: nx * boardSize.w, top: ny * boardSize.h }]} pointerEvents="none" />;
+              })}
+              {traceCursor ? <View style={[styles.traceCursor, { left: traceCursor.x * boardSize.w, top: traceCursor.y * boardSize.h }]} pointerEvents="none" /> : null}
             </View>
           ) : null}
 
@@ -918,60 +1097,17 @@ export default function MiniGameRunnerScreen() {
           </View>
         </View>
 
-        <Text style={styles.lockNotice}>
-          {navigationLocked ? 'ROOM SWITCHING IS LOCKED WHILE THE MINIGAME IS ACTIVE' : 'ROOM NAVIGATION READY'}
-        </Text>
-
-        <View style={styles.footerStack}>
-          <TouchableOpacity
-            style={styles.cornerBtnExit}
-            onPress={goBackToRoom}
-            activeOpacity={0.85}
-            hitSlop={TOUCH_HIT_SLOP}
-          >
-            <Ionicons name="arrow-back-outline" size={16} color="#fff" />
-            <Text style={styles.cornerTextExit}>EXIT</Text>
-          </TouchableOpacity>
-
-          <View style={styles.persistentTabBar}>
-            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
-              <Ionicons name="home-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : '#7ec8ff'} />
-              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled, styles.tabLabelActive]}>Home</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
-              <Ionicons name="map-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.45)'} />
-              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled]}>Story</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
-              <Ionicons name="flash-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.45)'} />
-              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled]}>Arena</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
-              <Ionicons name="settings-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.45)'} />
-              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled]}>Settings</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.tabItem, navigationLocked && styles.btnDisabled]} disabled={navigationLocked} activeOpacity={0.85}>
-              <Ionicons name="ribbon-outline" size={18} color={navigationLocked ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.45)'} />
-              <Text style={[styles.tabLabel, navigationLocked && styles.tabLabelDisabled]}>Achievements</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <TouchableOpacity
+          style={[styles.cornerBtnExit, navigationLocked && styles.btnDisabled]}
+          onPress={goBackToRoom}
+          disabled={navigationLocked}
+          activeOpacity={0.85}
+          hitSlop={TOUCH_HIT_SLOP}
+        >
+          <Ionicons name="arrow-back-outline" size={16} color="#fff" />
+          <Text style={styles.cornerTextExit}>EXIT</Text>
+        </TouchableOpacity>
       </SafeAreaView>
-
-      {postProcessing ? (
-        <View pointerEvents="auto" style={styles.overlayScrim}>
-          <View style={[styles.centerPopup, { borderColor: `${accent}66` }]}>
-            <Text style={styles.popupEyebrow}>PROCESSING RESULT</Text>
-            <Text style={styles.popupTitle}>{processLabelFor(game)}</Text>
-            <Text style={styles.popupScoreLabel}>FINAL SCORE</Text>
-            <Text style={[styles.popupScoreValue, { color: gradeColor }]}>{score}</Text>
-            <View style={styles.processTrack}>
-              <View style={[styles.processFill, { width: `${postPercent}%` }]} />
-            </View>
-            <Text style={styles.popupBody}>Applying room effects and syncing the result package...</Text>
-          </View>
-        </View>
-      ) : null}
 
       {resultReady ? (
         <View pointerEvents="auto" style={styles.overlayScrim}>
@@ -1050,9 +1186,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   scrubBoard: { width: '100%', gap: 14, alignItems: 'center', justifyContent: 'center' },
-  feedBoard: {
-    width: BOARD_WIDTH,
-    height: BOARD_HEIGHT,
+  feedBoardFill: {
+    flex: 1,
+    width: '100%',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(120,190,255,0.28)',
@@ -1084,8 +1220,8 @@ const styles = StyleSheet.create({
   },
   feedNode: {
     position: 'absolute',
-    width: 44,
-    height: 30,
+    width: 56,
+    height: 56,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: 'rgba(255,221,120,0.6)',
@@ -1094,18 +1230,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   feedSource: {
-    width: 48,
+    width: 56,
+  },
+  feedNodeImage: {
+    width: 50,
+    height: 50,
   },
   feedTargetNode: {
     position: 'absolute',
-    width: 52,
-    height: 36,
+    width: 60,
+    height: 60,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(126,240,194,0.75)',
     backgroundColor: 'rgba(27,103,74,0.36)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  feedTargetImage: {
+    width: 54,
+    height: 54,
   },
   feedNodeActive: {
     backgroundColor: 'rgba(255,214,117,0.34)',
@@ -1117,18 +1261,6 @@ const styles = StyleSheet.create({
   feedNodeDone: {
     borderColor: 'rgba(126,240,194,0.86)',
     backgroundColor: 'rgba(126,240,194,0.22)',
-  },
-  feedNodeText: {
-    color: '#fff2c2',
-    fontSize: 8.8,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-  feedTargetText: {
-    color: '#d9fff1',
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 0.8,
   },
   feedLineDone: {
     position: 'absolute',
@@ -1170,13 +1302,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(110,244,188,0.95)',
     opacity: 0.18,
   },
-  traceBoard: {
-    width: BOARD_WIDTH,
-    height: BOARD_HEIGHT,
+  traceBoardFill: {
+    flex: 1,
+    width: '100%',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(120,190,255,0.28)',
     backgroundColor: 'rgba(14,36,76,0.82)',
+    overflow: 'hidden',
   },
   traceDot: {
     position: 'absolute',
@@ -1211,20 +1344,6 @@ const styles = StyleSheet.create({
   stop: { position: 'absolute', bottom: 18, left: 14, right: 14, minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: 'rgba(120,190,255,0.35)', backgroundColor: 'rgba(8,18,62,0.96)', paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
   btn: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(120,190,255,0.35)', backgroundColor: 'rgba(8,18,62,0.95)', paddingVertical: 12, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
   btnText: { color: '#d9efff', fontSize: 11.5, fontWeight: '800', letterSpacing: 1.2 },
-  lockNotice: { color: 'rgba(157,213,255,0.78)', fontSize: 9.8, fontWeight: '800', textAlign: 'center', letterSpacing: 1.05, marginBottom: 8 },
-  footerStack: { gap: 8 },
-  processCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(95,182,255,0.28)',
-    backgroundColor: 'rgba(8,16,44,0.98)',
-    padding: 12,
-    gap: 8,
-  },
-  processHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  processTitle: { color: '#dff6ff', fontSize: 12.5, fontWeight: '900', letterSpacing: 0.8 },
-  processPercent: { color: '#8be9ff', fontSize: 11.5, fontWeight: '800' },
-  processSub: { color: 'rgba(116,178,255,0.7)', fontSize: 9.4, fontWeight: '700', letterSpacing: 1.2 },
   processTrack: { height: 12, borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.12)', overflow: 'hidden' },
   processFill: { height: 12, borderRadius: 999, backgroundColor: '#2de6f6' },
   centerPopup: {
@@ -1252,69 +1371,27 @@ const styles = StyleSheet.create({
   effectText: { color: '#f3f8ff', fontSize: 13, fontWeight: '900', textAlign: 'center' },
   metaList: { gap: 4, marginTop: 2 },
   metaLine: { color: 'rgba(157,223,255,0.88)', fontSize: 10.3, fontWeight: '700', textAlign: 'center' },
-  cornerBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(120,190,255,0.28)',
-    backgroundColor: 'rgba(8,18,62,0.88)',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
   cornerBtnExit: {
-    flex: 1,
     flexDirection: 'row',
+    alignSelf: 'center',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 5,
+    gap: 6,
     borderRadius: 10,
     borderWidth: 0,
     backgroundColor: '#ff6b6b',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginTop: 4,
   },
-  cornerText: { color: '#d9efff', fontSize: 10.2, fontWeight: '800', letterSpacing: 1.1 },
-  cornerTextExit: { color: '#fff', fontSize: 10.2, fontWeight: '800', letterSpacing: 1.1 },
+  cornerTextExit: { color: '#fff', fontSize: 11, fontWeight: '800', letterSpacing: 1.1 },
   btnDisabled: { opacity: 0.5 },
-  persistentTabBar: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(5,12,40,0.97)',
-    borderTopColor: 'rgba(80,160,255,0.2)',
-    borderTopWidth: 1,
-    borderRadius: 14,
-    paddingTop: 8,
-    paddingBottom: 10,
-    paddingHorizontal: 4,
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 4,
-  },
-  tabLabel: {
-    color: 'rgba(255,255,255,0.45)',
-    fontSize: 9,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  tabLabelActive: {
-    color: '#7ec8ff',
-  },
-  tabLabelDisabled: {
-    color: 'rgba(255,255,255,0.35)',
-  },
   overlayScrim: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    bottom: 112,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,18,0.7)',
     justifyContent: 'center',
     alignItems: 'center',

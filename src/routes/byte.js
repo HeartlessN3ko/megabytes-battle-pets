@@ -270,6 +270,14 @@ router.post('/:id/sync', async (req, res) => {
     byte.lastNeedsUpdate = snapshot.lastNeedsUpdate;
     byte.corruption = snapshot.corruption;
 
+    // AUTO-SLEEP: byte collapses when bandwidth bottoms out
+    if (!byte.isSleeping && Number(byte.needs?.Bandwidth ?? 100) <= 5) {
+      const isDemo = String(req.headers['x-demo-mode'] || '') === '1';
+      const autoSleepMs = isDemo ? 50 * 1000 : 20 * 60 * 1000; // 50s demo / 20min real
+      byte.isSleeping = true;
+      byte.sleepUntil = new Date(Date.now() + autoSleepMs);
+    }
+
     // Affection: session bonus (first sync / returning player)
     const lastLogin = byte.lastLoginAt ? new Date(byte.lastLoginAt).getTime() : 0;
     const gapHours = (Date.now() - lastLogin) / (1000 * 60 * 60);
@@ -810,6 +818,11 @@ router.post('/:id/praise', async (req, res) => {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
+    // Sleep soft-lock: can't praise a sleeping byte
+    if (byte.isSleeping) {
+      return res.status(403).json({ error: 'Byte is asleep', isSleeping: true, sleepUntil: byte.sleepUntil });
+    }
+
     // Affection: detached tier blocks praise with 27.5% chance
     const praiseTier = affectionEngine.getAffectionTier(byte.affection || 50);
     if (praiseTier === 'detached' && Math.random() < 0.275) {
@@ -853,6 +866,11 @@ router.post('/:id/scold', async (req, res) => {
   try {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    // Sleep soft-lock: can't scold a sleeping byte
+    if (byte.isSleeping) {
+      return res.status(403).json({ error: 'Byte is asleep', isSleeping: true, sleepUntil: byte.sleepUntil });
+    }
 
     byte.needs.Mood = clampNeed((byte.needs.Mood || 0) - 10);
 

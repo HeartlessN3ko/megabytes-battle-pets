@@ -114,6 +114,34 @@ const SFX = {
   train_special:  require('../assets/minigame/minigame-sfx/training_special_charge.wav'),
   train_accuracy: require('../assets/minigame/minigame-sfx/training_accuracy_lock.wav'),
   train_agility:  require('../assets/minigame/minigame-sfx/training_agility_ping.wav'),
+
+  // ── Minigame: raw-named keys used by app/minigames/[id].tsx ───────
+  // These are aliases — same asset requires as mg_* / train_* above,
+  // bundler dedupes so no extra bundle weight.
+  minigame_ui_open:         require('../assets/minigame/minigame-sfx/minigame_ui_open.wav'),
+  minigame_ui_close:        require('../assets/minigame/minigame-sfx/minigame_ui_close.wav'),
+  minigame_target_spawn:    require('../assets/minigame/minigame-sfx/minigame_target_spawn.wav'),
+  minigame_target_hit:      require('../assets/minigame/minigame-sfx/minigame_target_hit.wav'),
+  minigame_target_miss:     require('../assets/minigame/minigame-sfx/minigame_target_miss.wav'),
+  minigame_score_tick:      require('../assets/minigame/minigame-sfx/minigame_score_tick.wav'),
+  minigame_score_good:      require('../assets/minigame/minigame-sfx/minigame_score_good.wav'),
+  minigame_score_perfect:   require('../assets/minigame/minigame-sfx/minigame_score_perfect.wav'),
+  minigame_score_fail:      require('../assets/minigame/minigame-sfx/minigame_score_fail.wav'),
+  minigame_process_loop:    require('../assets/minigame/minigame-sfx/minigame_process_loop.wav'),
+  minigame_process_done:    require('../assets/minigame/minigame-sfx/minigame_process_done.wav'),
+  minigame_return_room:     require('../assets/minigame/minigame-sfx/minigame_return_room.wav'),
+  minigame_feed_upload:     require('../assets/minigame/minigame-sfx/minigame_feed_upload.wav'),
+  minigame_cleanup_scrub:   require('../assets/minigame/minigame-sfx/minigame_cleanup_scrub.wav'),
+  minigame_signal_trace:    require('../assets/minigame/minigame-sfx/minigame_signal_trace.wav'),
+  minigame_sync_connect:    require('../assets/minigame/minigame-sfx/minigame_sync_connect.wav'),
+  minigame_emote_match:     require('../assets/minigame/minigame-sfx/minigame_emote_match.wav'),
+  training_power_hit:       require('../assets/minigame/minigame-sfx/training_power_hit.wav'),
+  training_agility_ping:    require('../assets/minigame/minigame-sfx/training_agility_ping.wav'),
+  training_accuracy_lock:   require('../assets/minigame/minigame-sfx/training_accuracy_lock.wav'),
+  training_defense_merge:   require('../assets/minigame/minigame-sfx/training_defense_merge.wav'),
+  training_special_charge:  require('../assets/minigame/minigame-sfx/training_special_charge.wav'),
+  training_stamina_mash:    require('../assets/minigame/minigame-sfx/training_stamina_mash.wav'),
+  training_speed_step:      require('../assets/minigame/minigame-sfx/training_speed_step.wav'),
 } as const;
 
 export type SfxKey = keyof typeof SFX;
@@ -166,4 +194,31 @@ export async function playSfx(key: SfxKey, volume = 0.9) {
   } catch {
     // Fail silently for non-critical demo audio.
   }
+}
+
+// ── Loop support for minigame process hum ────────────────────────────
+// Kept simple: one active player per key. Caller must stopLoopSfx on cleanup.
+const loopingPlayers = new Map<SfxKey, ReturnType<typeof createAudioPlayer>>();
+
+export async function startLoopSfx(key: SfxKey, volume = 0.55) {
+  if (!sfxEnabled) return;
+  try {
+    await initSfx();
+    stopLoopSfx(key);
+    const player = createAudioPlayer(SFX[key], { keepAudioSessionActive: true, updateInterval: 200 });
+    player.loop = true;
+    player.volume = Math.max(0, Math.min(1, Number(volume || 0)));
+    loopingPlayers.set(key, player);
+    player.play();
+  } catch {
+    // Fail silently.
+  }
+}
+
+export function stopLoopSfx(key: SfxKey) {
+  const player = loopingPlayers.get(key);
+  if (!player) return;
+  try { player.pause(); } catch {}
+  try { player.remove(); } catch {}
+  loopingPlayers.delete(key);
 }

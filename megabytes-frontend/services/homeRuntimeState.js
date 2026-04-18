@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 let homeClutterClearedAt = 0;
 const HOME_CLUTTER_KEY = 'megabytes.home_clutter_count';
+const PENDING_POOP_KEY = 'megabytes.home_pending_poop_at';
 
 export function markHomeClutterCleared() {
   homeClutterClearedAt = Date.now();
@@ -30,4 +31,31 @@ export async function saveHomeClutterCount(count) {
   } catch {
     // non-fatal
   }
+}
+
+// Pending poop digestion timer — survives screen unmount so a feed in the
+// kitchen can still trigger a poop spawn after the player returns home.
+export async function getPendingPoopAt() {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_POOP_KEY);
+    const parsed = Number(raw || 0);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+    return parsed;
+  } catch {
+    return 0;
+  }
+}
+
+export async function setPendingPoopAt(timestamp) {
+  const safe = Math.max(0, Math.floor(Number(timestamp || 0)));
+  try {
+    if (safe === 0) await AsyncStorage.removeItem(PENDING_POOP_KEY);
+    else await AsyncStorage.setItem(PENDING_POOP_KEY, String(safe));
+  } catch {
+    // non-fatal
+  }
+}
+
+export async function clearPendingPoop() {
+  return setPendingPoopAt(0);
 }

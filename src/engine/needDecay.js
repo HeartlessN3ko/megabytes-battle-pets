@@ -57,7 +57,7 @@ const TIMING_WINDOWS = {
 // CARE RESTORE VALUES (base, before timing/grade multipliers)
 // ─────────────────────────────────────────────────────────────────
 const CARE_RESTORE = {
-  feed: { Hunger: 35, Mood: 4 },
+  feed: { Hunger: 50, Mood: 4 },
   clean: { Hygiene: 26, Mood: 4 },
   'perfect-clean': { Hygiene: 40, Mood: 6 },
   rest: { Bandwidth: 28, Mood: 14 },

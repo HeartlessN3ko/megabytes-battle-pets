@@ -130,10 +130,12 @@ function xpRequired(level) {
 }
 
 // --- TRAINING GAIN MULTIPLIERS ---
+// Bumped 2026-04-17: previous 1.5/1.0/0.5 collapsed to +1 after round(gain * needMult),
+// making training feel worthless. New values: perfect=+3, good=+2, fail=+1 at ~85 avg needs.
 const TRAINING_GAIN = {
-  perfect: 1.5,
-  good:    1.0,
-  fail:    0.5
+  perfect: 3.0,
+  good:    2.0,
+  fail:    1.0
 };
 
 /**

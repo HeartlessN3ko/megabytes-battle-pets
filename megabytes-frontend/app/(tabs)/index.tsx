@@ -27,7 +27,14 @@ import {
   tapByte,
   wakeUpByte,
 } from '../../services/api';
-import { getHomeClutterClearedAt, loadHomeClutterCount, saveHomeClutterCount } from '../../services/homeRuntimeState';
+import {
+  clearPendingPoop,
+  getHomeClutterClearedAt,
+  getPendingPoopAt,
+  loadHomeClutterCount,
+  saveHomeClutterCount,
+  setPendingPoopAt,
+} from '../../services/homeRuntimeState';
 import { initSfx, playSfx } from '../../services/sfx';
 import { useEvolution } from '../../context/EvolutionContext';
 import { useActionGate } from '../../hooks/useActionGate';
@@ -35,9 +42,10 @@ import { useDemoMode } from '../../hooks/useDemoMode';
 import { getDemoSpeedLabel } from '../../services/demoSession';
 import { generateByteThought } from '../../services/byteThoughts';
 import { getByteMotionProfile } from '../../services/byteMotion';
-import { resolveByteSprite } from '../../services/byteSprites';
 import HomeRoomStage from '../../components/HomeRoomStage';
 import RPSGame from '../../components/RPSGame';
+import SleepZsOverlay from '../../components/SleepZsOverlay';
+import NeedRequestBubble, { NeedRequest } from '../../components/NeedRequestBubble';
 
 const { width, height } = Dimensions.get('window');
 
@@ -394,7 +402,6 @@ export default function HomeScreen() {
   const stride     = useRef(new Animated.Value(0)).current;
   const depthScale = useRef(new Animated.Value(1)).current;
   const tapScale   = useRef(new Animated.Value(1)).current;
-  const blinkOpacity = useRef(new Animated.Value(1)).current;
 
   // Tap reaction animations
   const reactionBounce       = useRef(new Animated.Value(0)).current;
@@ -410,6 +417,10 @@ export default function HomeScreen() {
   const stickyUntilRef    = useRef(0);
   const clutterSyncRef    = useRef(0);
   const syncBusyRef       = useRef(false);
+  // Last observed Hunger value — used to detect a feed event (Hunger jump ≥ FEED_DETECT_MIN).
+  const prevHungerRef     = useRef<number | null>(null);
+  // C4: read by the motion loop (pickTarget/arriveAndLook) without retriggering the effect on every needs change.
+  const boredomRef        = useRef({ active: false, side: 1 as 1 | -1 });
   const statusResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thoughtRef        = useRef<() => string>(() => 'BYTE is scanning the network.');
   const emotionTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -421,7 +432,7 @@ export default function HomeScreen() {
   const [statusText,    setStatusText]    = useState('BYTE is scanning the network.');
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [clutter,       setClutter]       = useState(0);
-  const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: number; size: number; front: boolean }[]>([]);
+  const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: number; size: number; front: boolean; kind: 'trash' | 'poop' }[]>([]);
   const [demoBusy,      setDemoBusy]      = useState(false);
   const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
   const [rewardPopups,  setRewardPopups]  = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
@@ -444,6 +455,25 @@ export default function HomeScreen() {
   const clutterPenalty = Math.min(24, clutter * 3);
   const effectiveMood  = Math.max(0, (needs.Mood || 0) - clutterPenalty);
   const motionProfile  = useMemo(() => getByteMotionProfile(stage), [stage]);
+
+  // Pick the most urgent unmet need to surface as a request emote above the byte.
+  // Priority order tracks survival impact: hunger > hygiene > bandwidth > fun.
+  // Returns null if nothing under the request threshold (or while sleeping — Z's cover that).
+  const requestedNeed: NeedRequest = useMemo(() => {
+    if (isSleeping) return null;
+    const REQUEST_THRESHOLD = 30;
+    const candidates: { key: NeedRequest; value: number; priority: number }[] = [
+      { key: 'hunger',    value: Number(needs.Hunger    ?? 100), priority: 4 },
+      { key: 'hygiene',   value: Number(needs.Hygiene   ?? 100), priority: 3 },
+      { key: 'bandwidth', value: Number(needs.Bandwidth ?? 100), priority: 2 },
+      { key: 'fun',       value: Math.min(Number(needs.Fun ?? 100), Number(needs.Social ?? 100)), priority: 1 },
+    ];
+    const unmet = candidates.filter((c) => c.value < REQUEST_THRESHOLD);
+    if (unmet.length === 0) return null;
+    // Sort by lowest value, breaking ties with priority weight.
+    unmet.sort((a, b) => (a.value - b.value) || (b.priority - a.priority));
+    return unmet[0].key;
+  }, [isSleeping, needs.Hunger, needs.Hygiene, needs.Bandwidth, needs.Fun, needs.Social]);
 
   const clutterLabel = useMemo(() => {
     if (clutter >= 5) return 'Crowded';
@@ -486,28 +516,43 @@ export default function HomeScreen() {
     { label: 'LOVE',      val: affection,              color: '#dd9aff' },
   ];
 
-  let petSprite = resolveByteSprite(stage, {
-    needs,
-    preferAnimatedIdle: true,
-    preferAnimatedWalk: moveFacing !== 'idle',
-    facing: moveFacing,
-  });
-  if (emotion === 'praise') petSprite = require('../../assets/bytes/Circle/Circle-idle.gif');
-  else if (emotion === 'scold') petSprite = require('../../assets/bytes/Circle/Circle-looklowerleft1.gif');
+  // Sprite state machine — evaluated in priority order
+  let petSprite: ReturnType<typeof require>;
+  if (emotion === 'praise') {
+    petSprite = require('../../assets/bytes/Circle/Circle-idle.gif');
+  } else if (emotion === 'scold') {
+    petSprite = require('../../assets/bytes/Circle/Circle-looklowerleft1.gif');
+  } else if (isSleeping || (needs.Bandwidth ?? 100) < 12) {
+    petSprite = require('../../assets/bytes/Circle/Circle-sleeping.gif');
+  } else if ((needs.Bandwidth ?? 100) < 35 || (needs.Mood ?? 100) < 20) {
+    petSprite = require('../../assets/bytes/Circle/Circle-tired.gif');
+  } else if ((needs.Mood ?? 100) < 35) {
+    petSprite = require('../../assets/bytes/Circle/Circle-looklowerleft-right.gif');
+  } else if (moveFacing === 'left') {
+    petSprite = require('../../assets/bytes/Circle/Circle-leftmove.gif');
+  } else if (moveFacing === 'right') {
+    petSprite = require('../../assets/bytes/Circle/Circle-rightmove.gif');
+  } else {
+    // Not walking, no need override: default resting pose is blink-bounce
+    petSprite = require('../../assets/bytes/Circle/Circle-blink-bounce.gif');
+  }
 
   // ─── Clutter nodes ───────────────────────────────────────────────────────────
 
-  const createClutterNode = useCallback((index: number) => {
+  const createClutterNode = useCallback((index: number, kind: 'trash' | 'poop' = 'trash') => {
     const zone    = CLUTTER_ZONES[Math.floor(Math.random() * CLUTTER_ZONES.length)];
-    const size    = 88 + Math.random() * 56;
+    // Poop reads cleaner a touch smaller; trash scales as before.
+    const size    = kind === 'poop' ? 64 + Math.random() * 28 : 88 + Math.random() * 56;
     const leftPct = zone.leftMin + Math.random() * (zone.leftMax - zone.leftMin);
     const left    = ((width - size) * leftPct) / 100;
     const bottom  = zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin);
     return {
       id: `clutter-${Date.now()}-${index}-${Math.random()}`,
-      sprite: CLUTTER_SPRITES[Math.floor(Math.random() * CLUTTER_SPRITES.length)],
+      // Poop nodes render as an emoji and skip the sprite image entirely.
+      sprite: kind === 'poop' ? null : CLUTTER_SPRITES[Math.floor(Math.random() * CLUTTER_SPRITES.length)],
       left, bottom, size,
       front: Math.random() < zone.frontChance,
+      kind,
     };
   }, []);
 
@@ -629,6 +674,50 @@ export default function HomeScreen() {
     return () => clearInterval(t);
   }, [needs.Hygiene]);
 
+  // Feed → digestion → poop pipeline.
+  // Detects a feed by watching Hunger for an upward jump (≥ FEED_DETECT_MIN).
+  // Schedules a pending poop timer in AsyncStorage so the spawn survives
+  // screen unmount (e.g., a feed minigame in the kitchen triggering a poop
+  // after the player returns home).
+  useEffect(() => {
+    const FEED_DETECT_MIN = 10;
+    const DIGEST_DELAY_MS = demoMode ? 15_000 : 90_000;
+    const current = Number(needs.Hunger ?? 0);
+    const prev    = prevHungerRef.current;
+    prevHungerRef.current = current;
+    if (prev === null) return; // first observation — no jump to detect yet
+    if (current - prev < FEED_DETECT_MIN) return;
+    // Only one pending poop at a time. If already scheduled, skip.
+    getPendingPoopAt().then((existing) => {
+      if (existing > 0) return;
+      setPendingPoopAt(Date.now() + DIGEST_DELAY_MS).catch(() => {});
+    }).catch(() => {});
+  }, [needs.Hunger, demoMode]);
+
+  // Poop timer poll — every 10s check if digestion finished.
+  // On expiry, spawn a single poop clutter node and clear the timer.
+  useEffect(() => {
+    const t = setInterval(() => {
+      getPendingPoopAt().then((dueAt) => {
+        if (!dueAt || Date.now() < dueAt) return;
+        clearPendingPoop().catch(() => {});
+        setClutter((prev) => Math.min(8, prev + 1));
+        setClutterNodes((prev) => [...prev, createClutterNode(prev.length, 'poop')]);
+      }).catch(() => {});
+    }, 10_000);
+    return () => clearInterval(t);
+  }, [createClutterNode]);
+
+  // C4: update boredom flag for the motion loop. Written to a ref so the roam effect
+  // doesn't have to retrigger (which would visibly judder) every time Fun or Mood ticks.
+  // Threshold rationale: Fun<30 and Mood<35 both fall inside the "request emote" zone,
+  // so the byte's pull reads as a visual amplification of a low-need state that's already flagged.
+  useEffect(() => {
+    const fun  = Number(needs.Fun  ?? 100);
+    const mood = Number(needs.Mood ?? 100);
+    boredomRef.current.active = !isSleeping && (fun < 30 || mood < 35);
+  }, [needs.Fun, needs.Mood, isSleeping]);
+
   useEffect(() => {
     if (!isSleeping || !sleepUntil) return;
     const sleepEndTime = new Date(sleepUntil).getTime();
@@ -666,6 +755,7 @@ export default function HomeScreen() {
     let active = true;
     const profile = motionProfile.home;
 
+    // Always-on ambient animations (breathing + hover) — byte is never frozen solid.
     Animated.loop(Animated.sequence([
       Animated.timing(hoverY,  { toValue: -profile.hoverDistance, duration: profile.hoverDuration, useNativeDriver: true }),
       Animated.timing(hoverY,  { toValue: 0,                      duration: profile.hoverDuration, useNativeDriver: true }),
@@ -676,65 +766,136 @@ export default function HomeScreen() {
       Animated.timing(breathe, { toValue: 1,                    duration: profile.breatheDuration, useNativeDriver: true }),
     ])).start();
 
-    Animated.loop(Animated.sequence(
-      profile.strideValues.map((value, index) =>
-        Animated.timing(stride, {
-          toValue: value,
-          duration: profile.strideDurations[index] || profile.strideDurations[profile.strideDurations.length - 1] || 240,
-          useNativeDriver: true,
-        })
-      )
-    )).start();
+    // Stride is gated — only loops while the byte is actively walking. Settles to 0 otherwise.
+    let strideLoop: Animated.CompositeAnimation | null = null;
+    const startStride = () => {
+      if (strideLoop) return;
+      strideLoop = Animated.loop(Animated.sequence(
+        profile.strideValues.map((value, index) =>
+          Animated.timing(stride, {
+            toValue: value,
+            duration: profile.strideDurations[index] || profile.strideDurations[profile.strideDurations.length - 1] || 240,
+            useNativeDriver: true,
+          })
+        )
+      ));
+      strideLoop.start();
+    };
+    const stopStride = () => {
+      if (strideLoop) { strideLoop.stop(); strideLoop = null; }
+      stride.stopAnimation(() => stride.setValue(0));
+    };
+
+    // Target-based pathing. Byte picks a destination, walks to it, arrives, looks around, picks next.
+    // Travel is biased across the center line so movement reads as deliberate instead of drifty.
+    const halfSpread = (width * profile.roamSpreadX) / 2;
+    let lastTargetX = 0;
+    const MIN_TRAVEL_FRACTION = 0.45; // new target must differ from current by >= this × halfSpread
+
+    const pickTarget = () => {
+      // C4: boredom pull — when Fun/Mood are low, walk to the edge of the stage, alternating sides.
+      // Edge-seeking movement reads as "looking for the player" instead of aimless wandering.
+      if (boredomRef.current.active) {
+        const side = boredomRef.current.side;
+        boredomRef.current.side = side === 1 ? -1 : 1;
+        return side * halfSpread * 0.92;
+      }
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const t = (Math.random() * 2 - 1) * halfSpread;
+        if (Math.abs(t - lastTargetX) >= halfSpread * MIN_TRAVEL_FRACTION) return t;
+      }
+      // Fallback: flip to the opposite side.
+      return lastTargetX >= 0 ? -halfSpread * 0.6 : halfSpread * 0.6;
+    };
+
+    const rest = (ms: number, after: () => void) => {
+      stopStride();
+      setTimeout(() => { if (active) after(); }, ms);
+    };
+
+    const arriveAndLook = (afterLook: () => void) => {
+      // Brief settle, then look around for 1.5–3s with optional facing flip halfway through.
+      // C4: when bored, the look pause is longer and the byte stays locked on the camera (no glance flip).
+      stopStride();
+      setMotionState('resting');
+      setMoveFacing('idle');
+      const bored = boredomRef.current.active;
+      const lookDuration = bored ? (3000 + Math.random() * 2000) : (1500 + Math.random() * 1500);
+      if (!bored && Math.random() < 0.5) {
+        setTimeout(() => {
+          if (!active) return;
+          setMoveFacing(Math.random() < 0.5 ? 'left' : 'right');
+          setTimeout(() => { if (active) setMoveFacing('idle'); }, 600);
+        }, lookDuration * 0.5);
+      }
+      setTimeout(() => { if (active) afterLook(); }, lookDuration);
+    };
 
     const roam = () => {
       if (!active) return;
-      const rand = Math.random();
-      const next: typeof motionState =
-        rand < 0.60 ? 'walking_slow' : rand < 0.80 ? 'walking_fast' : rand < 0.95 ? 'idle' : 'resting';
+      // Sleep lock — byte stays centered and still while asleep.
+      if (isSleeping) {
+        stopStride();
+        setMotionState('resting');
+        setMoveFacing('idle');
+        roamX.stopAnimation(() => roamX.setValue(0));
+        roamY.stopAnimation(() => roamY.setValue(0));
+        depthScale.stopAnimation(() => depthScale.setValue(1));
+        return;
+      }
+
+      // Dice: 70% travel-slow, 20% travel-fast, 10% extended rest (just stay put).
+      // C4: bored bytes skip the rest dice entirely and always travel slow toward an edge.
+      const roll  = Math.random();
+      const bored = boredomRef.current.active;
+      if (!bored && roll < 0.10) {
+        setMotionState('resting');
+        setMoveFacing('idle');
+        rest(3500 + Math.random() * 3500, roam);
+        return;
+      }
+
+      const next = bored ? 'walking_slow' : (roll < 0.80 ? 'walking_slow' : 'walking_fast');
       setMotionState(next);
 
-      if (next === 'resting') {
-        setMoveFacing('idle');
-        setTimeout(roam, 3000 + Math.random() * 3000);
-        return;
-      }
-      if (next === 'idle') {
-        setMoveFacing('idle');
-        const dur = 1200 + Math.random() * 800;
-        Animated.sequence([
-          Animated.timing(blinkOpacity, { toValue: 0.3, duration: 150, useNativeDriver: true }),
-          Animated.timing(blinkOpacity, { toValue: 1,   duration: 100, useNativeDriver: true }),
-          Animated.delay(dur - 250),
-        ]).start();
-        setTimeout(roam, dur);
-        return;
-      }
-
+      const nextX     = pickTarget();
+      lastTargetX     = nextX;
       const nextDepth = profile.depthMin + Math.random() * (profile.depthMax - profile.depthMin);
-      const nextX     = (Math.random() - 0.5) * width * profile.roamSpreadX;
       const nextY     = (nextDepth - 1) * profile.depthYOffset + (Math.random() - 0.5) * profile.yJitter;
       let baseMin = profile.roamDurationMin;
       let baseMax = profile.roamDurationMax;
       if (next === 'walking_slow')  { baseMin *= 1.4; baseMax *= 1.4; }
-      if (next === 'walking_fast')  { baseMin *= 0.6; baseMax *= 0.6; }
+      if (next === 'walking_fast')  { baseMin *= 0.7; baseMax *= 0.7; }
       const duration = Math.round(baseMin + Math.random() * Math.max(1, baseMax - baseMin));
-      const facing   = nextX > profile.facingThreshold ? 'right' : nextX < -profile.facingThreshold ? 'left' : 'idle';
+
+      // Face the direction of travel relative to current position, not screen center.
+      const currentX = (roamX as any)._value ?? 0;
+      const dx       = nextX - currentX;
+      const facing   = dx >  profile.facingThreshold ? 'right'
+                     : dx < -profile.facingThreshold ? 'left'
+                     : 'idle';
       setMoveFacing(facing);
+
+      startStride();
 
       Animated.parallel([
         Animated.timing(roamX,      { toValue: nextX,      duration, useNativeDriver: true }),
         Animated.timing(roamY,      { toValue: nextY,      duration, useNativeDriver: true }),
         Animated.timing(depthScale, { toValue: nextDepth,  duration, useNativeDriver: true }),
-      ]).start(() => {
-        if (!active) return;
-        setMoveFacing('idle');
-        setTimeout(roam, profile.pauseMin + Math.floor(Math.random() * Math.max(1, profile.pauseMax - profile.pauseMin)));
+      ]).start(({ finished }) => {
+        if (!active || !finished) return;
+        // Arrived at the target. Pause, look around, then pick the next destination.
+        arriveAndLook(roam);
       });
     };
 
     roam();
-    return () => { active = false; };
-  }, [breathe, depthScale, hoverY, motionProfile, roamX, roamY, stride, width]);
+    return () => {
+      active = false;
+      if (strideLoop) { strideLoop.stop(); strideLoop = null; }
+      stride.stopAnimation();
+    };
+  }, [breathe, depthScale, hoverY, isSleeping, motionProfile, roamX, roamY, stride, width]);
 
   // ─── Drawer ───────────────────────────────────────────────────────────────────
 
@@ -775,8 +936,8 @@ export default function HomeScreen() {
 
   const handleRoomOpen = useCallback((route: string) => {
     if (transitionBusy) return;
-    if (isSleeping && route.includes('training')) {
-      setTransientStatus('BYTE is sleeping... cannot access training room.', 2000);
+    if (isSleeping) {
+      setTransientStatus('BYTE is sleeping... tap to wake first.', 2000);
       return;
     }
     setTransitionBusy(true);
@@ -1003,14 +1164,17 @@ export default function HomeScreen() {
                 style={[styles.clutterTouch, { left: node.left, bottom: node.bottom, width: node.size, height: node.size }]}
                 onPress={() => handleClutterTap(node.id)} activeOpacity={0.8}
               >
-                <Image source={node.sprite} style={styles.clutterImg} resizeMode="contain" />
+                {node.kind === 'poop' ? (
+                  <Text style={[styles.clutterEmoji, { fontSize: node.size * 0.7 }]}>💩</Text>
+                ) : (
+                  <Image source={node.sprite} style={styles.clutterImg} resizeMode="contain" />
+                )}
               </TouchableOpacity>
             ))}
           </View>
 
           {/* Byte sprite */}
           <Animated.View style={[styles.byteStage, {
-            opacity: blinkOpacity,
             transform: [
               { translateX: roamX },
               { translateX: reactionShake },
@@ -1030,6 +1194,8 @@ export default function HomeScreen() {
             <TouchableOpacity onPress={handleByteTap} activeOpacity={1}>
               <Image source={petSprite} style={styles.byteSprite} resizeMode="contain" />
             </TouchableOpacity>
+            <SleepZsOverlay visible={isSleeping} />
+            <NeedRequestBubble need={requestedNeed} />
           </Animated.View>
 
           {/* Byte name / level / status — floats above the sprite */}
@@ -1041,13 +1207,6 @@ export default function HomeScreen() {
             <Text style={styles.byteLabelSep}>·</Text>
             <Text style={styles.byteLabelStatus}>{moodLabel}</Text>
           </View>
-
-          {/* Sleep indicator */}
-          {isSleeping && (
-            <View style={{ position: 'absolute', right: width * 0.15, bottom: width * 0.25, pointerEvents: 'none' }}>
-              <Text style={{ fontSize: 28, fontWeight: '900', color: 'rgba(150,180,255,0.6)' }}>Z</Text>
-            </View>
-          )}
 
           {/* Tap hearts */}
           <Animated.View style={{ position: 'absolute', top: '30%', left: '50%', marginLeft: -40, opacity: reactionHeartOpacity, pointerEvents: 'none' }}>
@@ -1061,7 +1220,11 @@ export default function HomeScreen() {
                 style={[styles.clutterTouch, { left: node.left, bottom: node.bottom, width: node.size, height: node.size }]}
                 onPress={() => handleClutterTap(node.id)} activeOpacity={0.8}
               >
-                <Image source={node.sprite} style={styles.clutterImgFront} resizeMode="contain" />
+                {node.kind === 'poop' ? (
+                  <Text style={[styles.clutterEmoji, { fontSize: node.size * 0.7 }]}>💩</Text>
+                ) : (
+                  <Image source={node.sprite} style={styles.clutterImgFront} resizeMode="contain" />
+                )}
               </TouchableOpacity>
             ))}
           </View>
@@ -1311,10 +1474,11 @@ const styles = StyleSheet.create({
   },
   clutterLayer:      { position: 'absolute', left: 0, right: 0, bottom: 0, height: 280, zIndex: 1, overflow: 'visible' },
   clutterLayerFront: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 280, zIndex: 4, overflow: 'visible' },
-  clutterTouch:      { position: 'absolute', zIndex: 3 },
+  clutterTouch:      { position: 'absolute', zIndex: 3, alignItems: 'center', justifyContent: 'flex-end' },
   clutterImg:        { width: '100%', height: '100%', opacity: 0.9 },
   clutterImgFront:   { width: '100%', height: '100%', opacity: 1 },
-  byteStage:         { position: 'absolute', bottom: 8, zIndex: 3, pointerEvents: 'box-none' },
+  clutterEmoji:      { textAlign: 'center' },
+  byteStage:         { position: 'absolute', bottom: '20%', zIndex: 3, pointerEvents: 'box-none' },
   byteSprite:        { width: width * 0.3, height: width * 0.3 },
 
   // Byte name label (floats at top of field)

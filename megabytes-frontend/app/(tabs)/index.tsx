@@ -623,6 +623,15 @@ export default function HomeScreen() {
 
   useEffect(() => { thoughtRef.current = randomThought; }, [randomThought]);
 
+  // Force an immediate feed refresh when isSleeping flips. Without this,
+  // entering sleep leaves the last non-sleep thought on screen until the
+  // 30-second idle interval fires. Bypasses sticky — the sleep state is
+  // load-bearing info and should override any stale toast.
+  useEffect(() => {
+    stickyUntilRef.current = 0;
+    setStatusText(randomThought());
+  }, [isSleeping, randomThought]);
+
   // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
   useEffect(() => {

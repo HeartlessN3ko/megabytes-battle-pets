@@ -17,15 +17,24 @@ const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(ma
 const TOUCH_HIT_SLOP = { top: 18, bottom: 18, left: 18, right: 18 };
 const LARGE_TOUCH_HIT_SLOP = { top: 28, bottom: 28, left: 28, right: 28 };
 // Board sizing is now measured live via onLayout. Internal coords are normalized (0–1) and scaled at render/hit-test.
-const NUTRIENT_IMAGES = [
-  require('../../assets/minigame/minigame-images/nutrient_alpha.png'),
-  require('../../assets/minigame/minigame-images/nutrient_beta.png'),
-  require('../../assets/minigame/minigame-images/nutrient_gamma.png'),
-  require('../../assets/minigame/minigame-images/nutrient_delta.png'),
-];
-const FEED_TARGET_SPRITE = require('../../assets/bytes/Circle/Circle-blink-bounce.gif');
-const FEED_SNAP_RADIUS_PX = 54; // pixel threshold for reaching a target node (center-to-finger)
-const FEED_GRAB_RADIUS_PX = 48; // pixel threshold for starting a drag on a source node
+// CHOMP (feed-upload) tuning — single difficulty tier per GDD decision 2026-04-18.
+const CHOMP_ROUND_TOTAL = 12;
+const CHOMP_BAD_FOOD_CHANCE = 0.25;
+const CHOMP_SPAWN_INTERVAL_MS = 1400;
+const CHOMP_FOOD_DRIFT_DURATION_MS = 3200;
+const CHOMP_THROW_DURATION_MS = 280;
+const CHOMP_BYTE_BOB_AMPLITUDE_PX = 60;
+const CHOMP_BYTE_BOB_PERIOD_MS = 1600;
+const CHOMP_MOUTH_TOLERANCE_PX = 44;
+const CHOMP_REACTION_MS = 380;
+// Emoji placeholders until PixelLab food + Byte chomp sprites ship.
+const CHOMP_GOOD_FOOD = ['🍎', '🥦', '🍖'];
+const CHOMP_BAD_FOOD = ['🧪', '☠️'];
+// Byte reaction sprites — reuse existing Circle rig until dedicated chomp frames ship.
+const CHOMP_SPRITE_IDLE = require('../../assets/bytes/Circle/Circle-idle.gif');
+const CHOMP_SPRITE_CHOMP_GOOD = require('../../assets/bytes/Circle/Circle-blink-bounce.gif');
+const CHOMP_SPRITE_CHOMP_BAD = require('../../assets/bytes/Circle/Circle-tired.gif');
+const CHOMP_SPRITE_MISS = require('../../assets/bytes/Circle/Circle-looklowerleft-right.gif');
 const NEED_RESULT_ORDER = ['Hunger', 'Bandwidth', 'Hygiene', 'Fun', 'Social', 'Mood'];
 
 function familyLabelFor(game: MiniGameDef) {
@@ -186,25 +195,6 @@ function buildTracePatterns(variant: Variant) {
   }));
 }
 
-function buildFeedLinks() {
-  // Normalized 0–1 coords. Sources pinned to the left column (x≈0.14), targets on the right (x 0.72–0.90).
-  // Render scales these against the live measured board size.
-  const baseTargets = [
-    { x: 0.72 + Math.random() * 0.18, y: 0.14 + Math.random() * 0.18 }, // top band
-    { x: 0.72 + Math.random() * 0.18, y: 0.42 + Math.random() * 0.18 }, // middle band
-    { x: 0.72 + Math.random() * 0.18, y: 0.72 + Math.random() * 0.18 }, // bottom band
-  ];
-  const order = [0, 1, 2].sort(() => Math.random() - 0.5);
-  const shuffled = order.map((i) => baseTargets[i]);
-  // Pick 3 random nutrient indices from [0,1,2,3] — one random nutrient is unused each round.
-  const nutrientPool = [0, 1, 2, 3].sort(() => Math.random() - 0.5).slice(0, 3);
-  return [
-    { start: { x: 0.14, y: 0.22 }, target: shuffled[0], nutrient: nutrientPool[0] },
-    { start: { x: 0.14, y: 0.52 }, target: shuffled[1], nutrient: nutrientPool[1] },
-    { start: { x: 0.14, y: 0.82 }, target: shuffled[2], nutrient: nutrientPool[2] },
-  ];
-}
-
 export default function MiniGameRunnerScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; variant?: string; room?: string }>();
@@ -234,13 +224,40 @@ export default function MiniGameRunnerScreen() {
 
   const [tapCount, setTapCount] = useState(0);
   const [targetPos, setTargetPos] = useState({ x: 30, y: 30 });
-  const [feedLinks, setFeedLinks] = useState<{ start: { x: number; y: number }; target: { x: number; y: number }; nutrient: number }[]>([]);
-  const [feedStage, setFeedStage] = useState(0);
-  const [feedCursor, setFeedCursor] = useState<{ x: number; y: number } | null>(null); // normalized 0–1
-  const [feedDragging, setFeedDragging] = useState(false);
-  // Drag-active gate: true from source-grab to target-reach. Forces lift-and-re-grab between stages.
-  const feedDragActiveRef = useRef(false);
-  // Live-measured board size (pixels). Updated via onLayout on the active play board.
+  // CHOMP (feed-upload) state.
+  type ChompFood = {
+    id: number;
+    kind: 'good' | 'bad';
+    glyph: string;
+    spawnedAt: number;
+    yNorm: number; // vertical position normalized 0–1 within play area
+    thrownAt: number | null;
+    startXNorm: number; // horizontal spawn anchor (≈ -0.08)
+    endXNorm: number; // drift end anchor (≈ 1.08)
+    xAtThrow: number; // normalized x at moment of tap (for throw lerp)
+    resolution: 'none' | 'good' | 'bad' | 'miss';
+  };
+  const [chompFoods, setChompFoods] = useState<ChompFood[]>([]);
+  const [chompSpawnCount, setChompSpawnCount] = useState(0);
+  const [chompGoodCaught, setChompGoodCaught] = useState(0);
+  const [chompGoodMissed, setChompGoodMissed] = useState(0);
+  const [chompBadEaten, setChompBadEaten] = useState(0);
+  const [chompGoodSpawned, setChompGoodSpawned] = useState(0);
+  const [chompReaction, setChompReaction] = useState<'none' | 'good' | 'bad' | 'miss'>('none');
+  const [chompFlash, setChompFlash] = useState(false);
+  const [chompTick, setChompTick] = useState(0); // forces re-render so drift/bob animates
+  const chompFoodsRef = useRef<ChompFood[]>([]);
+  const chompSpawnCountRef = useRef(0);
+  const chompGoodCaughtRef = useRef(0);
+  const chompGoodMissedRef = useRef(0);
+  const chompBadEatenRef = useRef(0);
+  const chompGoodSpawnedRef = useRef(0);
+  const chompRoundStartRef = useRef(0);
+  const chompRoundClosedRef = useRef(false);
+  const chompNextIdRef = useRef(0);
+  const chompReactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const chompFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Live-measured play area size (pixels). Updated via onLayout on the active play board.
   const [boardSize, setBoardSize] = useState({ w: 260, h: 170 });
   const boardSizeRef = useRef(boardSize);
   useEffect(() => { boardSizeRef.current = boardSize; }, [boardSize]);
@@ -281,7 +298,6 @@ export default function MiniGameRunnerScreen() {
   const sequencePreviewRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoStarted = useRef(false);
   const roundClosedRef = useRef(false);
-  const feedStageRef = useRef(0);
   const cleanupStageRef = useRef(0);
   const traceStageRef = useRef(0);
   const tapGoal = useMemo(() => (game ? targetGoalFor(game, variant) : 0), [game, variant]);
@@ -337,12 +353,27 @@ export default function MiniGameRunnerScreen() {
 
     setTapCount(0);
     setTargetPos({ x: 30 + Math.random() * 220, y: 30 + Math.random() * 120 });
-    const nextFeedLinks = buildFeedLinks();
-    setFeedLinks(nextFeedLinks);
-    setFeedStage(0);
-    feedStageRef.current = 0;
-    setFeedCursor(null);
-    setFeedDragging(false);
+    // CHOMP reset — clear food queue, counters, reaction overlay.
+    setChompFoods([]);
+    chompFoodsRef.current = [];
+    setChompSpawnCount(0);
+    chompSpawnCountRef.current = 0;
+    setChompGoodCaught(0);
+    chompGoodCaughtRef.current = 0;
+    setChompGoodMissed(0);
+    chompGoodMissedRef.current = 0;
+    setChompBadEaten(0);
+    chompBadEatenRef.current = 0;
+    setChompGoodSpawned(0);
+    chompGoodSpawnedRef.current = 0;
+    setChompReaction('none');
+    setChompFlash(false);
+    setChompTick(0);
+    chompNextIdRef.current = 0;
+    chompRoundStartRef.current = Date.now();
+    chompRoundClosedRef.current = false;
+    if (chompReactionTimerRef.current) { clearTimeout(chompReactionTimerRef.current); chompReactionTimerRef.current = null; }
+    if (chompFlashTimerRef.current) { clearTimeout(chompFlashTimerRef.current); chompFlashTimerRef.current = null; }
 
     setCleanedCount(0);
     const nextCleanupPanels = buildCleanupPanels();
@@ -593,80 +624,157 @@ export default function MiniGameRunnerScreen() {
     setTargetPos({ x: 24 + Math.random() * 220, y: 24 + Math.random() * 130 });
   }, [finishRound, game, playGameSfx, running, tapGoal, variant]);
 
-  const feedPan = useMemo(
-    () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: (evt) => {
-          if (!running || game?.id !== 'feed-upload') return false;
-          const link = feedLinks[feedStageRef.current];
-          if (!link) return false;
-          const { w, h } = boardSizeRef.current;
-          const sx = link.start.x * w;
-          const sy = link.start.y * h;
-          const dx = evt.nativeEvent.locationX - sx;
-          const dy = evt.nativeEvent.locationY - sy;
-          return Math.hypot(dx, dy) <= FEED_GRAB_RADIUS_PX;
-        },
-        onMoveShouldSetPanResponder: () => running && game?.id === 'feed-upload',
-        onPanResponderGrant: () => {
-          const link = feedLinks[feedStageRef.current];
-          if (!link) return;
-          playGameSfx('minigame_feed_upload', 0.66, 110);
-          feedDragActiveRef.current = true;
-          setFeedDragging(true);
-          setFeedCursor(link.start);
-        },
-        onPanResponderMove: (evt) => {
-          if (!running || game?.id !== 'feed-upload') return;
-          if (!feedDragActiveRef.current) return;
-          const link = feedLinks[feedStageRef.current];
-          if (!link) return;
-          const { w, h } = boardSizeRef.current;
-          if (w <= 0 || h <= 0) return;
-          const px = clamp(evt.nativeEvent.locationX, 0, w);
-          const py = clamp(evt.nativeEvent.locationY, 0, h);
-          setFeedCursor({ x: px / w, y: py / h });
-          setInteractions((v) => v + 1);
+  // CHOMP helpers + game loop (feed-upload)
+  const chompByteYAt = useCallback((playH: number, elapsedMs: number) => {
+    if (playH <= 0) return 0;
+    const center = playH * 0.5;
+    const t = (elapsedMs / CHOMP_BYTE_BOB_PERIOD_MS) * Math.PI * 2;
+    return center + Math.sin(t) * CHOMP_BYTE_BOB_AMPLITUDE_PX;
+  }, []);
 
-          const tx = link.target.x * w;
-          const ty = link.target.y * h;
-          const dx = px - tx;
-          const dy = py - ty;
-          const reached = Math.hypot(dx, dy) <= FEED_SNAP_RADIUS_PX;
-          if (!reached) return;
+  const triggerChompReaction = useCallback((kind: 'good' | 'bad' | 'miss') => {
+    setChompReaction(kind);
+    if (chompReactionTimerRef.current) clearTimeout(chompReactionTimerRef.current);
+    chompReactionTimerRef.current = setTimeout(() => setChompReaction('none'), CHOMP_REACTION_MS);
+  }, []);
 
-          const nextStage = feedStageRef.current + 1;
-          const nextQuality = clamp(0.4 + (nextStage / 3) * 0.6, 0, 1);
-          playGameSfx('minigame_feed_upload', 0.78, 110);
-          playGameSfx('minigame_score_tick', 0.58, 90);
-          setQuality(nextQuality);
-          feedDragActiveRef.current = false;
-          setFeedDragging(false);
-          setFeedCursor(null);
+  const triggerChompFlash = useCallback(() => {
+    setChompFlash(true);
+    if (chompFlashTimerRef.current) clearTimeout(chompFlashTimerRef.current);
+    chompFlashTimerRef.current = setTimeout(() => setChompFlash(false), 260);
+  }, []);
 
-          if (nextStage >= 3) {
-            setInteractions((v) => v + 1);
-            setTimeout(() => finishRound(nextQuality), 80);
-            return;
+  const onChompFoodTap = useCallback((foodId: number) => {
+    if (!running || game?.id !== 'feed-upload') return;
+    const idx = chompFoodsRef.current.findIndex((f) => f.id === foodId);
+    if (idx < 0) return;
+    const food = chompFoodsRef.current[idx];
+    if (food.resolution !== 'none' || food.thrownAt !== null) return;
+    const now = Date.now();
+    const driftProgress = clamp((now - food.spawnedAt) / CHOMP_FOOD_DRIFT_DURATION_MS, 0, 1);
+    const xAtThrow = food.startXNorm + driftProgress * (food.endXNorm - food.startXNorm);
+    const updated: ChompFood = { ...food, thrownAt: now, xAtThrow };
+    const nextFoods = chompFoodsRef.current.slice();
+    nextFoods[idx] = updated;
+    chompFoodsRef.current = nextFoods;
+    setChompFoods(nextFoods);
+    setInteractions((v) => v + 1);
+  }, [running, game?.id]);
+
+  useEffect(() => {
+    if (!running || game?.id !== 'feed-upload') return;
+    const startAt = chompRoundStartRef.current || Date.now();
+    chompRoundStartRef.current = startAt;
+    let lastSpawnAt = startAt - CHOMP_SPAWN_INTERVAL_MS + 600; // first food shortly after round start
+
+    const tick = setInterval(() => {
+      const now = Date.now();
+
+      // Spawn schedule
+      if (chompSpawnCountRef.current < CHOMP_ROUND_TOTAL && (now - lastSpawnAt) >= CHOMP_SPAWN_INTERVAL_MS) {
+        lastSpawnAt = now;
+        const isBad = Math.random() < CHOMP_BAD_FOOD_CHANCE;
+        const kind: 'good' | 'bad' = isBad ? 'bad' : 'good';
+        const glyphPool = isBad ? CHOMP_BAD_FOOD : CHOMP_GOOD_FOOD;
+        const glyph = glyphPool[Math.floor(Math.random() * glyphPool.length)];
+        const yNorm = 0.18 + Math.random() * 0.64;
+        const food: ChompFood = {
+          id: chompNextIdRef.current++,
+          kind,
+          glyph,
+          spawnedAt: now,
+          yNorm,
+          thrownAt: null,
+          startXNorm: -0.08,
+          endXNorm: 1.08,
+          xAtThrow: -0.08,
+          resolution: 'none',
+        };
+        chompFoodsRef.current = [...chompFoodsRef.current, food];
+        setChompFoods(chompFoodsRef.current);
+        chompSpawnCountRef.current += 1;
+        setChompSpawnCount(chompSpawnCountRef.current);
+        if (!isBad) {
+          chompGoodSpawnedRef.current += 1;
+          setChompGoodSpawned(chompGoodSpawnedRef.current);
+        }
+        playGameSfx('minigame_target_spawn', 0.38, 120);
+      }
+
+      // Resolve foods
+      const h = boardSizeRef.current.h;
+      let changed = false;
+      for (const food of chompFoodsRef.current) {
+        if (food.resolution !== 'none') continue;
+        if (food.thrownAt !== null) {
+          if (now - food.thrownAt >= CHOMP_THROW_DURATION_MS) {
+            const byteY = chompByteYAt(h, now - startAt);
+            const foodY = food.yNorm * h;
+            const inMouth = Math.abs(byteY - foodY) <= CHOMP_MOUTH_TOLERANCE_PX;
+            if (food.kind === 'good' && inMouth) {
+              food.resolution = 'good';
+              chompGoodCaughtRef.current += 1;
+              setChompGoodCaught(chompGoodCaughtRef.current);
+              triggerChompReaction('good');
+              playGameSfx('minigame_feed_upload', 0.82, 70);
+              playGameSfx('minigame_score_tick', 0.6, 80);
+            } else if (food.kind === 'bad' && inMouth) {
+              food.resolution = 'bad';
+              chompBadEatenRef.current += 1;
+              setChompBadEaten(chompBadEatenRef.current);
+              triggerChompReaction('bad');
+              triggerChompFlash();
+              playGameSfx('minigame_feed_upload', 0.95, 50);
+            } else {
+              food.resolution = 'miss';
+              if (food.kind === 'good') {
+                chompGoodMissedRef.current += 1;
+                setChompGoodMissed(chompGoodMissedRef.current);
+              }
+              triggerChompReaction('miss');
+              playGameSfx('minigame_score_miss', 0.58, 80);
+            }
+            changed = true;
           }
+        } else if (now - food.spawnedAt >= CHOMP_FOOD_DRIFT_DURATION_MS) {
+          food.resolution = 'miss';
+          if (food.kind === 'good') {
+            chompGoodMissedRef.current += 1;
+            setChompGoodMissed(chompGoodMissedRef.current);
+          }
+          changed = true;
+        }
+      }
 
-          feedStageRef.current = nextStage;
-          setFeedStage(nextStage);
-          setStatus(`Meal cycle ${nextStage + 1} loaded. Route the next nutrient line.`);
-        },
-        onPanResponderRelease: () => {
-          feedDragActiveRef.current = false;
-          setFeedDragging(false);
-          setFeedCursor(null);
-        },
-        onPanResponderTerminate: () => {
-          feedDragActiveRef.current = false;
-          setFeedDragging(false);
-          setFeedCursor(null);
-        },
-      }),
-    [feedLinks, finishRound, game?.id, playGameSfx, running]
-  );
+      // Purge fully-faded foods (kept 300ms after resolution for visual settle)
+      const beforeLen = chompFoodsRef.current.length;
+      chompFoodsRef.current = chompFoodsRef.current.filter((f) => {
+        if (f.resolution === 'none') return true;
+        const anchorAt = f.thrownAt ?? f.spawnedAt;
+        const durationTo = f.thrownAt ? CHOMP_THROW_DURATION_MS : CHOMP_FOOD_DRIFT_DURATION_MS;
+        return now < anchorAt + durationTo + 300;
+      });
+      if (chompFoodsRef.current.length !== beforeLen) changed = true;
+      if (changed) setChompFoods([...chompFoodsRef.current]);
+
+      // Round-end check
+      if (!chompRoundClosedRef.current &&
+          chompSpawnCountRef.current >= CHOMP_ROUND_TOTAL &&
+          chompFoodsRef.current.every((f) => f.resolution !== 'none')) {
+        chompRoundClosedRef.current = true;
+        const good = chompGoodCaughtRef.current;
+        const bad = chompBadEatenRef.current;
+        const goodSpawned = Math.max(chompGoodSpawnedRef.current, 1);
+        const raw = (good - bad * 0.5) / goodSpawned;
+        const q = clamp(raw, 0, 1);
+        setTimeout(() => finishRound(q), 300);
+      }
+
+      setChompTick((t) => (t + 1) % 1_000_000);
+    }, 33);
+
+    return () => clearInterval(tick);
+  }, [running, game?.id, chompByteYAt, finishRound, playGameSfx, triggerChompFlash, triggerChompReaction]);
 
   const scrubPan = useMemo(
     () =>
@@ -948,72 +1056,91 @@ export default function MiniGameRunnerScreen() {
           <View style={[styles.play, { borderColor: `${accent}50` }]}>
           {game.id === 'feed-upload' ? (
             <View
-              style={[styles.feedBoardFill, { borderColor: `${accent}66` }]}
+              style={[styles.chompStage, { borderColor: `${accent}66` }]}
               onLayout={(e) => setBoardSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
-              {...feedPan.panHandlers}
             >
-              {feedLinks.map((link, idx) => {
-                const isDone = idx < feedStage;
-                const isActive = idx === feedStage;
-                const sx = link.start.x * boardSize.w;
-                const sy = link.start.y * boardSize.h;
-                const tx = link.target.x * boardSize.w;
-                const ty = link.target.y * boardSize.h;
-                const cx = feedCursor ? feedCursor.x * boardSize.w : sx;
-                const cy = feedCursor ? feedCursor.y * boardSize.h : sy;
+              <View style={styles.chompBg} pointerEvents="none" />
+              {(() => {
+                // Byte (bobbing on the right). Uses chompTick as dep to re-render at 30fps.
+                void chompTick;
+                const w = boardSize.w;
+                const h = boardSize.h;
+                const byteSize = Math.min(h * 0.55, 140);
+                const byteRightPad = 20;
+                const elapsed = Date.now() - (chompRoundStartRef.current || Date.now());
+                const byteY = chompByteYAt(h, elapsed);
+                const sprite =
+                  chompReaction === 'good'
+                    ? CHOMP_SPRITE_CHOMP_GOOD
+                    : chompReaction === 'bad'
+                    ? CHOMP_SPRITE_CHOMP_BAD
+                    : chompReaction === 'miss'
+                    ? CHOMP_SPRITE_MISS
+                    : CHOMP_SPRITE_IDLE;
                 return (
-                  <View key={`feed-${idx}`} style={styles.feedLane} pointerEvents="none">
-                    <View style={[styles.feedTouchAura, { left: sx - 28, top: sy - 28 }, isActive && styles.feedTouchAuraActive]} />
-                    <View style={[styles.feedTargetAura, { left: tx - 30, top: ty - 30 }, isActive && styles.feedTargetAuraActive]} />
-                    {isDone ? (() => {
-                      const dx = tx - sx;
-                      const dy = ty - sy;
-                      const length = Math.hypot(dx, dy);
-                      const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-                      const midX = (sx + tx) / 2;
-                      const midY = (sy + ty) / 2;
-                      return (
-                        <View style={[styles.feedLineDone, {
-                          left: midX - length / 2,
-                          top: midY - 3,
-                          width: length,
-                          transform: [{ rotate: `${angle}deg` }],
-                        }]} />
-                      );
-                    })() : null}
-                    {isActive && feedDragging && feedCursor ? (() => {
-                      const dxCur = cx - sx;
-                      const dyCur = cy - sy;
-                      const dxTgt = tx - sx;
-                      const dyTgt = ty - sy;
-                      const curLen = Math.hypot(dxCur, dyCur);
-                      const tgtLen = Math.hypot(dxTgt, dyTgt);
-                      if (curLen < 2) return null;
-                      const length = Math.min(curLen, tgtLen);
-                      const angle = (Math.atan2(dyCur, dxCur) * 180) / Math.PI;
-                      const rad = (angle * Math.PI) / 180;
-                      const endX = sx + Math.cos(rad) * length;
-                      const endY = sy + Math.sin(rad) * length;
-                      const midX = (sx + endX) / 2;
-                      const midY = (sy + endY) / 2;
-                      return (
-                        <View style={[styles.feedLineActive, {
-                          left: midX - length / 2,
-                          top: midY - 3,
-                          width: length,
-                          transform: [{ rotate: `${angle}deg` }],
-                        }]} />
-                      );
-                    })() : null}
-                    <View style={[styles.feedNode, styles.feedSource, { left: sx - 28, top: sy - 28 }, isDone && styles.feedNodeDone, isActive && styles.feedNodeActive]}>
-                      <Image source={NUTRIENT_IMAGES[link.nutrient] || NUTRIENT_IMAGES[0]} style={styles.feedNodeImage} resizeMode="contain" />
-                    </View>
-                    <View style={[styles.feedTargetNode, { left: tx - 30, top: ty - 30 }, isDone && styles.feedNodeDone, isActive && styles.feedTargetActive]}>
-                      <Image source={FEED_TARGET_SPRITE} style={styles.feedTargetImage} resizeMode="contain" />
-                    </View>
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.chompByte,
+                      {
+                        left: w - byteSize - byteRightPad,
+                        top: byteY - byteSize / 2,
+                        width: byteSize,
+                        height: byteSize,
+                      },
+                    ]}
+                  >
+                    <Image source={sprite} style={styles.chompByteSprite} resizeMode="contain" />
                   </View>
                 );
+              })()}
+
+              {chompFoods.map((food) => {
+                const w = boardSize.w;
+                const h = boardSize.h;
+                const now = Date.now();
+                const foodSize = 54;
+                let xNorm: number;
+                if (food.thrownAt !== null) {
+                  const byteSize = Math.min(h * 0.55, 140);
+                  const byteAnchorX = w - byteSize - 20 + byteSize * 0.35; // mouth-ish anchor
+                  const byteAnchorXNorm = w > 0 ? byteAnchorX / w : 1;
+                  const p = clamp((now - food.thrownAt) / CHOMP_THROW_DURATION_MS, 0, 1);
+                  xNorm = food.xAtThrow + (byteAnchorXNorm - food.xAtThrow) * p;
+                } else {
+                  const p = clamp((now - food.spawnedAt) / CHOMP_FOOD_DRIFT_DURATION_MS, 0, 1);
+                  xNorm = food.startXNorm + (food.endXNorm - food.startXNorm) * p;
+                }
+                const x = xNorm * w;
+                const y = food.yNorm * h;
+                const isThrown = food.thrownAt !== null;
+                const resolved = food.resolution !== 'none';
+                const opacity = resolved ? 0.15 : 1;
+                const disabled = resolved || isThrown;
+                return (
+                  <TouchableOpacity
+                    key={`chomp-food-${food.id}`}
+                    style={[
+                      styles.chompFood,
+                      food.kind === 'bad' && styles.chompFoodBad,
+                      { left: x - foodSize / 2, top: y - foodSize / 2, width: foodSize, height: foodSize, opacity },
+                    ]}
+                    onPress={() => onChompFoodTap(food.id)}
+                    disabled={disabled}
+                    hitSlop={LARGE_TOUCH_HIT_SLOP}
+                  >
+                    <Text style={styles.chompFoodGlyph}>{food.glyph}</Text>
+                  </TouchableOpacity>
+                );
               })}
+
+              {chompFlash ? <View pointerEvents="none" style={styles.chompFlash} /> : null}
+
+              <View pointerEvents="none" style={styles.chompHud}>
+                <Text style={styles.chompHudText}>
+                  {chompSpawnCount}/{CHOMP_ROUND_TOTAL}   ✓ {chompGoodCaught}   ✗ {chompBadEaten + chompGoodMissed}
+                </Text>
+              </View>
             </View>
           ) : null}
 
@@ -1186,7 +1313,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   scrubBoard: { width: '100%', gap: 14, alignItems: 'center', justifyContent: 'center' },
-  feedBoardFill: {
+  // CHOMP (feed-upload) stage styles. Placeholder backdrop until kitchen_bg.png ships.
+  chompStage: {
     flex: 1,
     width: '100%',
     borderRadius: 16,
@@ -1195,84 +1323,56 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(14,36,76,0.82)',
     overflow: 'hidden',
   },
-  feedLane: {
+  chompBg: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(30,20,14,0.55)',
   },
-  feedTouchAura: {
+  chompByte: {
     position: 'absolute',
-    width: 56,
-    height: 56,
-    borderRadius: 999,
-    backgroundColor: 'rgba(255, 214, 117, 0.12)',
-  },
-  feedTouchAuraActive: {
-    backgroundColor: 'rgba(255, 214, 117, 0.22)',
-  },
-  feedTargetAura: {
-    position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 999,
-    backgroundColor: 'rgba(126, 240, 194, 0.12)',
-  },
-  feedTargetAuraActive: {
-    backgroundColor: 'rgba(126, 240, 194, 0.2)',
-  },
-  feedNode: {
-    position: 'absolute',
-    width: 56,
-    height: 56,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,221,120,0.6)',
-    backgroundColor: 'rgba(255,187,76,0.24)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  feedSource: {
-    width: 56,
+  chompByteSprite: {
+    width: '100%',
+    height: '100%',
   },
-  feedNodeImage: {
-    width: 50,
-    height: 50,
-  },
-  feedTargetNode: {
+  chompFood: {
     position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(126,240,194,0.75)',
-    backgroundColor: 'rgba(27,103,74,0.36)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,221,120,0.45)',
   },
-  feedTargetImage: {
-    width: 54,
-    height: 54,
+  chompFoodBad: {
+    borderColor: 'rgba(255,120,120,0.7)',
+    backgroundColor: 'rgba(80,18,18,0.3)',
   },
-  feedNodeActive: {
-    backgroundColor: 'rgba(255,214,117,0.34)',
-    borderColor: 'rgba(255,238,171,0.86)',
+  chompFoodGlyph: {
+    fontSize: 34,
+    textAlign: 'center',
   },
-  feedTargetActive: {
-    backgroundColor: 'rgba(49,146,110,0.44)',
+  chompFlash: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,70,70,0.35)',
   },
-  feedNodeDone: {
-    borderColor: 'rgba(126,240,194,0.86)',
-    backgroundColor: 'rgba(126,240,194,0.22)',
-  },
-  feedLineDone: {
+  chompHud: {
     position: 'absolute',
-    height: 6,
-    borderRadius: 99,
-    backgroundColor: '#68f4d4',
+    top: 10,
+    left: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
-  feedLineActive: {
-    position: 'absolute',
-    height: 6,
-    borderRadius: 99,
-    backgroundColor: '#ffd985',
+  chompHudText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.4,
   },
   target: {
     position: 'absolute',
@@ -1373,15 +1473,15 @@ const styles = StyleSheet.create({
   metaLine: { color: 'rgba(157,223,255,0.88)', fontSize: 10.3, fontWeight: '700', textAlign: 'center' },
   cornerBtnExit: {
     flexDirection: 'row',
-    alignSelf: 'center',
+    alignSelf: 'flex-start',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
     borderRadius: 10,
     borderWidth: 0,
     backgroundColor: '#ff6b6b',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     marginTop: 4,
   },
   cornerTextExit: { color: '#fff', fontSize: 11, fontWeight: '800', letterSpacing: 1.1 },

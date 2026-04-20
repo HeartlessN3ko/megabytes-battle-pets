@@ -159,6 +159,19 @@ function getDecayOptions(req) {
   return { speedMultiplier, maxWindowMinutes: 1440 };
 }
 
+function getSleepRecoveryMinutes(byte, req, now = new Date()) {
+  if (!byte?.isSleeping) return 0;
+
+  const lastUpdateMs = new Date(byte.lastNeedsUpdate || now).getTime();
+  const recoveryEndMs = byte.sleepUntil
+    ? Math.min(now.getTime(), new Date(byte.sleepUntil).getTime())
+    : now.getTime();
+  const elapsedMs = Math.max(0, recoveryEndMs - lastUpdateMs);
+  const speedMult = getDecayOptions(req).speedMultiplier || 1;
+
+  return (elapsedMs / (1000 * 60)) * speedMult;
+}
+
 function computeLiveByteSnapshot(byte, req) {
   const decayOpts = getDecayOptions(req);
   const now = new Date();
@@ -191,9 +204,11 @@ function computeLiveByteSnapshot(byte, req) {
   const passiveXPGain = xpEngine.calculatePassiveXP(minutesElapsed, avgNeed);
   const neglectStage = neglectEngine.getNegelectStage(avgNeed);
   const streakData = streakEngine.updateStreak(byte.streakData || {}, byte.dailyCareScore || 50, 0);
+  const sleepRecoveryMinutes = getSleepRecoveryMinutes(byte, req, now);
+  const recoveredNeeds = needInterdependencyEngine.applySleepModifiers(needs, byte.isSleeping, sleepRecoveryMinutes);
 
   return {
-    needs,
+    needs: recoveredNeeds,
     lastNeedsUpdate,
     corruption,
     computedStats: statEngine.applyNeedModifiers(
@@ -247,14 +262,11 @@ router.post('/:id/sync', async (req, res) => {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
-    // ADAPTIVE SLEEP: Auto-wake if byte is sleeping but player is now active (checking in)
-    if (byte.isSleeping && byte.sleepUntil) {
-      const now = new Date();
-      if (now >= new Date(byte.sleepUntil) || req.body?.forceWakeup) {
-        byte.isSleeping = false;
-        byte.sleepUntil = null;
-      }
-    }
+    const shouldWake = byte.isSleeping && (
+      !byte.sleepUntil ||
+      new Date() >= new Date(byte.sleepUntil) ||
+      req.body?.forceWakeup
+    );
 
     // Track last player activity for adaptive sleep scheduling
     byte.lastPlayerActivity = new Date();
@@ -270,8 +282,22 @@ router.post('/:id/sync', async (req, res) => {
     byte.lastNeedsUpdate = snapshot.lastNeedsUpdate;
     byte.corruption = snapshot.corruption;
 
-    // AUTO-SLEEP: byte collapses when bandwidth bottoms out
-    if (!byte.isSleeping && Number(byte.needs?.Bandwidth ?? 100) <= 5) {
+    // ADAPTIVE SLEEP: clear sleep state only after accruing final recovery on sync
+    if (shouldWake) {
+      byte.isSleeping = false;
+      byte.sleepUntil = null;
+    }
+
+    // AUTO-SLEEP: byte collapses when bandwidth bottoms out — but NEVER
+    // within 5 minutes of a wake. Without this grace window, a freshly-woken
+    // byte with low Bandwidth gets re-slept on the next sync, locking the
+    // user out of interactions.
+    const AUTO_SLEEP_COOLDOWN_MS = 5 * 60 * 1000;
+    const msSinceWake = byte.lastWakeTime
+      ? Date.now() - new Date(byte.lastWakeTime).getTime()
+      : Infinity;
+    const withinWakeGrace = msSinceWake < AUTO_SLEEP_COOLDOWN_MS;
+    if (!byte.isSleeping && !withinWakeGrace && Number(byte.needs?.Bandwidth ?? 100) <= 5) {
       const isDemo = String(req.headers['x-demo-mode'] || '') === '1';
       const autoSleepMs = isDemo ? 50 * 1000 : 20 * 60 * 1000; // 50s demo / 20min real
       byte.isSleeping = true;
@@ -812,26 +838,61 @@ router.patch('/:id/loadout', async (req, res) => {
   }
 });
 
+// Helper: wake a sleeping byte in-memory (for praise/scold forced wake).
+// Applies sleep recovery to needs, clears sleep flags, applies rest-interrupt
+// affection penalty, and returns { wokenFromSleep: boolean, moodPenalty: number }.
+function wakeOnInteraction(byte, req, moodPenalty) {
+  if (!byte.isSleeping) return { wokenFromSleep: false, moodPenalty: 0 };
+
+  const sleepRecoveryMinutes = getSleepRecoveryMinutes(byte, req, new Date());
+  if (sleepRecoveryMinutes > 0) {
+    byte.needs = needInterdependencyEngine.applySleepModifiers(
+      byte.needs.toObject?.() || byte.needs,
+      byte.isSleeping,
+      sleepRecoveryMinutes
+    );
+    byte.lastNeedsUpdate = new Date();
+  }
+
+  byte.isSleeping = false;
+  byte.sleepUntil = null;
+  byte.lastWakeTime = new Date();
+
+  // Guarantee a Bandwidth floor of 30 so sync's auto-sleep trap can't fire
+  // immediately after a praise/scold-wake.
+  byte.needs.Bandwidth = Math.max(Number(byte.needs.Bandwidth || 0), 30);
+
+  // Affection: rude wake costs trust.
+  affectionEngine.applyRestInterruptPenalty(byte);
+
+  // Mood hit from being woken.
+  byte.needs.Mood = clampNeed((byte.needs.Mood || 0) - moodPenalty);
+
+  return { wokenFromSleep: true, moodPenalty };
+}
+
 // POST /api/byte/:id/praise
 router.post('/:id/praise', async (req, res) => {
   try {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
-    // Sleep soft-lock: can't praise a sleeping byte
-    if (byte.isSleeping) {
-      return res.status(403).json({ error: 'Byte is asleep', isSleeping: true, sleepUntil: byte.sleepUntil });
-    }
+    // Sleep: wake with a Mood penalty instead of blocking.
+    const wakeInfo = wakeOnInteraction(byte, req, 5);
 
     // Affection: detached tier blocks praise with 27.5% chance
     const praiseTier = affectionEngine.getAffectionTier(byte.affection || 50);
     if (praiseTier === 'detached' && Math.random() < 0.275) {
+      // Still persist the wake + penalty if we woke them.
+      if (wakeInfo.wokenFromSleep) await byte.save();
       return res.json({
         affectionBlocked: true,
         affectionTier: praiseTier,
         reason: 'not_in_mood',
         affection: byte.affection,
         needs: { Mood: byte.needs.Mood, Social: byte.needs.Social },
+        wokenFromSleep: wakeInfo.wokenFromSleep,
+        moodPenalty: wakeInfo.moodPenalty,
       });
     }
 
@@ -851,6 +912,8 @@ router.post('/:id/praise', async (req, res) => {
       affectionDelta: praiseResult.delta,
       affectionBlocked: praiseResult.blocked,
       affectionBlockReason: praiseResult.reason,
+      wokenFromSleep: wakeInfo.wokenFromSleep,
+      moodPenalty: wakeInfo.moodPenalty,
       needs: {
         Mood: byte.needs.Mood,
         Social: byte.needs.Social
@@ -867,10 +930,8 @@ router.post('/:id/scold', async (req, res) => {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
-    // Sleep soft-lock: can't scold a sleeping byte
-    if (byte.isSleeping) {
-      return res.status(403).json({ error: 'Byte is asleep', isSleeping: true, sleepUntil: byte.sleepUntil });
-    }
+    // Sleep: wake with a Mood penalty instead of blocking.
+    const wakeInfo = wakeOnInteraction(byte, req, 10);
 
     byte.needs.Mood = clampNeed((byte.needs.Mood || 0) - 10);
 
@@ -879,6 +940,8 @@ router.post('/:id/scold', async (req, res) => {
     await byte.save();
     res.json({
       scoldCount: byte.behaviorMetrics.scoldCount,
+      wokenFromSleep: wakeInfo.wokenFromSleep,
+      moodPenalty: wakeInfo.moodPenalty,
       needs: {
         Mood: byte.needs.Mood
       }
@@ -1228,19 +1291,39 @@ router.patch('/:id/demo-stage', async (req, res) => {
 });
 
 // POST /api/byte/:id/wake-up
+// Uses atomic findByIdAndUpdate to bypass Mongoose __v optimistic-concurrency check.
+// The previous .save() pattern raced against sync() and stuck bytes in sleep loops.
 router.post('/:id/wake-up', async (req, res) => {
   try {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
-    // Determine if sleep was uninterrupted (natural wake vs forced)
+    // Apply sleep recovery to needs (in-memory mutation; persisted below via $set).
+    const sleepRecoveryMinutes = getSleepRecoveryMinutes(byte, req, new Date());
+    if (sleepRecoveryMinutes > 0) {
+      byte.needs = needInterdependencyEngine.applySleepModifiers(
+        byte.needs.toObject?.() || byte.needs,
+        byte.isSleeping,
+        sleepRecoveryMinutes
+      );
+      byte.lastNeedsUpdate = new Date();
+    }
+
+    // Determine if sleep was uninterrupted (natural wake vs forced).
     const wasForced = req.body?.forced === true;
     const endEnergy = Number(byte.needs.Bandwidth || 0);
 
     byte.isSleeping = false;
     byte.sleepUntil = null;
+    byte.lastWakeTime = new Date();
 
-    // Emit rest_complete event for daily task tracking
+    // Guarantee a post-wake Bandwidth floor so sync's auto-sleep threshold
+    // (Bandwidth <= 5) can't fire on the very next tick and lock the byte
+    // back into sleep. 30 is high enough to avoid the trap but low enough
+    // that the need still pressures the player to let them nap later.
+    byte.needs.Bandwidth = Math.max(Number(byte.needs.Bandwidth || 0), 30);
+
+    // Emit rest_complete event for daily task tracking.
     const restResult = emitCareEvent(byte, {
       type: 'rest_complete',
       uninterrupted: !wasForced,
@@ -1248,7 +1331,7 @@ router.post('/:id/wake-up', async (req, res) => {
       endEnergy,
     });
 
-    // Apply rest interrupt affection penalty if woken early
+    // Apply rest interrupt affection penalty if woken early.
     if (wasForced) {
       affectionEngine.applyRestInterruptPenalty(byte);
     }
@@ -1259,7 +1342,28 @@ router.post('/:id/wake-up', async (req, res) => {
       byte.xp = restLevelUp.xp;
     }
 
-    await byte.save();
+    // ATOMIC persist — bypasses __v optimistic-concurrency check that caused
+    // VersionError under concurrent sync() writes. $inc on __v invalidates any
+    // in-flight save() on the same doc, so sync will re-read and stabilize.
+    await Byte.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          isSleeping: byte.isSleeping,
+          sleepUntil: byte.sleepUntil,
+          lastWakeTime: byte.lastWakeTime,
+          needs: byte.needs,
+          lastNeedsUpdate: byte.lastNeedsUpdate,
+          level: byte.level,
+          xp: byte.xp,
+          affection: byte.affection,
+          activeDailyTasks: byte.activeDailyTasks,
+          streakData: byte.streakData,
+        },
+        $inc: { __v: 1 },
+      },
+      { new: false, runValidators: false }
+    );
 
     res.json({
       isSleeping: false,

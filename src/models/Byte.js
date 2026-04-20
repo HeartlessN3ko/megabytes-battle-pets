@@ -129,6 +129,7 @@ const ByteSchema = new mongoose.Schema({
   isSleeping: { type: Boolean, default: false },
   sleepUntil: { type: Date, default: null },
   lastPlayerActivity: { type: Date, default: Date.now }, // Track player activity for adaptive sleep
+  lastWakeTime: { type: Date, default: null }, // Set on every wake. Blocks sync's auto-sleep for 5 min so the byte can't re-sleep mid-interaction.
 
   // Tap interaction system
   tapWindow: { type: [Date], default: [] }, // Rolling 3s window of tap timestamps

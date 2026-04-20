@@ -603,6 +603,13 @@ export default function HomeScreen() {
   }, []);
 
   const randomThought = useCallback(() => {
+    // Sleep takes priority over any normal thought — brain feed should
+    // clearly read "Sleeping..." while the byte is asleep so the user knows
+    // why interactions are no-op or require a wake.
+    if (isSleeping) {
+      const name = byteData?.byte?.name || 'BYTE';
+      return `${name} is sleeping... tap to wake, or praise/scold to force wake.`;
+    }
     const thought = generateByteThought({
       byteName: byteData?.byte?.name || 'BYTE',
       needs,
@@ -612,7 +619,7 @@ export default function HomeScreen() {
     });
     if (clutter >= 3) return `${thought} Home is ${clutterLabel.toLowerCase()}.`;
     return thought;
-  }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.byte?.trainingSessionsToday, clutter, clutterLabel, idleThoughtTicks, needs]);
+  }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.byte?.trainingSessionsToday, clutter, clutterLabel, idleThoughtTicks, isSleeping, needs]);
 
   useEffect(() => { thoughtRef.current = randomThought; }, [randomThought]);
 
@@ -721,19 +728,35 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!isSleeping || !sleepUntil) return;
     const sleepEndTime = new Date(sleepUntil).getTime();
-    if (Date.now() >= sleepEndTime) {
+
+    // Only flip local sleep state after the wake-up API confirms success.
+    // Previously this set isSleeping=false even on API failure, causing the
+    // "byte wakes for one frame then goes back to sleep" flicker when sync()
+    // re-read the DB and found isSleeping still true.
+    const performNaturalWake = async () => {
       playSfx('byte_wake', 0.8);
-      wakeUpByte().catch(() => {}); setIsSleeping(false); setSleepUntil(null); setWakeUpTaps(0);
-      setTransientStatus('BYTE woke up naturally.', 2000);
-    } else {
-      const t = setTimeout(() => {
-        playSfx('byte_wake', 0.8);
-        wakeUpByte().catch(() => {}); setIsSleeping(false); setSleepUntil(null); setWakeUpTaps(0);
+      try {
+        await wakeUpByte();
+        setIsSleeping(false);
+        setSleepUntil(null);
+        setWakeUpTaps(0);
         setTransientStatus('BYTE woke up naturally.', 2000);
-      }, sleepEndTime - Date.now());
+        refreshData().catch(() => {});
+      } catch {
+        // API failed — don't lie to local state. Re-sync so UI matches DB,
+        // and the user can retry via tap-to-wake or praise/scold.
+        setTransientStatus('BYTE is still resting...', 2000);
+        refreshData().catch(() => {});
+      }
+    };
+
+    if (Date.now() >= sleepEndTime) {
+      performNaturalWake();
+    } else {
+      const t = setTimeout(performNaturalWake, sleepEndTime - Date.now());
       return () => clearTimeout(t);
     }
-  }, [isSleeping, sleepUntil, setTransientStatus]);
+  }, [isSleeping, sleepUntil, refreshData, setTransientStatus]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -956,27 +979,61 @@ export default function HomeScreen() {
     // TODO: wire to treat API endpoint when item use system is built
   }, [treatCount, setTransientStatus]);
 
-  const handlePraise = useCallback(() => {
+  const handlePraise = useCallback(async () => {
     playSfx('praise', 0.8);
     setEmotion('praise');
     if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
     emotionTimerRef.current = setTimeout(() => setEmotion(null), 2000);
     setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'praise' }]);
-    setTransientStatus('Praise logged. BYTE mood and social confidence increased.', 2800);
-    praiseByte().catch(() => {});
+    const wasSleeping = isSleeping;
+    setTransientStatus(
+      wasSleeping
+        ? 'Waking BYTE with praise...'
+        : 'Praise logged. BYTE mood and social confidence increased.',
+      2800,
+    );
+    try {
+      const res = await praiseByte();
+      if (res?.wokenFromSleep) {
+        playSfx('byte_wake', 0.8);
+        setIsSleeping(false);
+        setSleepUntil(null);
+        setWakeUpTaps(0);
+        setTransientStatus(`Woke BYTE with praise. Mood -${res.moodPenalty ?? 5}, then praised.`, 2800);
+      }
+    } catch {
+      setTransientStatus('Praise failed — try again.', 2000);
+    }
     refreshData().catch(() => {});
-  }, [refreshData, setTransientStatus]);
+  }, [isSleeping, refreshData, setTransientStatus]);
 
-  const handleScold = useCallback(() => {
+  const handleScold = useCallback(async () => {
     playSfx('scold', 0.8);
     setEmotion('scold');
     if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
     emotionTimerRef.current = setTimeout(() => setEmotion(null), 2000);
     setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'scold' }]);
-    setTransientStatus('Scold logged. BYTE is re-evaluating behavior routines.', 2800);
-    scoldByte().catch(() => {});
+    const wasSleeping = isSleeping;
+    setTransientStatus(
+      wasSleeping
+        ? 'Waking BYTE with scold...'
+        : 'Scold logged. BYTE is re-evaluating behavior routines.',
+      2800,
+    );
+    try {
+      const res = await scoldByte();
+      if (res?.wokenFromSleep) {
+        playSfx('byte_wake', 0.8);
+        setIsSleeping(false);
+        setSleepUntil(null);
+        setWakeUpTaps(0);
+        setTransientStatus(`Scolded BYTE awake. Mood -${(res.moodPenalty ?? 10) + 10}.`, 2800);
+      }
+    } catch {
+      setTransientStatus('Scold failed — try again.', 2000);
+    }
     refreshData().catch(() => {});
-  }, [refreshData, setTransientStatus]);
+  }, [isSleeping, refreshData, setTransientStatus]);
 
   const handlePlay = useCallback(() => {
     playSfx('menu', 0.75);
@@ -1022,7 +1079,10 @@ export default function HomeScreen() {
           await wakeUpByte(); setIsSleeping(false); setSleepUntil(null); setWakeUpTaps(0);
           setTransientStatus('BYTE woke up!', 2000);
           await refreshData();
-        } catch { setTransientStatus('Failed to wake BYTE.', 2000); }
+        } catch {
+          setTransientStatus('Could not wake BYTE. Try praise or scold instead.', 2800);
+          refreshData().catch(() => {});
+        }
       }
       return;
     }

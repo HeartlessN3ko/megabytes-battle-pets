@@ -502,11 +502,14 @@ export default function MiniGameRunnerScreen() {
       });
 
       if (quality > 0 && grade !== 'fail') {
+        // Long variants fire the CARE_RESTORE long-form action once (meal / perfect-clean /
+        // sleep / deep_play) instead of double-calling the quick variant. This taps the
+        // near-full restore values and avoids the spam-penalty second hit.
         if (game.id === 'feed-upload') {
           const beforeByte = await getByte().catch(() => null);
-          const first = await careAction('feed', grade, { mealCycle: true });
-          const second = variant === 'long' ? await careAction('feed', grade, { mealCycle: true }) : null;
-          const result = second || first;
+          const result = variant === 'long'
+            ? await careAction('meal', grade, { mealCycle: true })
+            : await careAction('feed', grade, { mealCycle: true });
           if (result?.blocked) {
             const reason = result.reason === 'not_hungry'
               ? 'Byte isn\u2019t hungry right now.'
@@ -520,22 +523,24 @@ export default function MiniGameRunnerScreen() {
           }
         } else if (game.id === 'run-cleanup') {
           const beforeByte = await getByte().catch(() => null);
-          const first = await careAction('clean', grade);
-          const second = variant === 'long' ? await careAction('clean', grade) : null;
-          effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
+          const result = variant === 'long'
+            ? await careAction('perfect-clean', grade)
+            : await careAction('clean', grade);
+          effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
           markHomeClutterCleared();
         } else if (game.id === 'stabilize-signal') {
           const beforeByte = await getByte().catch(() => null);
-          const first = await careAction('rest', grade);
-          const second = variant === 'long' ? await careAction('rest', grade) : null;
-          effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
+          const result = variant === 'long'
+            ? await careAction('deep_rest', grade)
+            : await careAction('rest', grade);
+          effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
         } else if (game.id === 'engage-simulation' || game.id === 'sync-link' || game.id === 'emote-align') {
-          // Route play minigames through careAction('play') so Bandwidth -4 actually applies
-          // and Fun/Social/Mood gains use CARE_RESTORE values (20/8/12) instead of interact's smaller 10/5/5.
+          // Route play minigames through careAction so CARE_RESTORE values apply.
           const beforeByte = await getByte().catch(() => null);
-          const first = await careAction('play', grade);
-          const second = variant === 'long' ? await careAction('play', grade) : null;
-          effectLines = diffNeedResults(beforeByte?.byte?.needs, second?.needs || first?.needs);
+          const result = variant === 'long'
+            ? await careAction('deep_play', grade)
+            : await careAction('play', grade);
+          effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
         } else if (game.id.startsWith('training-') && game.stat) {
           try {
             const trainResult = await trainStat(game.stat, grade);

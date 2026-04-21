@@ -7,11 +7,20 @@
 // CARE ACTION XP VALUES
 // ─────────────────────────────────────────────────────────────────
 const CARE_ACTION_XP = {
+  // Quick / cheap variants
   feed: 40,
   clean: 45,
   play: 45,
   rest: 35,
   pet: 25, // cooldown gated, not farmable
+
+  // Long-form / minigame variants — matched to quick-variant XP so they
+  // aren't XP farms; the reward is the need fill, not the XP.
+  meal: 45,
+  'perfect-clean': 50,
+  deep_rest: 40,
+  calm: 35,
+  deep_play: 50,
 };
 
 // ─────────────────────────────────────────────────────────────────

@@ -57,12 +57,21 @@ const TIMING_WINDOWS = {
 // CARE RESTORE VALUES (base, before timing/grade multipliers)
 // ─────────────────────────────────────────────────────────────────
 const CARE_RESTORE = {
+  // Quick / cheap variants (tap actions)
   feed: { Hunger: 50, Mood: 4 },
   clean: { Hygiene: 26, Mood: 4 },
-  'perfect-clean': { Hygiene: 40, Mood: 6 },
   rest: { Bandwidth: 28, Mood: 14 },
   play: { Fun: 20, Social: 8, Mood: 12 },
   pet: { Social: 10, Affection: 10, Mood: 3 },
+
+  // Long-form / minigame variants — fill the target need almost all the way.
+  // These are gated behind the longer room actions (meal minigame, deep clean,
+  // long sleep cycle, etc.) and should feel like a significant commitment.
+  meal:            { Hunger: 85, Mood: 10 },
+  'perfect-clean': { Hygiene: 80, Mood: 12 },
+  deep_rest:       { Bandwidth: 85, Mood: 20 },
+  calm:            { Mood: 45, Social: 15, Bandwidth: 10 },
+  deep_play:       { Fun: 60, Social: 20, Mood: 18 },
 };
 
 // ─────────────────────────────────────────────────────────────────

@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ImageBackground, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ImageBackground, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { getPlayer } from '../../services/api';
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const [player, setPlayer] = useState<any>(null);
 
   useEffect(() => {
@@ -43,6 +45,14 @@ export default function ProfileScreen() {
               </View>
             ))}
           </View>
+
+          <TouchableOpacity
+            onPress={() => router.push('/settings' as any)}
+            activeOpacity={0.8}
+            style={styles.settingsBtn}
+          >
+            <Text style={styles.settingsText}>⚙ SETTINGS</Text>
+          </TouchableOpacity>
         </ScrollView>
       </SafeAreaView>
     </ImageBackground>
@@ -70,4 +80,14 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   label: { color: 'rgba(208,232,255,0.72)', fontSize: 10.5 },
   value: { color: '#fff', fontSize: 11.5, fontWeight: '800' },
+  settingsBtn: {
+    marginTop: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(159,227,255,0.45)',
+    backgroundColor: 'rgba(8,18,62,0.84)',
+    alignItems: 'center',
+  },
+  settingsText: { color: '#9fe3ff', fontSize: 13, fontWeight: '800', letterSpacing: 1.4 },
 });

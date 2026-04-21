@@ -456,7 +456,13 @@ router.patch('/:id/care', async (req, res) => {
     const decayed = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req), careDecorEffects);
 
     // Capture stat before care (for affection waste-range check)
-    const TIMING_NEED = { feed: 'Hunger', clean: 'Hygiene', rest: 'Bandwidth', play: 'Fun' };
+    const TIMING_NEED = {
+      feed: 'Hunger', meal: 'Hunger',
+      clean: 'Hygiene', 'perfect-clean': 'Hygiene',
+      rest: 'Bandwidth', deep_rest: 'Bandwidth',
+      play: 'Fun', deep_play: 'Fun',
+      calm: 'Mood',
+    };
     const targetNeed = TIMING_NEED[action];
     const statBefore = targetNeed ? (decayed.needs[targetNeed] || 0) : 0;
     const timingWindow = targetNeed
@@ -485,11 +491,11 @@ router.patch('/:id/care', async (req, res) => {
     byte.behaviorMetrics = metrics;
 
     // Non-corruption side effects
-    if (action === 'rest') {
+    if (action === 'rest' || action === 'deep_rest') {
       byte.needs.Mood = clampNeed(Number(byte.needs.Mood || 0) + 2);
-    } else if (action === 'play') {
+    } else if (action === 'play' || action === 'deep_play') {
       byte.needs.Bandwidth = clampNeed(Number(byte.needs.Bandwidth || 0) - 4);
-    } else if (action === 'feed') {
+    } else if (action === 'feed' || action === 'meal') {
       byte.needs.Hygiene = clampNeed(Number(byte.needs.Hygiene || 0) - 2);
     }
 
@@ -502,7 +508,7 @@ router.patch('/:id/care', async (req, res) => {
       // Deep Clean (minigame): full hygiene restoration + significant corruption reduction
       // -15 standard / -25 perfect is handled by corruptionEngine PERFECT_CLEAN tier
       byte.corruption = corruptionEngine.applyDecay(byte.corruption, 'PERFECT_CLEAN');
-    } else if (action === 'rest') {
+    } else if (action === 'rest' || action === 'deep_rest' || action === 'calm') {
       byte.corruption = corruptionEngine.applyPassiveDecay(byte.corruption, byte.needs);
     }
     // Hygiene state now affects corruption passively (checked in snapshot) —

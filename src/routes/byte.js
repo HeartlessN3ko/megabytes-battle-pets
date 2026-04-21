@@ -336,7 +336,19 @@ router.post('/:id/sync', async (req, res) => {
       byte.xp = passiveLevelUp.xp;
     }
 
-    await byte.save();
+    // /sync is idempotent over time — on VersionError, refresh __v and retry once.
+    // Last write wins, because the next sync will recompute from lastNeedsUpdate anyway.
+    try {
+      await byte.save();
+    } catch (err) {
+      if (err.name === 'VersionError') {
+        const fresh = await Byte.findById(byte._id).select('__v');
+        if (fresh) byte.__v = fresh.__v;
+        await byte.save();
+      } else {
+        throw err;
+      }
+    }
 
     res.json({
       byte,

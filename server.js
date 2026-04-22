@@ -8,6 +8,9 @@ const needTickService = require('./src/services/needTickService');
 
 const app = express();
 
+// Trust Render's proxy so rate-limit keys by real client IP, not proxy IP
+app.set('trust proxy', 1);
+
 // Connect to MongoDB Atlas
 connectDB();
 
@@ -15,7 +18,11 @@ connectDB();
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }));
+
+// Health check bypasses the rate limiter — Render pings this and shouldn't eat the budget
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }));
 
 // Routes
 app.use('/api/player',   require('./src/routes/player'));
@@ -32,8 +39,6 @@ app.use('/api/rooms',    require('./src/routes/rooms'));
 app.use('/api/onboarding', require('./src/routes/onboarding'));
 app.use('/api/achievements', require('./src/routes/achievements'));
 app.use('/api/community-event', require('./src/routes/communityEvent'));
-
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, '0.0.0.0', () => {

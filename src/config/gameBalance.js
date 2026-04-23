@@ -19,11 +19,11 @@
 // NEED DECAY
 // ─────────────────────────────────────────────────────────────────
 const NEED_DECAY_HOURS = {
-  Hunger:    16,   // 1–2 meals/day
-  Bandwidth: 32,   // one deep rest every 1.5 days
-  Hygiene:   28,   // ~1 clean/day
-  Fun:       21,
-  Social:    40,
+  Hunger:    28,   // ~1 meal/day
+  Bandwidth: 40,   // one deep rest every ~1.7 days
+  Hygiene:   36,   // clean every 1.5 days
+  Fun:       21,   // internal, not shown on home meter
+  Social:    48,
   Mood:      40,
 };
 
@@ -33,7 +33,7 @@ const NEED_DECAY_HOURS = {
 // Hours from 0 → 100 corruption if conditions keep accruing.
 // Per-minute rate is derived below; existing hygiene/stability modifiers
 // in corruptionEngine still scale this.
-const CORRUPTION_FULL_HOURS = 110;
+const CORRUPTION_FULL_HOURS = 168;
 
 // ─────────────────────────────────────────────────────────────────
 // CLUTTER / POO SPAWNS

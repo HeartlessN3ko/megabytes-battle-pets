@@ -192,7 +192,7 @@ function FloatingReward({ text, left, bottom, onDone }: { text: string; left: nu
   );
 }
 
-function ActionBurst({ type, onDone }: { type: 'praise' | 'scold'; onDone: () => void }) {
+function ActionBurst({ type, onDone, roamX }: { type: 'praise' | 'scold'; onDone: () => void; roamX: Animated.Value }) {
   const p0 = useRef(new Animated.Value(0)).current;
   const p1 = useRef(new Animated.Value(0)).current;
   const p2 = useRef(new Animated.Value(0)).current;
@@ -206,7 +206,7 @@ function ActionBurst({ type, onDone }: { type: 'praise' | 'scold'; onDone: () =>
   }, [onDone, p0, p1, p2, p3]);
 
   return (
-    <View pointerEvents="none" style={styles.burstLayer}>
+    <Animated.View pointerEvents="none" style={[styles.burstLayer, { transform: [{ translateX: roamX }] }]}>
       {[p0, p1, p2, p3].map((p, idx) => {
         const xOff   = idx % 2 === 0 ? -22 - idx * 8 : 20 + idx * 7;
         const yTravel = p.interpolate({ inputRange: [0, 1], outputRange: [0, -60 - idx * 12] });
@@ -220,7 +220,7 @@ function ActionBurst({ type, onDone }: { type: 'praise' | 'scold'; onDone: () =>
           </Animated.Text>
         );
       })}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -1251,9 +1251,9 @@ export default function HomeScreen() {
               onDone={() => setRewardPopups((prev) => prev.filter((e) => e.id !== popup.id))} />
           ))}
 
-          {/* Action bursts (praise/scold particles) */}
+          {/* Action bursts (praise/scold particles) — translate with byte's roamX so they spawn above the sprite, not stage center. */}
           {actionBursts.map((burst) => (
-            <ActionBurst key={burst.id} type={burst.type}
+            <ActionBurst key={burst.id} type={burst.type} roamX={roamX}
               onDone={() => setActionBursts((prev) => prev.filter((e) => e.id !== burst.id))} />
           ))}
         </View>

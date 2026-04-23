@@ -108,7 +108,10 @@ export function useByteRoaming(opts: UseByteRoamingOpts): UseByteRoamingResult {
 
   useEffect(() => {
     if (!enabled) {
-      translateX.stopAnimation(() => translateX.setValue(0));
+      // Freeze in place — do NOT reset translateX to 0. Emotion/sleep should
+      // pause motion where the byte currently stands; snapping to center
+      // during a 2s praise/scold emote reads as teleporting.
+      translateX.stopAnimation();
       setFacing('idle');
       setGlance(null);
       setMotionState('resting');

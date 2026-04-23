@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import HomeNavBar from './HomeNavBar';
 import { useEvolution } from '../context/EvolutionContext';
 import { useActionGate } from '../hooks/useActionGate';
+import { useByteRoaming } from '../hooks/useByteRoaming';
 import { consumeItem, getByte, getInventory, getShopItems } from '../services/api';
 import { getByteMotionProfile } from '../services/byteMotion';
 import { initSfx, playSfx } from '../services/sfx';
@@ -79,6 +80,15 @@ type RoomInventoryItem = {
 
 const DEBUG_LINES = Array.from({ length: 16 }, (_, idx) => idx);
 
+// Glance sprites for rest-time look flicks. `look-up` falls back to blink-bounce
+// until that gif ships. Mirrors the mapping in app/(tabs)/index.tsx — keep in sync.
+const GLANCE_SPRITES: Record<'look-left' | 'look-right' | 'look-up' | 'look-down', any> = {
+  'look-left':  require('../assets/bytes/Circle/Circle-look-left.gif'),
+  'look-right': require('../assets/bytes/Circle/Circle-look-right.gif'),
+  'look-up':    require('../assets/bytes/Circle/Circle-blink-bounce.gif'), // TODO: replace when look-up gif ships
+  'look-down':  require('../assets/bytes/Circle/Circle-lookdown.gif'),
+};
+
 export default function RoomScene({
   title,
   subtitle,
@@ -103,10 +113,6 @@ export default function RoomScene({
 }: RoomSceneProps) {
   const { stage } = useEvolution();
   const { isLocked, runAction } = useActionGate(650);
-  const driftX = useRef(new Animated.Value(0)).current;
-  const driftY = useRef(new Animated.Value(0)).current;
-  const bobY = useRef(new Animated.Value(0)).current;
-  const breathe = useRef(new Animated.Value(1)).current;
   const installProgress = useRef(new Animated.Value(0)).current;
   const processProgress = useRef(new Animated.Value(0)).current;
   const fxPulse = useRef(new Animated.Value(0.32)).current;
@@ -124,6 +130,7 @@ export default function RoomScene({
   const [installPercent, setInstallPercent] = useState(0);
   const [itemResultWindow, setItemResultWindow] = useState<RoomResultWindow | null>(null);
   const [runtimeStage, setRuntimeStage] = useState(stage);
+  const [byteData, setByteData] = useState<any>(null);
   const [processOpen, setProcessOpen] = useState(false);
   const [processLabel, setProcessLabel] = useState('Running task...');
   const [processPercent, setProcessPercent] = useState(0);
@@ -138,8 +145,65 @@ export default function RoomScene({
   }, [title]);
   const recommendedTypeSet = useMemo(() => new Set(recommendedTypes), [recommendedTypes]);
 
-  const petSprite = useMemo(() => resolveByteSprite(runtimeStage, { preferAnimatedIdle: true }), [runtimeStage]);
   const motionProfile = useMemo(() => getByteMotionProfile(runtimeStage), [runtimeStage]);
+
+  // ─── Live byte state (drives sprite + roaming) ─────────────────────────────
+  // Rooms mirror the home priority chain so need-driven visuals stay consistent.
+  // Emotion (praise/scold) and idle-variant flavor are home-only; rooms just
+  // need the need/corruption/sleep layers plus walk/glance/idle.
+  const needs = useMemo(
+    () => byteData?.byte?.needs || { Hunger: 80, Bandwidth: 80, Hygiene: 80, Social: 80, Fun: 80, Mood: 80 },
+    [byteData?.byte?.needs]
+  );
+  const isSleeping     = Boolean(byteData?.byte?.isSleeping);
+  const corruptionTier = (byteData?.corruptionTier || byteData?.byte?.corruptionTier || 'none') as string;
+  const corruptionIsSick = corruptionTier === 'medium' || corruptionTier === 'heavy' || corruptionTier === 'critical';
+  const allNeedsHappy =
+    (needs.Hunger    ?? 100) >= 70 &&
+    (needs.Bandwidth ?? 100) >= 70 &&
+    (needs.Hygiene   ?? 100) >= 70 &&
+    (needs.Social    ?? 100) >= 70 &&
+    (needs.Fun       ?? 100) >= 70 &&
+    (needs.Mood      ?? 100) >= 70;
+
+  // Roaming — single source of truth for horizontal motion, facing, and glances.
+  // Y stays at 0; vertical hops are baked into the GIFs. See hooks/useByteRoaming.ts.
+  const {
+    translateX: roamX,
+    facing:     moveFacing,
+    glance:     roamGlance,
+  } = useByteRoaming({
+    halfSpreadX: (width * motionProfile.room.roamSpreadX) / 2,
+    enabled:     !hidePet && !isSleeping,
+    boredom:     (needs.Fun ?? 100) < 30 || (needs.Mood ?? 100) < 35,
+  });
+
+  // Sprite state machine — priority order matches home (minus emotion/idle-variant).
+  let petSprite: ReturnType<typeof require>;
+  if (isSleeping || (needs.Bandwidth ?? 100) < 12) {
+    petSprite = require('../assets/bytes/Circle/Circle-sleeping.gif');
+  } else if (corruptionIsSick) {
+    petSprite = require('../assets/bytes/Circle/Circle-sick.gif');
+  } else if ((needs.Bandwidth ?? 100) < 20) {
+    petSprite = require('../assets/bytes/Circle/Circle-tired.gif');
+  } else if ((needs.Bandwidth ?? 100) < 35) {
+    petSprite = require('../assets/bytes/Circle/Circle-sleepy.gif');
+  } else if ((needs.Mood ?? 100) < 20) {
+    petSprite = require('../assets/bytes/Circle/Circle-angry.gif');
+  } else if ((needs.Mood ?? 100) < 35) {
+    petSprite = require('../assets/bytes/Circle/Circle-confused.gif');
+  } else if (moveFacing === 'left') {
+    petSprite = require('../assets/bytes/Circle/Circle-leftmove.gif');
+  } else if (moveFacing === 'right') {
+    petSprite = require('../assets/bytes/Circle/Circle-rightmove.gif');
+  } else if (roamGlance && GLANCE_SPRITES[roamGlance]) {
+    petSprite = GLANCE_SPRITES[roamGlance];
+  } else if (allNeedsHappy) {
+    petSprite = require('../assets/bytes/Circle/Circle-idle-happy.gif');
+  } else {
+    // Fall back to stage-aware idle sprite (evolution stage appropriate).
+    petSprite = resolveByteSprite(runtimeStage, { preferAnimatedIdle: true });
+  }
   const sceneEffectPalette = useMemo(() => {
     if (sceneEffect === 'stabilize') {
       return {
@@ -203,6 +267,7 @@ export default function RoomScene({
   const syncRuntimeStage = useCallback(async () => {
     try {
       const data = await getByte();
+      setByteData(data);
       const apiStage = Number(data?.byte?.evolutionStage ?? stage);
       if (Number.isFinite(apiStage)) {
         setRuntimeStage(Math.max(0, Math.min(2, Math.floor(apiStage))));
@@ -220,6 +285,16 @@ export default function RoomScene({
     }, [syncRuntimeStage])
   );
 
+  // Periodic byte sync — keeps needs/corruption/sleep live while in a room.
+  // Matches the 60s cadence used on the home tab so the byte's visual state
+  // doesn't drift between screens (fix for "sick at home, fine in kitchen").
+  useEffect(() => {
+    const t = setInterval(() => {
+      syncRuntimeStage().catch(() => {});
+    }, 60_000);
+    return () => clearInterval(t);
+  }, [syncRuntimeStage]);
+
   useEffect(() => {
     if (metaProgress) {
       const targetValue = (Number(metaProgress.value || 0) / Math.max(1, Number(metaProgress.max || 100))) * 100;
@@ -231,44 +306,14 @@ export default function RoomScene({
     }
   }, [metaProgress?.value, metaProgress?.max, metaProgressAnim]);
 
+  // Motion contract (LOCKED 2026-04-23 — do NOT re-introduce bob, breathe, or drift here):
+  //   • Horizontal motion, facing, and glances come from useByteRoaming (above).
+  //   • Y is always 0 — the byte is floor-anchored. Hops are baked into the GIFs.
+  //   • Any vertical/scale loops here will fight the hook and reintroduce the
+  //     "wobble on every screen" regression. Add new effects to the GIFs instead.
   useEffect(() => {
     initSfx().catch(() => {});
-    const profile = motionProfile.room;
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(bobY, { toValue: -profile.bobDistance, duration: profile.bobDuration, useNativeDriver: true }),
-        Animated.timing(bobY, { toValue: 0, duration: profile.bobDuration, useNativeDriver: true }),
-      ])
-    ).start();
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(breathe, { toValue: profile.breatheScale, duration: profile.breatheDuration, useNativeDriver: true }),
-        Animated.timing(breathe, { toValue: 1, duration: profile.breatheDuration, useNativeDriver: true }),
-      ])
-    ).start();
-
-    let active = true;
-    const roam = () => {
-      if (!active) return;
-      const nextX = (Math.random() - 0.5) * (width * profile.roamSpreadX);
-      const nextY = (Math.random() - 0.5) * profile.roamSpreadY;
-      const duration = profile.roamDurationMin + Math.random() * Math.max(1, profile.roamDurationMax - profile.roamDurationMin);
-      Animated.parallel([
-        Animated.timing(driftX, { toValue: nextX, duration, useNativeDriver: true }),
-        Animated.timing(driftY, { toValue: nextY, duration, useNativeDriver: true }),
-      ]).start(() => {
-        if (!active) return;
-        setTimeout(roam, profile.pauseMin + Math.random() * Math.max(1, profile.pauseMax - profile.pauseMin));
-      });
-    };
-    roam();
-
-    return () => {
-      active = false;
-    };
-  }, [bobY, breathe, driftX, driftY, motionProfile]);
+  }, []);
 
   const loadItems = useCallback(async () => {
     setItemsLoading(true);
@@ -588,7 +633,7 @@ export default function RoomScene({
             <Animated.View
               style={[
                 styles.petWrap,
-                { transform: [{ translateX: driftX }, { translateY: driftY }, { translateY: bobY }, { scale: breathe }] },
+                { transform: [{ translateX: roamX }] },
               ]}
             >
               <Image source={petSprite} style={styles.petSprite} resizeMode="contain" />

@@ -39,6 +39,7 @@ import { initSfx, playSfx } from '../../services/sfx';
 import { useEvolution } from '../../context/EvolutionContext';
 import { useActionGate } from '../../hooks/useActionGate';
 import { useDemoMode } from '../../hooks/useDemoMode';
+import { useByteRoaming } from '../../hooks/useByteRoaming';
 import { getDemoSpeedLabel } from '../../services/demoSession';
 import { generateByteThought } from '../../services/byteThoughts';
 import { getByteMotionProfile } from '../../services/byteMotion';
@@ -53,6 +54,33 @@ const { width, height } = Dimensions.get('window');
 
 const CORRUPTION_TIER_COLOR: Record<string, string> = {
   none: '#888888', light: '#ffe666', medium: '#ff9c44', heavy: '#ff6060', critical: '#bf44ff',
+};
+
+// Idle flavor pool — random one-shots during default rest state.
+// Fires every 8–15s, plays for IDLE_VARIANT_HOLD_MS, returns to blink-bounce.
+const IDLE_VARIANT_SPRITES: Record<string, any> = {
+  squish:       require('../../assets/bytes/Circle/Circle-squish.gif'),
+  'low-bounce': require('../../assets/bytes/Circle/Circle-low-bouncet.gif'),
+  lookdown:     require('../../assets/bytes/Circle/Circle-lookdown.gif'),
+  'look-left':  require('../../assets/bytes/Circle/Circle-look-left.gif'),
+  eyeroll:      require('../../assets/bytes/Circle/Circle-eyeroll.gif'),
+  wink:         require('../../assets/bytes/Circle/Circle-wink.gif'),
+  smile:        require('../../assets/bytes/Circle/Circle-smile.gif'),
+  blush:        require('../../assets/bytes/Circle/Circle-blush.gif'),
+};
+const IDLE_VARIANT_KEYS = Object.keys(IDLE_VARIANT_SPRITES);
+const IDLE_VARIANT_MIN_DELAY_MS = 8000;
+const IDLE_VARIANT_MAX_DELAY_MS = 15000;
+const IDLE_VARIANT_HOLD_MS      = 2500;
+
+// Glance lookup — maps useByteRoaming's glance state to an actual sprite.
+// `look-up` falls back to blink-bounce until Skye ships Circle-look-up.gif.
+// When that drops, swap the line and it's wired.
+const GLANCE_SPRITES: Record<string, any> = {
+  'look-left':  require('../../assets/bytes/Circle/Circle-look-left.gif'),
+  'look-right': require('../../assets/bytes/Circle/Circle-look-right.gif'),
+  'look-down':  require('../../assets/bytes/Circle/Circle-lookdown.gif'),
+  'look-up':    require('../../assets/bytes/Circle/Circle-blink-bounce.gif'), // TODO swap to Circle-look-up.gif when shipped
 };
 
 const STAGE_NAMES = ['EGG', 'Stage 1 .PNG', 'Stage 2 .SVG', 'Stage 3 .GIF', 'Stage 4 .ANI', 'Stage 5 .MOV'];
@@ -395,12 +423,9 @@ export default function HomeScreen() {
   const { isLocked, runAction } = useActionGate(700);
 
   // Motion animations
-  const roamX      = useRef(new Animated.Value(0)).current;
-  const roamY      = useRef(new Animated.Value(0)).current;
-  const hoverY     = useRef(new Animated.Value(0)).current;
-  const breathe    = useRef(new Animated.Value(1)).current;
-  const stride     = useRef(new Animated.Value(0)).current;
-  const depthScale = useRef(new Animated.Value(1)).current;
+  // roamX/roamY/depthScale/hoverY/breathe/stride all removed 2026-04-23 — roaming is
+  // owned by useByteRoaming, and hover/breathe/stride bobs were causing the "wobble on
+  // every screen" regression. Byte is floor-anchored (Y=0); vertical motion lives in GIFs.
   const tapScale   = useRef(new Animated.Value(1)).current;
 
   // Tap reaction animations
@@ -419,11 +444,11 @@ export default function HomeScreen() {
   const syncBusyRef       = useRef(false);
   // Last observed Hunger value — used to detect a feed event (Hunger jump ≥ FEED_DETECT_MIN).
   const prevHungerRef     = useRef<number | null>(null);
-  // C4: read by the motion loop (pickTarget/arriveAndLook) without retriggering the effect on every needs change.
-  const boredomRef        = useRef({ active: false, side: 1 as 1 | -1 });
+  // boredomRef removed 2026-04-23 — boredom is now passed directly into useByteRoaming.
   const statusResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const thoughtRef        = useRef<() => string>(() => 'BYTE is scanning the network.');
   const emotionTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleVariantTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [byteData,      setByteData]      = useState<any>(null);
   const [playerData,    setPlayerData]    = useState<any>(null);
@@ -438,8 +463,8 @@ export default function HomeScreen() {
   const [rewardPopups,  setRewardPopups]  = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
   const [actionBursts,  setActionBursts]  = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
   const [emotion,       setEmotion]       = useState<'praise' | 'scold' | null>(null);
-  const [moveFacing,    setMoveFacing]    = useState<'left' | 'right' | 'idle'>('idle');
-  const [motionState,   setMotionState]   = useState<'walking_slow' | 'walking_fast' | 'idle' | 'resting'>('walking_slow');
+  const [idleVariant,   setIdleVariant]   = useState<string | null>(null);
+  // moveFacing / motionState removed 2026-04-23 — driven by useByteRoaming.
   const [isSleeping,    setIsSleeping]    = useState(false);
   const [rpsOpen,       setRpsOpen]       = useState(false);
   const [sleepUntil,    setSleepUntil]    = useState<Date | null>(null);
@@ -455,6 +480,18 @@ export default function HomeScreen() {
   const clutterPenalty = Math.min(24, clutter * 3);
   const effectiveMood  = Math.max(0, (needs.Mood || 0) - clutterPenalty);
   const motionProfile  = useMemo(() => getByteMotionProfile(stage), [stage]);
+
+  // Roaming — single source of truth for horizontal motion, facing, and glances.
+  // Y stays at 0; vertical hops are baked into the GIFs themselves.
+  const {
+    translateX: roamX,
+    facing:     moveFacing,
+    glance:     roamGlance,
+  } = useByteRoaming({
+    halfSpreadX: (width * motionProfile.roamSpreadX) / 2,
+    enabled:     !isSleeping && !emotion,
+    boredom:     (needs.Fun ?? 100) < 30 || (needs.Mood ?? 100) < 35,
+  });
 
   // Pick the most urgent unmet need to surface as a request emote above the byte.
   // Priority order tracks survival impact: hunger > hygiene > bandwidth > fun.
@@ -516,24 +553,46 @@ export default function HomeScreen() {
     { label: 'LOVE',      val: affection,              color: '#dd9aff' },
   ];
 
-  // Sprite state machine — evaluated in priority order
+  // Sprite state machine — evaluated in priority order.
+  // Higher-priority branches win; the default idle path may swap in a random
+  // flavor variant from IDLE_VARIANT_SPRITES (see effect above).
+  const corruptionIsSick = corruptionTier === 'medium' || corruptionTier === 'heavy' || corruptionTier === 'critical';
+  const allNeedsHappy =
+    (needs.Hunger    ?? 100) >= 70 &&
+    (needs.Bandwidth ?? 100) >= 70 &&
+    (needs.Hygiene   ?? 100) >= 70 &&
+    (needs.Social    ?? 100) >= 70 &&
+    (needs.Fun       ?? 100) >= 70 &&
+    (needs.Mood      ?? 100) >= 70;
+
   let petSprite: ReturnType<typeof require>;
   if (emotion === 'praise') {
-    petSprite = require('../../assets/bytes/Circle/Circle-idle.gif');
+    petSprite = require('../../assets/bytes/Circle/Circle-happyblush.gif');
   } else if (emotion === 'scold') {
-    petSprite = require('../../assets/bytes/Circle/Circle-looklowerleft1.gif');
+    petSprite = require('../../assets/bytes/Circle/Circle-cry.gif');
   } else if (isSleeping || (needs.Bandwidth ?? 100) < 12) {
     petSprite = require('../../assets/bytes/Circle/Circle-sleeping.gif');
-  } else if ((needs.Bandwidth ?? 100) < 35 || (needs.Mood ?? 100) < 20) {
+  } else if (corruptionIsSick) {
+    petSprite = require('../../assets/bytes/Circle/Circle-sick.gif');
+  } else if ((needs.Bandwidth ?? 100) < 20) {
     petSprite = require('../../assets/bytes/Circle/Circle-tired.gif');
+  } else if ((needs.Bandwidth ?? 100) < 35) {
+    petSprite = require('../../assets/bytes/Circle/Circle-sleepy.gif');
+  } else if ((needs.Mood ?? 100) < 20) {
+    petSprite = require('../../assets/bytes/Circle/Circle-angry.gif');
   } else if ((needs.Mood ?? 100) < 35) {
-    petSprite = require('../../assets/bytes/Circle/Circle-looklowerleft-right.gif');
+    petSprite = require('../../assets/bytes/Circle/Circle-confused.gif');
   } else if (moveFacing === 'left') {
     petSprite = require('../../assets/bytes/Circle/Circle-leftmove.gif');
   } else if (moveFacing === 'right') {
     petSprite = require('../../assets/bytes/Circle/Circle-rightmove.gif');
+  } else if (roamGlance && GLANCE_SPRITES[roamGlance]) {
+    petSprite = GLANCE_SPRITES[roamGlance];
+  } else if (idleVariant && IDLE_VARIANT_SPRITES[idleVariant]) {
+    petSprite = IDLE_VARIANT_SPRITES[idleVariant];
+  } else if (allNeedsHappy) {
+    petSprite = require('../../assets/bytes/Circle/Circle-idle-happy.gif');
   } else {
-    // Not walking, no need override: default resting pose is blink-bounce
     petSprite = require('../../assets/bytes/Circle/Circle-blink-bounce.gif');
   }
 
@@ -638,10 +697,42 @@ export default function HomeScreen() {
     initSfx().catch(() => {});
     loadHomeClutterCount().then((count) => setClutter(Math.max(0, Math.min(8, count)))).catch(() => {});
     return () => {
-      if (statusResetTimerRef.current) clearTimeout(statusResetTimerRef.current);
-      if (emotionTimerRef.current)     clearTimeout(emotionTimerRef.current);
+      if (statusResetTimerRef.current)  clearTimeout(statusResetTimerRef.current);
+      if (emotionTimerRef.current)      clearTimeout(emotionTimerRef.current);
+      if (idleVariantTimerRef.current)  clearTimeout(idleVariantTimerRef.current);
     };
   }, []);
+
+  // Idle flavor: while byte is at rest with no overrides, pick a random variant
+  // every 8–15s, play it briefly, then return to default idle (blink-bounce).
+  useEffect(() => {
+    const canFlavor = !isSleeping && !emotion && moveFacing === 'idle';
+    if (!canFlavor) {
+      if (idleVariantTimerRef.current) clearTimeout(idleVariantTimerRef.current);
+      setIdleVariant(null);
+      return;
+    }
+    let cancelled = false;
+    const schedule = () => {
+      const delay = IDLE_VARIANT_MIN_DELAY_MS +
+        Math.random() * (IDLE_VARIANT_MAX_DELAY_MS - IDLE_VARIANT_MIN_DELAY_MS);
+      idleVariantTimerRef.current = setTimeout(() => {
+        if (cancelled) return;
+        const pick = IDLE_VARIANT_KEYS[Math.floor(Math.random() * IDLE_VARIANT_KEYS.length)];
+        setIdleVariant(pick);
+        idleVariantTimerRef.current = setTimeout(() => {
+          if (cancelled) return;
+          setIdleVariant(null);
+          schedule();
+        }, IDLE_VARIANT_HOLD_MS);
+      }, delay);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      if (idleVariantTimerRef.current) clearTimeout(idleVariantTimerRef.current);
+    };
+  }, [isSleeping, emotion, moveFacing]);
 
   useEffect(() => { saveHomeClutterCount(clutter).catch(() => {}); }, [clutter]);
 
@@ -724,16 +815,6 @@ export default function HomeScreen() {
     return () => clearInterval(t);
   }, [createClutterNode]);
 
-  // C4: update boredom flag for the motion loop. Written to a ref so the roam effect
-  // doesn't have to retrigger (which would visibly judder) every time Fun or Mood ticks.
-  // Threshold rationale: Fun<30 and Mood<35 both fall inside the "request emote" zone,
-  // so the byte's pull reads as a visual amplification of a low-need state that's already flagged.
-  useEffect(() => {
-    const fun  = Number(needs.Fun  ?? 100);
-    const mood = Number(needs.Mood ?? 100);
-    boredomRef.current.active = !isSleeping && (fun < 30 || mood < 35);
-  }, [needs.Fun, needs.Mood, isSleeping]);
-
   useEffect(() => {
     if (!isSleeping || !sleepUntil) return;
     const sleepEndTime = new Date(sleepUntil).getTime();
@@ -782,152 +863,15 @@ export default function HomeScreen() {
   }, [reactionBounce, reactionShake, reactionShrink, reactionRotate, reactionHeartOpacity, reactionBlinkOpacity]);
 
   // ─── Motion loop ─────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    let active = true;
-    const profile = motionProfile.home;
-
-    // Always-on ambient animations (breathing + hover) — byte is never frozen solid.
-    Animated.loop(Animated.sequence([
-      Animated.timing(hoverY,  { toValue: -profile.hoverDistance, duration: profile.hoverDuration, useNativeDriver: true }),
-      Animated.timing(hoverY,  { toValue: 0,                      duration: profile.hoverDuration, useNativeDriver: true }),
-    ])).start();
-
-    Animated.loop(Animated.sequence([
-      Animated.timing(breathe, { toValue: profile.breatheScale, duration: profile.breatheDuration, useNativeDriver: true }),
-      Animated.timing(breathe, { toValue: 1,                    duration: profile.breatheDuration, useNativeDriver: true }),
-    ])).start();
-
-    // Stride is gated — only loops while the byte is actively walking. Settles to 0 otherwise.
-    let strideLoop: Animated.CompositeAnimation | null = null;
-    const startStride = () => {
-      if (strideLoop) return;
-      strideLoop = Animated.loop(Animated.sequence(
-        profile.strideValues.map((value, index) =>
-          Animated.timing(stride, {
-            toValue: value,
-            duration: profile.strideDurations[index] || profile.strideDurations[profile.strideDurations.length - 1] || 240,
-            useNativeDriver: true,
-          })
-        )
-      ));
-      strideLoop.start();
-    };
-    const stopStride = () => {
-      if (strideLoop) { strideLoop.stop(); strideLoop = null; }
-      stride.stopAnimation(() => stride.setValue(0));
-    };
-
-    // Target-based pathing. Byte picks a destination, walks to it, arrives, looks around, picks next.
-    // Travel is biased across the center line so movement reads as deliberate instead of drifty.
-    const halfSpread = (width * profile.roamSpreadX) / 2;
-    let lastTargetX = 0;
-    const MIN_TRAVEL_FRACTION = 0.45; // new target must differ from current by >= this × halfSpread
-
-    const pickTarget = () => {
-      // C4: boredom pull — when Fun/Mood are low, walk to the edge of the stage, alternating sides.
-      // Edge-seeking movement reads as "looking for the player" instead of aimless wandering.
-      if (boredomRef.current.active) {
-        const side = boredomRef.current.side;
-        boredomRef.current.side = side === 1 ? -1 : 1;
-        return side * halfSpread * 0.92;
-      }
-      for (let attempt = 0; attempt < 4; attempt++) {
-        const t = (Math.random() * 2 - 1) * halfSpread;
-        if (Math.abs(t - lastTargetX) >= halfSpread * MIN_TRAVEL_FRACTION) return t;
-      }
-      // Fallback: flip to the opposite side.
-      return lastTargetX >= 0 ? -halfSpread * 0.6 : halfSpread * 0.6;
-    };
-
-    const rest = (ms: number, after: () => void) => {
-      stopStride();
-      setTimeout(() => { if (active) after(); }, ms);
-    };
-
-    const arriveAndLook = (afterLook: () => void) => {
-      // Brief settle, then look around for 1.5–3s with optional facing flip halfway through.
-      // C4: when bored, the look pause is longer and the byte stays locked on the camera (no glance flip).
-      stopStride();
-      setMotionState('resting');
-      setMoveFacing('idle');
-      const bored = boredomRef.current.active;
-      const lookDuration = bored ? (3000 + Math.random() * 2000) : (1500 + Math.random() * 1500);
-      if (!bored && Math.random() < 0.5) {
-        setTimeout(() => {
-          if (!active) return;
-          setMoveFacing(Math.random() < 0.5 ? 'left' : 'right');
-          setTimeout(() => { if (active) setMoveFacing('idle'); }, 600);
-        }, lookDuration * 0.5);
-      }
-      setTimeout(() => { if (active) afterLook(); }, lookDuration);
-    };
-
-    const roam = () => {
-      if (!active) return;
-      // Sleep lock — byte stays centered and still while asleep.
-      if (isSleeping) {
-        stopStride();
-        setMotionState('resting');
-        setMoveFacing('idle');
-        roamX.stopAnimation(() => roamX.setValue(0));
-        roamY.stopAnimation(() => roamY.setValue(0));
-        depthScale.stopAnimation(() => depthScale.setValue(1));
-        return;
-      }
-
-      // Dice: 70% travel-slow, 20% travel-fast, 10% extended rest (just stay put).
-      // C4: bored bytes skip the rest dice entirely and always travel slow toward an edge.
-      const roll  = Math.random();
-      const bored = boredomRef.current.active;
-      if (!bored && roll < 0.10) {
-        setMotionState('resting');
-        setMoveFacing('idle');
-        rest(3500 + Math.random() * 3500, roam);
-        return;
-      }
-
-      const next = bored ? 'walking_slow' : (roll < 0.80 ? 'walking_slow' : 'walking_fast');
-      setMotionState(next);
-
-      const nextX     = pickTarget();
-      lastTargetX     = nextX;
-      const nextDepth = profile.depthMin + Math.random() * (profile.depthMax - profile.depthMin);
-      const nextY     = (nextDepth - 1) * profile.depthYOffset + (Math.random() - 0.5) * profile.yJitter;
-      let baseMin = profile.roamDurationMin;
-      let baseMax = profile.roamDurationMax;
-      if (next === 'walking_slow')  { baseMin *= 1.4; baseMax *= 1.4; }
-      if (next === 'walking_fast')  { baseMin *= 0.7; baseMax *= 0.7; }
-      const duration = Math.round(baseMin + Math.random() * Math.max(1, baseMax - baseMin));
-
-      // Face the direction of travel relative to current position, not screen center.
-      const currentX = (roamX as any)._value ?? 0;
-      const dx       = nextX - currentX;
-      const facing   = dx >  profile.facingThreshold ? 'right'
-                     : dx < -profile.facingThreshold ? 'left'
-                     : 'idle';
-      setMoveFacing(facing);
-
-      startStride();
-
-      Animated.parallel([
-        Animated.timing(roamX,      { toValue: nextX,      duration, useNativeDriver: true }),
-        Animated.timing(roamY,      { toValue: nextY,      duration, useNativeDriver: true }),
-        Animated.timing(depthScale, { toValue: nextDepth,  duration, useNativeDriver: true }),
-      ]).start(({ finished }) => {
-        if (!active || !finished) return;
-        // Arrived at the target. Pause, look around, then pick the next destination.
-        arriveAndLook(roam);
-      });
-    };
-
-    roam();
-    return () => {
-      active = false;
-      if (strideLoop) { strideLoop.stop(); strideLoop = null; }
-      stride.stopAnimation();
-    };
-  }, [breathe, depthScale, hoverY, isSleeping, motionProfile, roamX, roamY, stride, width]);
+  //
+  // LOCKED CONTRACT (2026-04-23). DO NOT REINTRODUCE HOVER / BREATHE / STRIDE / DEPTH LOOPS HERE.
+  // Horizontal travel, facing, and glances are owned by useByteRoaming at the top of this
+  // component. Vertical motion (hops, squishes) is authored into the GIFs themselves; the
+  // byte is anchored to Y=0. This block previously ran four competing loops — reintroducing
+  // any of them caused the "side-to-side wobble on every screen" regression flagged 2026-04-23.
+  //
+  // If a reaction needs a one-shot (tap hop, praise bounce), layer it into the existing
+  // reaction* refs below — do not start a new always-on Animated.loop here.
 
   // ─── Drawer ───────────────────────────────────────────────────────────────────
 
@@ -1242,20 +1186,13 @@ export default function HomeScreen() {
             ))}
           </View>
 
-          {/* Byte sprite */}
+          {/* Byte sprite — floor-anchored (Y=0). All roaming comes from useByteRoaming. */}
           <Animated.View style={[styles.byteStage, {
             transform: [
               { translateX: roamX },
               { translateX: reactionShake },
-              { translateY: roamY },
-              { translateY: hoverY },
               { translateY: reactionBounce },
-              { rotate: stride.interpolate({ inputRange: [-1, 1], outputRange: ['-4deg', '4deg'] }) },
               { rotate: reactionRotate.interpolate({ inputRange: [-180, 0, 180], outputRange: ['-180deg', '0deg', '180deg'] }) },
-              { scaleX: stride.interpolate({ inputRange: [-1, 0, 1], outputRange: [0.94, 1.08, 0.94] }) },
-              { scaleY: stride.interpolate({ inputRange: [-1, 0, 1], outputRange: [1.08, 0.92, 1.08] }) },
-              { scale: breathe },
-              { scale: depthScale },
               { scale: tapScale },
               { scale: reactionShrink },
             ],

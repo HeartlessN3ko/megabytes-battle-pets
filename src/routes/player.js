@@ -146,13 +146,18 @@ router.post('/:id/reset-demo', optionalAuth, async (req, res) => {
           'behaviorMetrics.scoldCount':   0,
           'behaviorMetrics.tapFrequency': 0,
           'behaviorMetrics.playVsTrainRatio': 0,
+          // Clear daily-care tasks so tasks (check_in_twice, thriving_state,
+          // perfect_timing, etc.) don't carry completion from a prior session.
+          // dailyCareStreak / dailyCareScore already zeroed above.
+          activeDailyTasks: [],
         },
         $unset: {
-          animal:      '',
-          element:     '',
-          feature:     '',
-          branch:      '',
-          temperament: '',
+          animal:       '',
+          element:      '',
+          feature:      '',
+          branch:       '',
+          temperament:  '',
+          lastCareDate: '',
         },
       });
       // Reload so the response has accurate data

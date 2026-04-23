@@ -55,6 +55,7 @@ import HomeRoomStage from '../../components/HomeRoomStage';
 import RPSGame from '../../components/RPSGame';
 import SleepZsOverlay from '../../components/SleepZsOverlay';
 import NeedRequestBubble, { NeedRequest } from '../../components/NeedRequestBubble';
+import CorruptionAura from '../../components/CorruptionAura';
 
 const { width, height } = Dimensions.get('window');
 
@@ -99,11 +100,13 @@ const CLUTTER_SPRITES = [
   require('../../assets/images/clutter2.png'),
 ];
 
+// bottomMin/Max are % of the field height, matching the byte's `bottom: '20%'`
+// floor plane. Keeping a tight band so clutter sits on the same line as the byte.
 const CLUTTER_ZONES = [
-  { leftMin: 10, leftMax: 22, bottomMin: 18, bottomMax: 54, frontChance: 0.65 },
-  { leftMin: 24, leftMax: 36, bottomMin: 8,  bottomMax: 36, frontChance: 1.0 },
-  { leftMin: 64, leftMax: 76, bottomMin: 8,  bottomMax: 36, frontChance: 1.0 },
-  { leftMin: 78, leftMax: 90, bottomMin: 18, bottomMax: 54, frontChance: 0.65 },
+  { leftMin: 10, leftMax: 22, bottomMin: 19, bottomMax: 21, frontChance: 0.65 },
+  { leftMin: 24, leftMax: 36, bottomMin: 19, bottomMax: 21, frontChance: 1.0 },
+  { leftMin: 64, leftMax: 76, bottomMin: 19, bottomMax: 21, frontChance: 1.0 },
+  { leftMin: 78, leftMax: 90, bottomMin: 19, bottomMax: 21, frontChance: 0.65 },
 ];
 
 const UTILITY_BAR = [
@@ -510,7 +513,7 @@ export default function HomeScreen() {
   const [statusText,    setStatusText]    = useState('BYTE is scanning the network.');
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [clutter,       setClutter]       = useState(0);
-  const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: number; size: number; front: boolean; kind: 'trash' | 'poop' }[]>([]);
+  const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: string; size: number; front: boolean; kind: 'trash' | 'poop' }[]>([]);
   const [demoBusy,      setDemoBusy]      = useState(false);
   const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
   const [rewardPopups,  setRewardPopups]  = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
@@ -652,7 +655,17 @@ export default function HomeScreen() {
   // Sprite state machine — evaluated in priority order.
   // Higher-priority branches win; the default idle path may swap in a random
   // flavor variant from IDLE_VARIANT_SPRITES (see effect above).
-  const corruptionIsSick = corruptionTier === 'medium' || corruptionTier === 'heavy' || corruptionTier === 'critical';
+  //
+  // Corruption no longer drives the sick sprite — it's now shown as a glitch
+  // aura via <CorruptionAura/>. The sick sprite fires only when every primary
+  // need is critical ("the byte has completely fallen apart").
+  const corruptionValue = Number(byteData?.byte?.corruption || 0);
+  const allNeedsCritical =
+    (needs.Hunger    ?? 100) < 10 &&
+    (needs.Bandwidth ?? 100) < 10 &&
+    (needs.Hygiene   ?? 100) < 10 &&
+    (needs.Social    ?? 100) < 10 &&
+    (needs.Mood      ?? 100) < 10;
   const allNeedsHappy =
     (needs.Hunger    ?? 100) >= 70 &&
     (needs.Bandwidth ?? 100) >= 70 &&
@@ -668,7 +681,7 @@ export default function HomeScreen() {
     petSprite = require('../../assets/bytes/Circle/Circle-cry.gif');
   } else if (isSleeping || (needs.Bandwidth ?? 100) < 12) {
     petSprite = require('../../assets/bytes/Circle/Circle-sleeping.gif');
-  } else if (corruptionIsSick) {
+  } else if (allNeedsCritical) {
     petSprite = require('../../assets/bytes/Circle/Circle-sick.gif');
   } else if ((needs.Bandwidth ?? 100) < 20) {
     petSprite = require('../../assets/bytes/Circle/Circle-tired.gif');
@@ -697,10 +710,11 @@ export default function HomeScreen() {
   const createClutterNode = useCallback((index: number, kind: 'trash' | 'poop' = 'trash') => {
     const zone    = CLUTTER_ZONES[Math.floor(Math.random() * CLUTTER_ZONES.length)];
     // Poop reads cleaner a touch smaller; trash scales as before.
-    const size    = kind === 'poop' ? 64 + Math.random() * 28 : 88 + Math.random() * 56;
+    const size    = kind === 'poop' ? 40 + Math.random() * 16 : 88 + Math.random() * 56;
     const leftPct = zone.leftMin + Math.random() * (zone.leftMax - zone.leftMin);
     const left    = ((width - size) * leftPct) / 100;
-    const bottom  = zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin);
+    // Percentage so clutter stays on the byte's floor plane (byte is `bottom: '20%'`).
+    const bottom: string = `${zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin)}%`;
     return {
       id: `clutter-${Date.now()}-${index}-${Math.random()}`,
       // Poop nodes render as an emoji and skip the sprite image entirely.
@@ -988,7 +1002,10 @@ export default function HomeScreen() {
 
   const swipeResponder = useMemo(
     () => PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 9 && Math.abs(g.dy) > Math.abs(g.dx),
+      // Higher threshold + stricter dominant-axis check so finger jitter
+      // during a clutter/poop tap doesn't hand the touch to the pan
+      // responder and cancel the press.
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 18 && Math.abs(g.dy) > Math.abs(g.dx) * 1.5,
       onPanResponderRelease: (_, g) => { if (g.dy < -42) openDrawer(); },
     }),
     [openDrawer]
@@ -1300,6 +1317,7 @@ export default function HomeScreen() {
             <TouchableOpacity onPress={handleByteTap} activeOpacity={1}>
               <Image source={petSprite} style={styles.byteSprite} resizeMode="contain" />
             </TouchableOpacity>
+            <CorruptionAura corruption={corruptionValue} size={width * 0.3} />
             <SleepZsOverlay visible={isSleeping} />
             <NeedRequestBubble need={requestedNeed} />
           </Animated.View>
@@ -1585,8 +1603,10 @@ const styles = StyleSheet.create({
     position: 'relative',
     paddingBottom: 8,
   },
-  clutterLayer:      { position: 'absolute', left: 0, right: 0, bottom: 0, height: 280, zIndex: 1, overflow: 'visible' },
-  clutterLayerFront: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 280, zIndex: 4, overflow: 'visible' },
+  // Full-height layers so clutter `bottom: '20%'` resolves against the field,
+  // aligning with the byte's floor plane (byteStage is also `bottom: '20%'`).
+  clutterLayer:      { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 1, overflow: 'visible' },
+  clutterLayerFront: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 4, overflow: 'visible' },
   clutterTouch:      { position: 'absolute', zIndex: 3, alignItems: 'center', justifyContent: 'flex-end' },
   clutterImg:        { width: '100%', height: '100%', opacity: 0.9 },
   clutterImgFront:   { width: '100%', height: '100%', opacity: 1 },

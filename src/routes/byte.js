@@ -271,7 +271,13 @@ router.post('/:id/sync', async (req, res) => {
     const syncRawMin = ((new Date() - new Date(byte.lastNeedsUpdate)) / (1000 * 60)) * syncSpeedMult;
     const syncElapsedMin = Math.min(syncRawMin, (syncDecayOpts.maxWindowMinutes || 60));
 
+    // TEMP DIAGNOSTIC (remove after): confirm decay math during "fast decay" investigation.
+    const hungerBefore = Number(byte.needs?.Hunger ?? 0);
+    console.log(`[SYNC-DIAG] demoHeader=${req.headers['x-demo-mode'] || 'none'} multHeader=${req.headers['x-demo-decay-multiplier'] || 'none'} speedMult=${syncSpeedMult} rawMin=${syncRawMin.toFixed(2)} clampedMin=${syncElapsedMin.toFixed(2)} HungerBefore=${hungerBefore.toFixed(2)} lastNeedsUpdate=${new Date(byte.lastNeedsUpdate).toISOString()}`);
+
     const snapshot = computeLiveByteSnapshot(byte, req);
+    const hungerAfter = Number(snapshot.needs?.Hunger ?? 0);
+    console.log(`[SYNC-DIAG] HungerAfter=${hungerAfter.toFixed(2)} delta=${(hungerAfter - hungerBefore).toFixed(2)}`);
     byte.needs = snapshot.needs;
     byte.lastNeedsUpdate = snapshot.lastNeedsUpdate;
     byte.corruption = snapshot.corruption;

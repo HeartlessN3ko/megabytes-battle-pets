@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 let homeClutterClearedAt = 0;
-const HOME_CLUTTER_KEY = 'megabytes.home_clutter_count';
-const PENDING_POOP_KEY = 'megabytes.home_pending_poop_at';
+const HOME_CLUTTER_KEY   = 'megabytes.home_clutter_count';
+const PENDING_POOP_KEY   = 'megabytes.home_pending_poop_at';
+const LAST_SEEN_LEVEL_KEY = 'megabytes.last_seen_level'; // per-byte, key is `${prefix}.${byteId}`
 
 export function markHomeClutterCleared() {
   homeClutterClearedAt = Date.now();
@@ -58,4 +59,34 @@ export async function setPendingPoopAt(timestamp) {
 
 export async function clearPendingPoop() {
   return setPendingPoopAt(0);
+}
+
+// Last byte level the player has seen acknowledged on the home screen.
+// Used to fire a "LEVEL UP" banner on return if the byte levelled while away.
+// Stored per-byte so swapping active bytes doesn't cross-fire banners.
+function levelKey(byteId) {
+  return `${LAST_SEEN_LEVEL_KEY}.${String(byteId || 'unknown')}`;
+}
+
+export async function getLastSeenLevel(byteId) {
+  if (!byteId) return null;
+  try {
+    const raw = await AsyncStorage.getItem(levelKey(byteId));
+    if (raw == null) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 1) return null;
+    return Math.floor(n);
+  } catch {
+    return null;
+  }
+}
+
+export async function setLastSeenLevel(byteId, level) {
+  if (!byteId) return;
+  const safe = Math.max(1, Math.floor(Number(level || 1)));
+  try {
+    await AsyncStorage.setItem(levelKey(byteId), String(safe));
+  } catch {
+    // non-fatal
+  }
 }

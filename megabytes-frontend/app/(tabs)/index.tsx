@@ -31,9 +31,11 @@ import {
 import {
   clearPendingPoop,
   getHomeClutterClearedAt,
+  getLastSeenLevel,
   getPendingPoopAt,
   loadHomeClutterCount,
   saveHomeClutterCount,
+  setLastSeenLevel,
   setPendingPoopAt,
 } from '../../services/homeRuntimeState';
 import { initSfx, playSfx } from '../../services/sfx';
@@ -188,6 +190,51 @@ function FloatingReward({ text, left, bottom, onDone }: { text: string; left: nu
       }]}
     >
       <Text style={styles.rewardPopupText}>{text}</Text>
+    </Animated.View>
+  );
+}
+
+function LevelUpBanner({ onDone }: { onDone: () => void }) {
+  const rise    = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const sway    = useRef(new Animated.Value(0)).current;
+  const scale   = useRef(new Animated.Value(0.85)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+        Animated.delay(1100),
+        Animated.timing(opacity, { toValue: 0, duration: 950, useNativeDriver: true }),
+      ]),
+      Animated.timing(rise, { toValue: -64, duration: 2230, useNativeDriver: true }),
+      Animated.sequence([
+        Animated.spring(scale, { toValue: 1.08, friction: 5, tension: 70, useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1,    duration: 1600, useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(sway, { toValue:  1,   duration: 340, useNativeDriver: true }),
+        Animated.timing(sway, { toValue: -1,   duration: 440, useNativeDriver: true }),
+        Animated.timing(sway, { toValue:  0.6, duration: 360, useNativeDriver: true }),
+        Animated.timing(sway, { toValue:  0,   duration: 320, useNativeDriver: true }),
+      ]),
+    ]).start(() => onDone());
+  }, [onDone, opacity, rise, scale, sway]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.levelUpBanner, {
+        opacity,
+        transform: [
+          { translateY: rise },
+          { translateX: sway.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) },
+          { rotate:     sway.interpolate({ inputRange: [-1, 1], outputRange: ['-4deg', '4deg'] }) },
+          { scale },
+        ],
+      }]}
+    >
+      <Text style={styles.levelUpText}>LEVEL UP</Text>
     </Animated.View>
   );
 }
@@ -468,6 +515,7 @@ export default function HomeScreen() {
   const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
   const [rewardPopups,  setRewardPopups]  = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
   const [actionBursts,  setActionBursts]  = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
+  const [levelUpBanners, setLevelUpBanners] = useState<{ id: string }[]>([]);
   const [emotion,       setEmotion]       = useState<'praise' | 'scold' | null>(null);
   const [idleVariant,   setIdleVariant]   = useState<string | null>(null);
   // moveFacing / motionState removed 2026-04-23 — driven by useByteRoaming.
@@ -543,6 +591,48 @@ export default function HomeScreen() {
   const byteLevel = Number(byteData?.byte?.level || 1);
   const moodLabel = effectiveMood >= 75 ? 'Happy' : effectiveMood >= 40 ? 'Stable' : 'Needs care';
   const stageName = getStageName(stage);
+
+  // Level-up banner detection — compares byte.level to the last value we
+  // acknowledged on this screen (stored per-byte in AsyncStorage). Catches:
+  //  • Level-ups that happen while on the home screen (byteLevel changes live).
+  //  • Level-ups that happened on other screens (banner fires on next home load).
+  // First observation per byte is silent — we seed the stored value.
+  const byteIdForLevel = String(byteData?.byte?._id || '');
+  const lastSeenLevelRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!byteIdForLevel) return;
+    if (!Number.isFinite(byteLevel) || byteLevel < 1) return;
+
+    // First observation this mount — read stored baseline.
+    if (lastSeenLevelRef.current === null) {
+      getLastSeenLevel(byteIdForLevel).then((stored) => {
+        if (stored == null) {
+          // Brand new byte — seed silently, no banner.
+          lastSeenLevelRef.current = byteLevel;
+          setLastSeenLevel(byteIdForLevel, byteLevel).catch(() => {});
+          return;
+        }
+        if (byteLevel > stored) {
+          // Level(s) gained while off-screen. Fire one banner.
+          setLevelUpBanners((prev) => [...prev, { id: `lvl-${Date.now()}-${Math.random()}` }]);
+          lastSeenLevelRef.current = byteLevel;
+          setLastSeenLevel(byteIdForLevel, byteLevel).catch(() => {});
+        } else {
+          lastSeenLevelRef.current = stored;
+        }
+      }).catch(() => {
+        lastSeenLevelRef.current = byteLevel;
+      });
+      return;
+    }
+
+    // Subsequent observations — live level-up while on home.
+    if (byteLevel > lastSeenLevelRef.current) {
+      setLevelUpBanners((prev) => [...prev, { id: `lvl-${Date.now()}-${Math.random()}` }]);
+      lastSeenLevelRef.current = byteLevel;
+      setLastSeenLevel(byteIdForLevel, byteLevel).catch(() => {});
+    }
+  }, [byteIdForLevel, byteLevel]);
 
   // Daily care chip
   const activeTasks    = byteData?.byte?.activeDailyTasks || [];
@@ -1256,6 +1346,12 @@ export default function HomeScreen() {
             <ActionBurst key={burst.id} type={burst.type} roamX={roamX}
               onDone={() => setActionBursts((prev) => prev.filter((e) => e.id !== burst.id))} />
           ))}
+
+          {/* Level-up banner — fades up with wiggle, gold text w/ drop shadow. */}
+          {levelUpBanners.map((b) => (
+            <LevelUpBanner key={b.id}
+              onDone={() => setLevelUpBanners((prev) => prev.filter((e) => e.id !== b.id))} />
+          ))}
         </View>
 
         {/* ── 4. Brain widget / thought feed ── */}
@@ -1543,6 +1639,26 @@ const styles = StyleSheet.create({
     zIndex: 6,
   },
   burstGlyph: { position: 'absolute', bottom: 0, fontSize: 20 },
+
+  // Level-up banner — gold text, centered horizontally above the byte.
+  levelUpBanner: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: '42%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none',
+    zIndex: 9,
+  },
+  levelUpText: {
+    color: '#ffd24a',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 3,
+    textShadowColor: 'rgba(0,0,0,0.85)',
+    textShadowOffset: { width: 0, height: 3 },
+    textShadowRadius: 6,
+  },
 
   // ── Brain widget ──
   brainWidget: {

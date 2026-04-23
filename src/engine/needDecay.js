@@ -175,14 +175,34 @@ function applyDecay(needs, lastNeedsUpdate, now = new Date(), options = {}, deco
   return { needs: updated, lastNeedsUpdate: now };
 }
 
+// Long-form care variants share the same timing curve as their base action
+// (meal uses feed's Hunger window, etc.). `calm` is Mood-focused and isn't
+// gated by a timing window — treat as always optimal.
+// If future tuning needs per-variant curves, move each key into TIMING_WINDOWS
+// with its own bands and delete that key from this map.
+const ACTION_TIMING_ALIAS = {
+  meal:            'feed',
+  'perfect-clean': 'clean',
+  deep_rest:       'rest',
+  deep_play:       'play',
+  calm:            null,
+};
+
 /**
  * Determine timing window quality for a given care action.
- * @param {string} action - 'feed' | 'clean' | 'rest' | 'play'
+ * @param {string} action - base ('feed'|'clean'|'rest'|'play') or long-form variant
  * @param {number} needValue - current value of the target need (0–100)
  * @returns {Object} { window: 'optimal'|'early'|'late'|'waste', restoreMultiplier }
  */
 function getTimingWindow(action, needValue) {
-  const windows = TIMING_WINDOWS[action];
+  const aliased = Object.prototype.hasOwnProperty.call(ACTION_TIMING_ALIAS, action)
+    ? ACTION_TIMING_ALIAS[action]
+    : action;
+
+  // Explicit null = no timing curve (e.g. calm → Mood).
+  if (aliased === null) return { window: 'optimal', restoreMultiplier: 1.0 };
+
+  const windows = TIMING_WINDOWS[aliased];
   if (!windows) throw new Error(`[NeedDecay] Unknown action: "${action}"`);
 
   for (const w of windows) {

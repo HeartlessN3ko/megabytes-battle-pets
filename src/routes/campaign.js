@@ -1,7 +1,6 @@
 const express = require('express');
 const Campaign = require('../models/Campaign');
 const Byte = require('../models/Byte');
-const Player = require('../models/Player');
 
 const router = express.Router();
 

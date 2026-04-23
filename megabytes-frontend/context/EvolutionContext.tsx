@@ -1,10 +1,10 @@
 // context/EvolutionContext.tsx
-// Tracks the demo evolution stage globally.
+// Tracks the evolution stage globally.
 // Stage 0 = egg, 1 = stage1, 2 = stage2
 
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { useEffect } from 'react';
-import { getByte, evolveByte, setDemoStage } from '../services/api';
+import { getByte, evolveByte } from '../services/api';
 
 type Stage = 0 | 1 | 2;
 
@@ -18,7 +18,6 @@ interface EvolutionContextType {
   recordClean: () => { evolved: boolean };
   recordBattle: () => { evolved: boolean };
   advanceStage: () => void;
-  resetEvolutionProgress: (forcedStage?: number) => Promise<void>;
   reloadFromServer: () => Promise<void>;
 }
 
@@ -82,16 +81,7 @@ export function EvolutionProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const resetEvolutionProgress = useCallback(async (forcedStage = 0) => {
-    applyStage(forcedStage);
-    try {
-      await setDemoStage(forcedStage);
-    } catch {
-      // Backend reset route may have already handled this.
-    }
-  }, [applyStage]);
-
-  // Demo progression counters disabled — evolution is backend-driven by real level requirements
+  // Progression counters are observational — evolution is backend-driven by real level requirements
   const recordFeed = useCallback(() => {
     const next = feedCount + 1;
     setFeedCount(next);
@@ -113,7 +103,7 @@ export function EvolutionProvider({ children }: { children: React.ReactNode }) {
   return (
     <EvolutionContext.Provider value={{
       stage, hydrated, feedCount, cleanCount, battleCount,
-      recordFeed, recordClean, recordBattle, advanceStage, resetEvolutionProgress, reloadFromServer,
+      recordFeed, recordClean, recordBattle, advanceStage, reloadFromServer,
     }}>
       {children}
     </EvolutionContext.Provider>

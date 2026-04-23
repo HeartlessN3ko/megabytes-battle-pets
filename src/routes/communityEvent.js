@@ -108,7 +108,7 @@ router.post('/:eventId/claim', async (req, res) => {
 // POST /api/community-event/contribute - contribute to event (no-op for now)
 router.post('/contribute', async (req, res) => {
   try {
-    const { playerId, eventId, contributionType, amount } = req.body;
+    const { playerId, eventId, contributionType: _contributionType, amount: _amount } = req.body;
 
     if (!playerId || !eventId) {
       return res.status(400).json({ error: 'playerId and eventId required' });

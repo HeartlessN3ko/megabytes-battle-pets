@@ -41,9 +41,7 @@ import {
 import { initSfx, playSfx } from '../../services/sfx';
 import { useEvolution } from '../../context/EvolutionContext';
 import { useActionGate } from '../../hooks/useActionGate';
-import { useDemoMode } from '../../hooks/useDemoMode';
 import { useByteRoaming } from '../../hooks/useByteRoaming';
-import { getDemoSpeedLabel } from '../../services/demoSession';
 import { generateByteThought } from '../../services/byteThoughts';
 import { getByteMotionProfile } from '../../services/byteMotion';
 import {
@@ -292,9 +290,8 @@ function NeedBar({ label, value, color }: { label: string; value: number; color:
   );
 }
 
-function StatsModal({ visible, onClose, byteData, playerData, onEvolved, demoMode, demoBusy, demoHydrated, onEnableDemo }: {
+function StatsModal({ visible, onClose, byteData, playerData, onEvolved }: {
   visible: boolean; onClose: () => void; byteData: any; playerData: any; onEvolved: () => void;
-  demoMode: boolean; demoBusy: boolean; demoHydrated: boolean; onEnableDemo: () => void;
 }) {
   const [evolving,    setEvolving]    = React.useState(false);
   const [evolveError, setEvolveError] = React.useState<string | null>(null);
@@ -440,25 +437,6 @@ function StatsModal({ visible, onClose, byteData, playerData, onEvolved, demoMod
             <View style={styles.kvRow}><Text style={styles.kvKey}>ROOMS OWNED</Text><Text style={styles.kvVal}>{Array.isArray(playerData?.unlockedRooms) ? playerData.unlockedRooms.length : 0}</Text></View>
             <View style={styles.kvRow}><Text style={styles.kvKey}>ITEM TYPES OWNED</Text><Text style={styles.kvVal}>{Array.isArray(playerData?.itemInventory) ? playerData.itemInventory.length : 0}</Text></View>
 
-            {/* Dev — Demo mode toggle */}
-            <Text style={styles.statsSection}>DEV</Text>
-            {demoMode ? (
-              <View style={styles.kvRow}>
-                <Text style={styles.kvKey}>DEMO MODE</Text>
-                <Text style={[styles.kvVal, { color: '#ffe08d' }]}>{getDemoSpeedLabel() || 'ACTIVE'}</Text>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={{ marginTop: 4, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,225,142,0.4)', backgroundColor: 'rgba(78,58,18,0.6)', paddingVertical: 8, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}
-                disabled={demoMode || demoBusy || !demoHydrated}
-                onPress={() => { onClose(); setTimeout(onEnableDemo, 200); }}
-              >
-                <Ionicons name="flash-outline" size={13} color="#ffe18e" />
-                <Text style={{ color: '#ffe08d', fontSize: 9.6, fontWeight: '900', letterSpacing: 1 }}>
-                  {demoBusy ? 'ACTIVATING...' : 'ENABLE DEMO MODE'}
-                </Text>
-              </TouchableOpacity>
-            )}
           </ScrollView>
 
           <TouchableOpacity style={styles.statsClose} onPress={onClose}>
@@ -475,7 +453,6 @@ function StatsModal({ visible, onClose, byteData, playerData, onEvolved, demoMod
 export default function HomeScreen() {
   const router = useRouter();
   const { stage, reloadFromServer } = useEvolution();
-  const { demoMode, hydrated: demoHydrated, enableDemoMode } = useDemoMode();
   const { isLocked, runAction } = useActionGate(700);
 
   // Motion animations
@@ -514,7 +491,6 @@ export default function HomeScreen() {
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [clutter,       setClutter]       = useState(0);
   const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: string; size: number; front: boolean; kind: 'trash' | 'poop' }[]>([]);
-  const [demoBusy,      setDemoBusy]      = useState(false);
   const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
   const [rewardPopups,  setRewardPopups]  = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
   const [actionBursts,  setActionBursts]  = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
@@ -902,7 +878,7 @@ export default function HomeScreen() {
   // after the player returns home).
   useEffect(() => {
     const FEED_DETECT_MIN = 10;
-    const DIGEST_DELAY_MS = poopDigestMs(demoMode);
+    const DIGEST_DELAY_MS = poopDigestMs();
     const current = Number(needs.Hunger ?? 0);
     const prev    = prevHungerRef.current;
     prevHungerRef.current = current;
@@ -913,7 +889,7 @@ export default function HomeScreen() {
       if (existing > 0) return;
       setPendingPoopAt(Date.now() + DIGEST_DELAY_MS).catch(() => {});
     }).catch(() => {});
-  }, [needs.Hunger, demoMode]);
+  }, [needs.Hunger]);
 
   // Poop timer poll — every 10s check if digestion finished.
   // On expiry, spawn a single poop clutter node and clear the timer.
@@ -1229,19 +1205,6 @@ export default function HomeScreen() {
       reactionBounce, reactionShake, reactionShrink, reactionRotate,
       reactionHeartOpacity, reactionBlinkOpacity]);
 
-  const handleEnableDemoMode = useCallback(async () => {
-    if (demoMode || demoBusy) return;
-    setDemoBusy(true);
-    setTransientStatus('Activating demo profile...', 1800);
-    try {
-      await enableDemoMode();
-      await Promise.all([refreshData(), reloadFromServer().catch(() => {})]);
-      playSfx('notify', 0.75);
-      setTransientStatus('Demo mode enabled. Accelerated testing profile active.', 2600);
-      setIdleThoughtTicks(0);
-    } finally { setDemoBusy(false); }
-  }, [demoBusy, demoMode, enableDemoMode, refreshData, reloadFromServer, setTransientStatus]);
-
   // ─── Render ────────────────────────────────────────────────────────────────────
 
   return (
@@ -1516,10 +1479,6 @@ export default function HomeScreen() {
         onClose={() => setStatsOpen(false)}
         byteData={byteData}
         playerData={playerData}
-        demoMode={demoMode}
-        demoBusy={demoBusy}
-        demoHydrated={demoHydrated}
-        onEnableDemo={handleEnableDemoMode}
         onEvolved={() => {
           (async () => { await refreshData(); await reloadFromServer().catch(() => {}); })().catch(() => {});
         }}

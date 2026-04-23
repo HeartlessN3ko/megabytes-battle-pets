@@ -77,7 +77,7 @@ function applyDecayInterdependency(decayLoss = {}, needs = {}) {
  * @param {string} action - which care action is being performed
  * @returns {Object} adjusted restore values
  */
-function applyCareInterdependency(restoreValues = {}, needs = {}, action = '') {
+function applyCareInterdependency(restoreValues = {}, needs = {}, _action = '') {
   let adjusted = { ...restoreValues };
 
   // Low affection affects all care action effectiveness

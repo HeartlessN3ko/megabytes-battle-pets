@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Alert,
   ImageBackground,
   ScrollView,
   StyleSheet,
@@ -12,9 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { resetDemoData } from '../../services/api';
-import { useEvolution } from '../../context/EvolutionContext';
-import { setSfxEnabled, isSfxEnabled } from '../../services/sfx';
+import { setSfxEnabled } from '../../services/sfx';
 
 const SETTINGS_KEY = '@megabytes_settings';
 
@@ -23,7 +20,6 @@ interface Settings {
   notifications: boolean;
   reducedMotion: boolean;
   showCorruption: boolean;
-  demoSpeedFast: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -31,7 +27,6 @@ const DEFAULTS: Settings = {
   notifications: true,
   reducedMotion: false,
   showCorruption: true,
-  demoSpeedFast: true,
 };
 
 async function loadSettings(): Promise<Settings> {
@@ -54,7 +49,6 @@ export { loadSettings };
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { resetEvolutionProgress, reloadFromServer } = useEvolution();
   const [settings, setSettings] = useState<Settings>(DEFAULTS);
   const [saved, setSaved] = useState(false);
 
@@ -76,30 +70,6 @@ export default function SettingsScreen() {
     setSaved(true);
     setTimeout(() => setSaved(false), 1200);
   }, [settings]);
-
-  const handleResetDemo = () => {
-    Alert.alert(
-      'Reset Demo',
-      'Resets Byte progress, stats, currency, and behavior metrics to fresh egg state.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reset',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const reset = await resetDemoData();
-              await resetEvolutionProgress(Number(reset?.evolutionStage ?? 1));
-              await reloadFromServer();
-              router.replace('/(tabs)');
-            } catch (err: any) {
-              Alert.alert('Reset failed', err?.message || 'Unable to reset right now.');
-            }
-          },
-        },
-      ]
-    );
-  };
 
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={s.bg} resizeMode="cover">
@@ -151,22 +121,12 @@ export default function SettingsScreen() {
             <Text style={s.hint}>Push notification delivery requires device permissions.</Text>
           </View>
 
-          {/* ── Demo Tools ── */}
+          {/* ── Loadout ── */}
           <View style={s.card}>
-            <Text style={s.cardTitle}>DEMO TOOLS</Text>
-            <SettingRow
-              label="Fast Demo Speed"
-              desc="Decay and XP run at 24× speed for playtesting"
-              value={settings.demoSpeedFast}
-              onToggle={(v) => update('demoSpeedFast', v)}
-            />
+            <Text style={s.cardTitle}>LOADOUT</Text>
             <TouchableOpacity style={s.secondaryBtn} onPress={() => router.push('/(tabs)/loadout')} activeOpacity={0.85}>
               <Text style={s.secondaryBtnText}>CONFIGURE LOADOUT</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.resetBtn} onPress={handleResetDemo} activeOpacity={0.85}>
-              <Text style={s.resetBtnText}>RESET DEMO DATA</Text>
-            </TouchableOpacity>
-            <Text style={s.hint}>Reset returns Byte to a fresh state for repeatable test runs.</Text>
           </View>
 
           <View style={{ height: 90 }} />
@@ -265,14 +225,4 @@ const s = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryBtnText: { color: '#b9e5ff', fontSize: 11, fontWeight: '900', letterSpacing: 1.1 },
-
-  resetBtn: {
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,110,110,0.5)',
-    backgroundColor: 'rgba(120,20,28,0.5)',
-    paddingVertical: 11,
-    alignItems: 'center',
-  },
-  resetBtnText: { color: '#ffd4d4', fontSize: 11, fontWeight: '900', letterSpacing: 1.4 },
 });

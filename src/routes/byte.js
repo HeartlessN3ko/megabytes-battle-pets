@@ -12,7 +12,6 @@ const xpEngine             = require('../engine/xpEngine');
 const needInterdependencyEngine = require('../engine/needInterdependencyEngine');
 const streakEngine         = require('../engine/streakEngine');
 const neglectEngine        = require('../engine/neglectEngine');
-const decorSystem          = require('../engine/decorSystem');
 const behaviorTracker = require('../engine/behaviorTracker');
 const eggMetricsEngine = require('../engine/eggMetricsEngine');
 const eggHatchEngine   = require('../engine/eggHatchEngine');
@@ -501,7 +500,6 @@ router.patch('/:id/care', async (req, res) => {
     }
 
     // Corruption — hygiene-driven system (low hygiene = faster corruption)
-    const careSpeedMult = getDecayOptions(req).speedMultiplier || 1;
     if (action === 'clean') {
       // Quick Clean: restores hygiene + slight corruption reduction (-5)
       byte.corruption = corruptionEngine.applyDecay(byte.corruption, 'BATHROOM_CLEAN');

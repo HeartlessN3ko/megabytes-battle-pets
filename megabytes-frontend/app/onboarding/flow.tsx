@@ -11,8 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getOnboardingProgress, advanceOnboarding, skipOnboarding } from '../../services/api';
-import { getDemoSessionHeaders } from '../../services/demoSession';
+import { getOnboardingProgress, advanceOnboarding } from '../../services/api';
 import { playSfx } from '../../services/sfx';
 
 export default function OnboardingFlowScreen() {
@@ -67,21 +66,6 @@ export default function OnboardingFlowScreen() {
     }
   };
 
-  const handleSkip = async () => {
-    try {
-      const isDemo = getDemoSessionHeaders()['x-is-demo'] === 'true';
-      if (!isDemo) return;
-
-      setAdvancing(true);
-      await skipOnboarding();
-      safeNavigate(() => router.replace('/(tabs)'), 300);
-    } catch (err: any) {
-      console.error('Failed to skip:', err);
-    } finally {
-      setAdvancing(false);
-    }
-  };
-
   if (loading) {
     return (
       <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
@@ -93,7 +77,6 @@ export default function OnboardingFlowScreen() {
   }
 
   const stage = progress?.stageData;
-  const isDemo = getDemoSessionHeaders()['x-is-demo'] === 'true';
 
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
@@ -128,16 +111,6 @@ export default function OnboardingFlowScreen() {
                 </>
               )}
             </TouchableOpacity>
-
-            {isDemo && (
-              <TouchableOpacity
-                style={[styles.btn, styles.skipBtn]}
-                onPress={handleSkip}
-                disabled={advancing}
-              >
-                <Text style={styles.skipBtnText}>SKIP (DEMO)</Text>
-              </TouchableOpacity>
-            )}
           </View>
 
           {/* Progress indicator */}
@@ -188,13 +161,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#7ec8ff',
   },
-  skipBtn: {
-    backgroundColor: 'rgba(255,106,96,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,106,96,0.4)',
-  },
   btnText: { fontSize: 13, fontWeight: '900', color: '#d9efff', letterSpacing: 1.2 },
-  skipBtnText: { fontSize: 12, fontWeight: '800', color: 'rgba(255,106,96,0.8)', letterSpacing: 1 },
 
   progressBar: { alignItems: 'center' },
   progressText: { fontSize: 11, fontWeight: '600', color: 'rgba(212,238,255,0.5)' },

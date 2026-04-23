@@ -11,7 +11,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { getPlayerAchievements } from '../../services/api';
-import { getDemoSessionHeaders } from '../../services/demoSession';
 import { playSfx } from '../../services/sfx';
 
 const RARITY_COLORS: Record<string, string> = {
@@ -36,7 +35,6 @@ export default function AchievementsScreen() {
   const [achievements, setAchievements] = useState<AchievementItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [unlockedCount, setUnlockedCount] = useState(0);
-  const isDemo = getDemoSessionHeaders()['x-is-demo'] === 'true';
   const twinkleFired = React.useRef(false);
 
   const load = useCallback(async () => {
@@ -91,15 +89,6 @@ export default function AchievementsScreen() {
           </Text>
         </View>
       </View>
-
-      {isDemo && (
-        <View style={styles.demoNotice}>
-          <Ionicons name="alert-circle-outline" size={14} color="#ffe18e" />
-          <Text style={styles.demoNoticeText}>
-            Achievements do not track in demo mode
-          </Text>
-        </View>
-      )}
 
       {loading ? (
         <ActivityIndicator size="large" color="#7ec8ff" style={{ marginTop: 40 }} />
@@ -208,20 +197,6 @@ const styles = StyleSheet.create({
   statLabel:   { fontSize: 10, fontWeight: '700', color: 'rgba(212,238,255,0.6)', letterSpacing: 0.8, marginBottom: 4 },
   statValue:   { fontSize: 18, fontWeight: '900', color: '#7ec8ff' },
   statDivider: { width: 1, backgroundColor: 'rgba(80,160,255,0.2)', alignSelf: 'stretch' },
-
-  demoNotice: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(255,225,142,0.12)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255,225,142,0.2)',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    margin: 14,
-  },
-  demoNoticeText: { fontSize: 11, fontWeight: '600', color: '#ffe18e', flexShrink: 1 },
 
   list:        { flex: 1, paddingHorizontal: 14, paddingTop: 16 },
   section:     { marginBottom: 24 },

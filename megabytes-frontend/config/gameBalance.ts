@@ -16,9 +16,6 @@ export const CLUTTER_DIRTY_MULTIPLIER = 3;
 // Hours after a detected feed until a poop spawns.
 export const POOP_DIGEST_HOURS = 0.025;   // ≈ 90s
 
-// Demo mode compresses this timer for tuning.
-export const POOP_DIGEST_HOURS_DEMO = 0.0042;  // ≈ 15s
-
 // ── Derived helpers ──────────────────────────────────────────────────────────
 
 /**
@@ -33,6 +30,6 @@ export function clutterSpawnProbabilityDirty(pollSeconds: number): number {
   return Math.min(1, clutterSpawnProbability(pollSeconds) * CLUTTER_DIRTY_MULTIPLIER);
 }
 
-export function poopDigestMs(demoMode: boolean): number {
-  return (demoMode ? POOP_DIGEST_HOURS_DEMO : POOP_DIGEST_HOURS) * 3600 * 1000;
+export function poopDigestMs(): number {
+  return POOP_DIGEST_HOURS * 3600 * 1000;
 }

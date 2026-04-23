@@ -12,7 +12,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getPlayerAchievements } from '../../services/api';
-import { getDemoSessionHeaders } from '../../services/demoSession';
 
 const RARITY_COLORS: Record<string, string> = {
   common: '#7ec8ff',
@@ -64,7 +63,6 @@ export default function AchievementsSheet({ visible, onClose }: AchievementsShee
 
   const unlockedAchievements = achievements.filter((a) => a.unlocked);
   const lockedAchievements = achievements.filter((a) => !a.unlocked);
-  const isDemo = getDemoSessionHeaders()['x-is-demo'] === 'true';
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -100,13 +98,6 @@ export default function AchievementsSheet({ visible, onClose }: AchievementsShee
               </Text>
             </View>
           </View>
-
-          {isDemo && (
-            <View style={styles.demoNotice}>
-              <Ionicons name="alert-circle-outline" size={14} color="#ffe18e" />
-              <Text style={styles.demoNoticeText}>Achievements do not track in demo mode</Text>
-            </View>
-          )}
 
           {loading ? (
             <View style={styles.loadingContainer}>
@@ -220,7 +211,4 @@ const styles = StyleSheet.create({
 
   cardReward: { flexDirection: 'row', gap: 8 },
   rewardText: { fontSize: 10, fontWeight: '700', color: '#7cffb2' },
-
-  demoNotice: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,225,142,0.12)', borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,225,142,0.2)', paddingVertical: 10, paddingHorizontal: 12, marginBottom: 12 },
-  demoNoticeText: { fontSize: 11, fontWeight: '600', color: '#ffe18e', flexShrink: 1 },
 });

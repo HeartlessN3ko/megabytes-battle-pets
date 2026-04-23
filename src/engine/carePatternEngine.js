@@ -124,7 +124,6 @@ function getInteractionVarietyScore(careActions = []) {
   }
 
   const types = Object.keys(actionCounts).length;
-  const total = careActions.length;
 
   // If using only 1–2 actions, heavy penalty
   if (types === 1) return 0;

@@ -13,7 +13,7 @@
 
 const BASE_URL = (process.env.API_BASE_URL || 'http://127.0.0.1:5000').replace(/\/+$/, '');
 const PLAYER_ID = process.env.PLAYER_ID || '69d88aea8708c93a264e50f0';
-const MISSINGNO_BYTE_ID = process.env.BYTE_ID || '69d88d94770f0c774e9f4808';
+// Note: MISSINGNO_BYTE_ID env was used by the now-removed reset-demo prep step.
 
 let passed = 0;
 let failed = 0;
@@ -44,15 +44,11 @@ async function run() {
   const health = await req('GET', '/health');
   assert('backend reachable', health.status === 200);
 
-  // --- 2. Reset demo to get clean state ---
-  // Note: Circle (demo byte) has isDevByte=false by design — it's a normal byte.
-  // The isDevByte death guard is tested separately if a dev byte is created manually.
-  console.log('\n[0] Reset demo');
-  const reset = await req('POST', `/api/player/${PLAYER_ID}/reset-demo`, { byteId: MISSINGNO_BYTE_ID });
-  assert('reset-demo succeeds', reset.status === 200, JSON.stringify(reset.body));
+  // (Historical step 2 — reset-demo prep — removed with demo mode 2026-04-23.
+  //  The temp-byte creation below is independent of prior state, so no prep needed.)
 
-  // --- 3. Create a temporary byte for lifecycle test ---
-  console.log('\n[1] Create temp byte for lifecycle test');
+  // --- 2. Create a temporary byte for lifecycle test ---
+  console.log('\n[2] Create temp byte for lifecycle test');
   const createRes = await req('POST', '/api/byte', { playerId: PLAYER_ID });
   assert('temp byte created', createRes.status === 201, JSON.stringify(createRes.body));
   const tempByteId = createRes.body?._id;

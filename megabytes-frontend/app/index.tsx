@@ -1,11 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  View, Text, ImageBackground, Image, TouchableOpacity,
+  View, Text, ImageBackground, Image,
   StyleSheet, Animated, Dimensions, StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useDemoMode } from '../hooks/useDemoMode';
-import { playSfx } from '../services/sfx';
+import { getOnboardingProgress } from '../services/api';
 import appConfig from '../app.json';
 const BUILD_VERSION = appConfig.expo.version;
 
@@ -13,10 +12,10 @@ const { width, height } = Dimensions.get('window');
 
 export default function SplashScreen() {
   const router    = useRouter();
-  const { enableDemoMode, hydrated: demoHydrated } = useDemoMode();
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeIn    = useRef(new Animated.Value(0)).current;
   const logoY     = useRef(new Animated.Value(-30)).current;
+  const routed    = useRef(false);
 
   useEffect(() => {
     Animated.parallel([
@@ -32,26 +31,29 @@ export default function SplashScreen() {
     ).start();
   }, [fadeIn, logoY, pulseAnim]);
 
-  const fadeOut = (cb: () => void) => {
-    Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(cb);
-  };
-
-  const handleDemo = async () => {
-    if (!demoHydrated) return;
-    playSfx('press_start', 0.8);
-    await enableDemoMode();
-    fadeOut(() => router.replace('/(tabs)' as any));
-  };
-
-  const handleNewPlayer = () => {
-    if (!demoHydrated) return;
-    playSfx('press_start', 0.8);
-    fadeOut(() => router.replace('/onboarding/flow' as any));
-  };
-
-  const handleCredits = () => {
-    router.push('/credits');
-  };
+  useEffect(() => {
+    let cancelled = false;
+    const routeAfterSplash = async () => {
+      // Hold splash visible for ~1.6s so the animation reads.
+      await new Promise((r) => setTimeout(r, 1600));
+      let target = '/(tabs)';
+      try {
+        const progress = await getOnboardingProgress();
+        if (progress && progress.isComplete === false) {
+          target = '/onboarding/flow';
+        }
+      } catch {
+        // Offline or server cold — send them to tabs; tabs handles its own error states.
+      }
+      if (cancelled || routed.current) return;
+      routed.current = true;
+      Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {
+        router.replace(target as any);
+      });
+    };
+    routeAfterSplash();
+    return () => { cancelled = true; };
+  }, [fadeIn, router]);
 
   return (
     <ImageBackground
@@ -70,34 +72,15 @@ export default function SplashScreen() {
             />
           </Animated.View>
 
-          {demoHydrated ? (
-            <View style={styles.choiceBlock}>
-              <TouchableOpacity onPress={handleDemo} activeOpacity={0.8} style={styles.demoBtn}>
-                <Animated.Text style={[styles.demoBtnText, { opacity: pulseAnim }]}>
-                  DEMO MODE
-                </Animated.Text>
-                <Text style={styles.btnSub}>Jump in with a test profile</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={handleNewPlayer} activeOpacity={0.8} style={styles.newPlayerBtn}>
-                <Text style={styles.newPlayerText}>NEW PLAYER</Text>
-                <Text style={styles.btnSub}>Full onboarding + egg selection</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <Text style={[styles.demoBtnText, { opacity: 0.5 }]}>SYNCING...</Text>
-          )}
-
-          <TouchableOpacity onPress={handleCredits} activeOpacity={0.85} style={styles.creditsBtn}>
-            <Text style={styles.creditsText}>CREDITS</Text>
-          </TouchableOpacity>
+          <Animated.Text style={[styles.loadingText, { opacity: pulseAnim }]}>
+            LOADING...
+          </Animated.Text>
         </View>
 
         <View style={styles.infoBlock}>
           <View style={styles.scanlines} pointerEvents="none" />
-          <Text style={styles.infoPrimary}>DEMO BUILD {BUILD_VERSION}</Text>
+          <Text style={styles.infoPrimary}>BUILD {BUILD_VERSION}</Text>
           <Text style={styles.infoSecondary}>VOIDWORKS INTERACTIVE</Text>
-          <Text style={styles.infoSecondary}>INTERNAL SHOWCASE BRANCH</Text>
         </View>
       </Animated.View>
     </ImageBackground>
@@ -116,68 +99,15 @@ const styles = StyleSheet.create({
   logoWrap:  { width: '100%', alignItems: 'center', justifyContent: 'center' },
   logo:      { width: width * 1.22, height: height * 0.5 },
 
-  choiceBlock: {
-    width: '78%',
-    gap: 14,
-    marginTop: -8,
-  },
-
-  demoBtn: {
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: '#7ec8ff',
-    backgroundColor: 'rgba(4,18,40,0.72)',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-  },
-  demoBtnText: {
+  loadingText: {
     color: '#7ec8ff',
-    fontSize: 20,
+    fontSize: 14,
     fontWeight: '800',
     letterSpacing: 4,
+    marginTop: 24,
     textShadowColor: '#00aaff',
     textShadowOffset: { width: 0, height: 0 },
     textShadowRadius: 10,
-  },
-
-  newPlayerBtn: {
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: 'rgba(126,200,255,0.38)',
-    backgroundColor: 'rgba(4,18,40,0.52)',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-  },
-  newPlayerText: {
-    color: 'rgba(210,238,255,0.92)',
-    fontSize: 18,
-    fontWeight: '800',
-    letterSpacing: 3,
-  },
-
-  btnSub: {
-    color: 'rgba(170,218,245,0.55)',
-    fontSize: 9.5,
-    letterSpacing: 1,
-    marginTop: 4,
-  },
-
-  creditsBtn: {
-    marginTop: 18,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(126,200,255,0.24)',
-    backgroundColor: 'rgba(4,18,40,0.46)',
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  creditsText: {
-    color: 'rgba(210,238,255,0.88)',
-    fontSize: 11.2,
-    fontWeight: '800',
-    letterSpacing: 1.8,
   },
 
   infoBlock: {

@@ -7,7 +7,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useEvolution } from '../context/EvolutionContext';
 import { careAction, hatchByte } from '../services/api';
-import { toDemoSeconds } from '../services/demoSession';
 import { playSfx } from '../services/sfx';
 
 const { width } = Dimensions.get('window');
@@ -52,11 +51,11 @@ export default function EggScreen() {
 
   const [particles, setParticles] = useState<any[]>([]);
   const [inspectVisible, setInspectVisible] = useState(false);
-  const [hatchTimeMs, setHatchTimeMs] = useState(toDemoSeconds(10) * 1000); // 10s real, ~0.4s demo
+  const [hatchTimeMs, setHatchTimeMs] = useState(10 * 1000); // 10s hatch timer
   const particleId = useRef(0);
   const hatchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const hatchProgress = Math.max(0, 1 - (hatchTimeMs / (toDemoSeconds(10) * 1000)));
+  const hatchProgress = Math.max(0, 1 - (hatchTimeMs / (10 * 1000)));
 
   // Simple bob - no nesting
   useEffect(() => {

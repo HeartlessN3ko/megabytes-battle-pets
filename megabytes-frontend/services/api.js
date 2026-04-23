@@ -1,13 +1,19 @@
 // services/api.js
 // Central API service. Backend calls should go through this file.
-import { getActiveProfileIds, getDemoSessionHeaders } from './demoSession';
 
 const RAW_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://10.0.0.45:5000';
 const BASE_URL = RAW_BASE_URL.replace(/\/+$/, '');
 const REQUEST_TIMEOUT_MS = 14000;
 let lastWarmupAt = 0;
 
-export const getActiveIds = () => getActiveProfileIds();
+const PLAYER_ID = process.env.EXPO_PUBLIC_PLAYER_ID || '69d88aea8708c93a264e50f0';
+const BYTE_ID = process.env.EXPO_PUBLIC_BYTE_ID || '69d88d94770f0c774e9f4808';
+
+function activeIds() {
+  return { playerId: PLAYER_ID, byteId: BYTE_ID };
+}
+
+export const getActiveIds = () => activeIds();
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -44,7 +50,6 @@ async function request(method, path, body) {
     try {
       const headers = {
         'Content-Type': 'application/json',
-        ...getDemoSessionHeaders(),
       };
 
       const controller = new AbortController();
@@ -113,10 +118,6 @@ async function request(method, path, body) {
   throw lastError || new Error('Request failed');
 }
 
-function activeIds() {
-  return getActiveProfileIds();
-}
-
 // Byte
 export const getByte = () => request('GET', `/api/byte/${activeIds().byteId}`);
 export const syncByte = () => request('POST', `/api/byte/${activeIds().byteId}/sync`);
@@ -140,7 +141,6 @@ export const resetDailyTasks = () => request('POST', `/api/byte/${activeIds().by
 export const hatchByte = () => request('POST', `/api/byte/${activeIds().byteId}/hatch`);
 export const evolveByte = (itemUsed = null, playerChoice = {}) =>
   request('POST', `/api/byte/${activeIds().byteId}/evolve`, { itemUsed, playerChoice });
-export const setDemoStage = (stage) => request('PATCH', `/api/byte/${activeIds().byteId}/demo-stage`, { stage });
 export const getByteMoves = () => request('GET', `/api/byte/${activeIds().byteId}/moves`);
 export const updateByteLoadout = (payload) => request('PATCH', `/api/byte/${activeIds().byteId}/loadout`, payload);
 
@@ -149,8 +149,6 @@ export const getPlayer = () => request('GET', `/api/player/${activeIds().playerI
 export const getInventory = () => request('GET', `/api/player/${activeIds().playerId}/inventory`);
 
 export const getCurrency = () => request('GET', `/api/player/${activeIds().playerId}/currency`);
-export const resetDemoData = () =>
-  request('POST', `/api/player/${activeIds().playerId}/reset-demo`, { byteId: activeIds().byteId });
 
 // Battle
 export const startBattle = (mode = 'ai') =>
@@ -221,7 +219,6 @@ export const getCampaignLeaderboard = () => request('GET', '/api/campaign/leader
 export const getOnboardingProgress = () => request('GET', `/api/onboarding/${activeIds().playerId}`);
 export const advanceOnboarding = () => request('POST', `/api/onboarding/${activeIds().playerId}/advance`);
 export const selectOnboardingEgg = (shape) => request('POST', `/api/onboarding/${activeIds().playerId}/select-egg`, { shape });
-export const skipOnboarding = () => request('POST', `/api/onboarding/${activeIds().playerId}/skip`);
 
 // Achievements
 export const getAllAchievements = () => request('GET', '/api/achievements');

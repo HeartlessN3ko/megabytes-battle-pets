@@ -2,9 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { careAction, clinicRepair, enterRoom, getByte } from '../../services/api';
 import RoomScene, { RoomAction } from '../../components/RoomScene';
-import { isDemoModeActive, toDemoSeconds } from '../../services/demoSession';
 
-const DEEP_PURGE_SECONDS = () => isDemoModeActive() ? 15 : 90;
+const DEEP_PURGE_SECONDS = 90;
+const STABILIZE_SECONDS = 30;
 
 export default function ClinicRoom() {
   const router = useRouter();
@@ -69,12 +69,12 @@ export default function ClinicRoom() {
       color: '#7cffc0',
       sceneEffect: 'stabilize',
       disabled: busy,
-      onPress: () => runTimed('Stabilize', toDemoSeconds(30), () => careAction('rest'), 'Stabilize complete. Recovery profile improved.'),
+      onPress: () => runTimed('Stabilize', STABILIZE_SECONDS, () => careAction('rest'), 'Stabilize complete. Recovery profile improved.'),
     },
     {
       key: 'purge-long',
       title: 'DEEP PURGE',
-      subtitle: `${DEEP_PURGE_SECONDS()}s repair cycle`,
+      subtitle: `${DEEP_PURGE_SECONDS}s repair cycle`,
       icon: 'build-outline',
       color: '#79d2ff',
       sceneEffect: 'purge',
@@ -82,7 +82,7 @@ export default function ClinicRoom() {
       onPress: () =>
         runTimed(
           'Deep Purge',
-          DEEP_PURGE_SECONDS(),
+          DEEP_PURGE_SECONDS,
           async () => { await clinicRepair(); },
           'Deep Purge complete. Corruption reduced.'
         ),

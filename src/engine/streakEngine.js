@@ -73,7 +73,7 @@ function checkStreakBreakCondition(dailyScore, maxCriticalMinutes = 0) {
  * @param {number} lastSlipDayUsed - days since last grace use (null = unused)
  * @returns {Object} { canUseGrace, daysUntilNextGrace }
  */
-function canUseGraceRule(currentStreak = 0, lastSlipDayUsed = null) {
+function canUseGraceRule(_currentStreak = 0, lastSlipDayUsed = null) {
   if (!lastSlipDayUsed) {
     // Never used grace, can use now
     return { canUseGrace: true, daysUntilNextGrace: 0 };
@@ -110,7 +110,7 @@ function updateStreak(streakData = {}, dailyScore = 0, maxCriticalMinutes = 0) {
   }
 
   // Check break condition
-  const { shouldBreak, shouldDowngrade } = checkStreakBreakCondition(dailyScore, maxCriticalMinutes);
+  const { shouldBreak } = checkStreakBreakCondition(dailyScore, maxCriticalMinutes);
 
   let count = streakData.count || 0;
   let slipDayUsed = null;

@@ -180,7 +180,7 @@ function getSubject(status) {
   return subjects[status] || 'Order Update';
 }
 
-function generateMarketplaceEmail(status, itemName = null) {
+function generateMarketplaceEmail(status, _itemName = null) {
   const subject = getSubject(status);
   const pool = getStatusPools(status);
   const body = pick(pool);

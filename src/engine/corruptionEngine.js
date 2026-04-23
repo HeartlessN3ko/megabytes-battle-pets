@@ -76,13 +76,12 @@ function hygieneModifier(needs) {
 
 /**
  * Apply a corruption gain trigger.
- * Applies stability modifier, hygiene modifier, and optional demo speed multiplier.
- * Clamps result to [0, 100].
+ * Applies stability modifier and hygiene modifier. Clamps result to [0, 100].
  *
  * @param {number} current   - current corruption value
  * @param {string} trigger   - key from CORRUPTION_GAIN
  * @param {Object} needs     - current needs (for stability & hygiene checks)
- * @param {number} [speedMult=1] - demo speed multiplier
+ * @param {number} [speedMult=1] - reserved multiplier (default 1)
  * @returns {number} new corruption value
  */
 function applyGain(current, trigger, needs, speedMult = 1) {
@@ -132,7 +131,7 @@ function applyPassiveDecay(current, needs) {
  * @param {number} current
  * @param {Object} needs
  * @param {number} minutesElapsed - real minutes since last tick (already capped upstream)
- * @param {number} [speedMult=1]  - demo speed multiplier
+ * @param {number} [speedMult=1]  - reserved multiplier (default 1)
  * @returns {number} new corruption value (clamped to [0, 100])
  */
 function applyTimeBasedNeglect(current, needs, minutesElapsed, speedMult = 1) {

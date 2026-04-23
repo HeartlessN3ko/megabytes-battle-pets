@@ -40,12 +40,9 @@ function validateAndNormalizeLoadout(byte, moves) {
 
 router.use(optionalAuth);
 
-function getDecayOptions(req) {
-  const demoMode = String(req.headers['x-demo-mode'] || '') === '1';
-  if (!demoMode) return {};
-  const headerMult = Number(req.headers['x-demo-decay-multiplier'] || 24);
-  const speedMultiplier = Number.isFinite(headerMult) && headerMult > 0 ? headerMult : 24;
-  return { speedMultiplier, maxWindowMinutes: 1440 };
+function getDecayOptions(_req) {
+  // Real-time decay only. Demo mode was removed.
+  return {};
 }
 
 // POST /api/battle/start
@@ -62,8 +59,8 @@ router.post('/start', async (req, res) => {
     byteA.lastNeedsUpdate = decayedA.lastNeedsUpdate;
     byteA._computedStats = statEngine.applyNeedModifiers(byteA.stats.toObject(), decayedA.needs);
 
-    // Affection compliance modifier — bonded: +5%, detached: -10%. Disabled in demo mode.
-    if (String(req.headers['x-demo-mode'] || '') !== '1') {
+    // Affection compliance modifier — bonded: +5%, detached: -10%.
+    {
       const affTier = getAffectionTier(byteA.affection != null ? byteA.affection : 50);
       if (affTier === 'bonded') {
         Object.keys(byteA._computedStats).forEach(k => {

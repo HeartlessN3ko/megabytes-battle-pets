@@ -1,0 +1,7 @@
+debug(byte-sync): TEMP log to diagnose runaway decay
+
+- Logs incoming x-demo-mode and x-demo-decay-multiplier headers, the
+  computed speedMultiplier, raw vs clamped elapsed minutes, and Hunger
+  before/after each sync call.
+
+- Remove once the multiplier mismatch is pinned down.

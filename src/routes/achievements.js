@@ -40,12 +40,6 @@ router.get('/player/:playerId', async (req, res) => {
 // POST /api/achievements/:achievementId/unlock - unlock an achievement
 router.post('/:achievementId/unlock', async (req, res) => {
   try {
-    const isDemo = req.headers['x-is-demo'] === 'true';
-
-    if (isDemo) {
-      return res.status(403).json({ error: 'Achievements do not track in demo mode' });
-    }
-
     const { playerId } = req.body;
     if (!playerId) {
       return res.status(400).json({ error: 'playerId required' });
@@ -85,11 +79,6 @@ router.post('/:achievementId/unlock', async (req, res) => {
 // POST /api/achievements/check - check and unlock eligible achievements
 router.post('/check', async (req, res) => {
   try {
-    // Disabled in demo mode
-    if (String(req.headers['x-is-demo'] || '') === 'true') {
-      return res.status(403).json({ error: 'Achievements do not track in demo mode' });
-    }
-
     const { playerId, byteId } = req.body;
     if (!playerId) {
       return res.status(400).json({ error: 'playerId required' });

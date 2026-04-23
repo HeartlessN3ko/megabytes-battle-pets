@@ -151,12 +151,9 @@ async function validateAndNormalizeLoadout(byte, payload = {}) {
   };
 }
 
-function getDecayOptions(req) {
-  const demoMode = String(req.headers['x-demo-mode'] || '') === '1';
-  if (!demoMode) return {};
-  const headerMult = Number(req.headers['x-demo-decay-multiplier'] || 24);
-  const speedMultiplier = Number.isFinite(headerMult) && headerMult > 0 ? headerMult : 24;
-  return { speedMultiplier, maxWindowMinutes: 1440 };
+function getDecayOptions(_req) {
+  // Real-time decay only. Demo mode was removed.
+  return {};
 }
 
 function getSleepRecoveryMinutes(byte, req, now = new Date()) {
@@ -266,18 +263,12 @@ router.post('/:id/sync', async (req, res) => {
     byte.lastPlayerActivity = new Date();
 
     // Capture elapsed time before snapshot overwrites lastNeedsUpdate
-    const syncDecayOpts = getDecayOptions(req);
-    const syncSpeedMult = syncDecayOpts.speedMultiplier || 1;
-    const syncRawMin = ((new Date() - new Date(byte.lastNeedsUpdate)) / (1000 * 60)) * syncSpeedMult;
-    const syncElapsedMin = Math.min(syncRawMin, (syncDecayOpts.maxWindowMinutes || 60));
-
-    // TEMP DIAGNOSTIC (remove after): confirm decay math during "fast decay" investigation.
-    const hungerBefore = Number(byte.needs?.Hunger ?? 0);
-    console.log(`[SYNC-DIAG] demoHeader=${req.headers['x-demo-mode'] || 'none'} multHeader=${req.headers['x-demo-decay-multiplier'] || 'none'} speedMult=${syncSpeedMult} rawMin=${syncRawMin.toFixed(2)} clampedMin=${syncElapsedMin.toFixed(2)} HungerBefore=${hungerBefore.toFixed(2)} lastNeedsUpdate=${new Date(byte.lastNeedsUpdate).toISOString()}`);
+    const syncElapsedMin = Math.min(
+      (new Date() - new Date(byte.lastNeedsUpdate)) / (1000 * 60),
+      60
+    );
 
     const snapshot = computeLiveByteSnapshot(byte, req);
-    const hungerAfter = Number(snapshot.needs?.Hunger ?? 0);
-    console.log(`[SYNC-DIAG] HungerAfter=${hungerAfter.toFixed(2)} delta=${(hungerAfter - hungerBefore).toFixed(2)}`);
     byte.needs = snapshot.needs;
     byte.lastNeedsUpdate = snapshot.lastNeedsUpdate;
     byte.corruption = snapshot.corruption;
@@ -298,10 +289,8 @@ router.post('/:id/sync', async (req, res) => {
       : Infinity;
     const withinWakeGrace = msSinceWake < AUTO_SLEEP_COOLDOWN_MS;
     if (!byte.isSleeping && !withinWakeGrace && Number(byte.needs?.Bandwidth ?? 100) <= 5) {
-      const isDemo = String(req.headers['x-demo-mode'] || '') === '1';
-      const autoSleepMs = isDemo ? 50 * 1000 : 20 * 60 * 1000; // 50s demo / 20min real
       byte.isSleeping = true;
-      byte.sleepUntil = new Date(Date.now() + autoSleepMs);
+      byte.sleepUntil = new Date(Date.now() + 20 * 60 * 1000); // 20 minutes
     }
 
     // Affection: session bonus (first sync / returning player)
@@ -1210,8 +1199,7 @@ router.post('/:id/power-nap', async (req, res) => {
   try {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
-    const demoMode = String(req.headers['x-demo-mode'] || '') === '1';
-    const sleepDurationMs = demoMode ? 60 * 1000 : 15 * 60 * 1000;
+    const sleepDurationMs = 15 * 60 * 1000; // 15 minutes
     byte.isSleeping = true;
     byte.sleepUntil = new Date(Date.now() + sleepDurationMs);
     byte.needs.Mood = clampNeed(Number(byte.needs.Mood || 0) + 8);
@@ -1230,9 +1218,8 @@ router.post('/:id/sleep-cycle', async (req, res) => {
     const { durationMinutes } = req.body;
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
-    const demoMode = String(req.headers['x-demo-mode'] || '') === '1';
     let sleepMinutes = durationMinutes || 60;
-    sleepMinutes = !demoMode ? Math.max(60, Math.min(600, sleepMinutes)) : Math.max(1, Math.min(10, sleepMinutes));
+    sleepMinutes = Math.max(60, Math.min(600, sleepMinutes));
     const sleepDurationMs = sleepMinutes * 60 * 1000;
     byte.isSleeping = true;
     byte.sleepUntil = new Date(Date.now() + sleepDurationMs);
@@ -1279,28 +1266,6 @@ router.patch('/:id', async (req, res) => {
     res.json({ byte });
   } catch (err) {
     res.status(400).json({ error: err.message });
-  }
-});
-
-// PATCH /api/byte/:id/demo-stage
-router.patch('/:id/demo-stage', async (req, res) => {
-  try {
-    const requested = Number(req.body?.stage);
-    if (!Number.isFinite(requested)) {
-      return res.status(400).json({ error: 'stage must be a number' });
-    }
-
-    const stage = Math.max(0, Math.min(2, Math.floor(requested)));
-    const byte = await Byte.findById(req.params.id);
-    if (!byte) return res.status(404).json({ error: 'Not found' });
-
-    byte.evolutionStage = stage;
-    byte.isEgg = stage === 0;
-    await byte.save();
-
-    res.json({ evolutionStage: byte.evolutionStage, isEgg: byte.isEgg });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 

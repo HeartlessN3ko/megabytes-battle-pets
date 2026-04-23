@@ -10,13 +10,8 @@ const { generateMarketplaceEmail } = require('../services/marketplaceEmailFT');
 const router = express.Router();
 router.use(optionalAuth);
 
-// Dual-stage marketplace delivery timers
-const DELIVERY_DELAY_MS_DEMO = 5 * 60 * 1000;          // 5 minutes
-const DELIVERY_DELAY_MS_REAL = 24 * 60 * 60 * 1000;    // 24 hours
-
-function isDemoReq(req) {
-  return String(req?.headers?.['x-demo-mode'] || '') === '1';
-}
+// Marketplace delivery timer (24 hours after purchase/auction win)
+const DELIVERY_DELAY_MS = 24 * 60 * 60 * 1000;
 
 function listingPayload(listing) {
   const now = Date.now();
@@ -59,10 +54,10 @@ function listingPayload(listing) {
 /**
  * Dual-stage marketplace delivery:
  *   1. Immediate "order_confirmed" email (no readyAt, no attachment — notification only).
- *   2. Delayed "delivered" email with readyAt = now + DELAY (5min demo / 24h real) carrying the item.
+ *   2. Delayed "delivered" email with readyAt = now + 24h carrying the item.
  * Deduped per stage via `kind` + `metadata.listingId`.
  */
-async function ensureMarketDelivery({ playerId, listing, acquiredBy, demoMode = false }) {
+async function ensureMarketDelivery({ playerId, listing, acquiredBy }) {
   if (!playerId || !listing?._id) return false;
   const listingId = String(listing._id);
 
@@ -74,7 +69,7 @@ async function ensureMarketDelivery({ playerId, listing, acquiredBy, demoMode = 
 
   const subjectPrefix = acquiredBy === 'auction_win' ? 'Auction won' : 'Order';
   const now = Date.now();
-  const delayMs = demoMode ? DELIVERY_DELAY_MS_DEMO : DELIVERY_DELAY_MS_REAL;
+  const delayMs = DELIVERY_DELAY_MS;
 
   const writes = [];
 
@@ -184,7 +179,7 @@ async function ensureDecorListings() {
   if (docs.length > 0) await MarketplaceListing.insertMany(docs);
 }
 
-async function settleExpiredOpenListings(demoMode = false) {
+async function settleExpiredOpenListings() {
   const now = new Date();
   const expired = await MarketplaceListing.find({ status: 'open', endsAt: { $lte: now } });
   if (expired.length === 0) return;
@@ -193,7 +188,7 @@ async function settleExpiredOpenListings(demoMode = false) {
     listing.status = listing.highestBidder ? 'sold' : 'expired';
     if (listing.highestBidder) {
       listing.soldToPlayer = listing.highestBidder;
-      await ensureMarketDelivery({ playerId: listing.highestBidder, listing, acquiredBy: 'auction_win', demoMode });
+      await ensureMarketDelivery({ playerId: listing.highestBidder, listing, acquiredBy: 'auction_win' });
     }
     await listing.save();
   }
@@ -203,7 +198,7 @@ router.get('/listings', async (req, res) => {
   try {
     await ensureSeedListings();
     await ensureDecorListings();
-    await settleExpiredOpenListings(isDemoReq(req));
+    await settleExpiredOpenListings();
 
     const status = String(req.query.status || 'open');
     const query = status === 'all' ? {} : { status };
@@ -308,7 +303,7 @@ router.post('/buy-now', async (req, res) => {
     listing.status = 'sold';
 
     await Promise.all([player.save(), listing.save()]);
-    const deliveryQueued = await ensureMarketDelivery({ playerId: player._id, listing, acquiredBy: 'buy_now', demoMode: isDemoReq(req) });
+    const deliveryQueued = await ensureMarketDelivery({ playerId: player._id, listing, acquiredBy: 'buy_now' });
 
     res.json({
       ok: true,

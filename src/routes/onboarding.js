@@ -104,34 +104,4 @@ router.post('/:playerId/select-egg', async (req, res) => {
   }
 });
 
-// POST /api/onboarding/:playerId/skip - skip onboarding (demo only)
-router.post('/:playerId/skip', async (req, res) => {
-  try {
-    const isDemo = req.headers['x-is-demo'] === 'true';
-
-    if (!isDemo) {
-      return res.status(403).json({ error: 'Cannot skip onboarding in normal mode' });
-    }
-
-    let onboarding = await Onboarding.findOne({ playerId: req.params.playerId });
-
-    if (!onboarding) {
-      onboarding = new Onboarding({ playerId: req.params.playerId });
-    }
-
-    onboarding.isComplete = true;
-    onboarding.completedAt = new Date();
-    onboarding.currentStage = 'tutorial_exit';
-    await onboarding.save();
-
-    res.json({
-      playerId: onboarding.playerId,
-      isComplete: true,
-      skipped: true
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 module.exports = router;

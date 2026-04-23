@@ -45,11 +45,12 @@ interface RPSGameProps {
   visible:   boolean;
   byteName:  string;
   onClose:   () => void;
+  onWin?:    () => void;
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function RPSGame({ visible, byteName, onClose }: RPSGameProps) {
+export default function RPSGame({ visible, byteName, onClose, onWin }: RPSGameProps) {
   const [phase,        setPhase]        = useState<Phase>('choosing');
   const [cycleIndex,   setCycleIndex]   = useState(0);
   const [byteChoice,   setByteChoice]   = useState<Choice | null>(null);
@@ -123,6 +124,9 @@ export default function RPSGame({ visible, byteName, onClose }: RPSGameProps) {
       else if (outcome === 'lose') playSfx('mg_lose', 0.9);
       else                         playSfx('mg_draw', 0.8);
 
+      // Reward: win grants Social + Mood via gameBalance.MINIGAME_GAIN_HOURS.rps
+      if (outcome === 'win' && onWin) onWin();
+
       // Fade in result text
       Animated.timing(resultFade, { toValue: 1, duration: 280, useNativeDriver: true }).start();
 
@@ -131,7 +135,7 @@ export default function RPSGame({ visible, byteName, onClose }: RPSGameProps) {
         Animated.timing(resultFade, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => onClose());
       }, 2200);
     }, 620);
-  }, [phase, byteScale, resultFade, onClose]);
+  }, [phase, byteScale, resultFade, onClose, onWin]);
 
   const byteSprite = BYTE_SPRITES[byteEmotion];
 

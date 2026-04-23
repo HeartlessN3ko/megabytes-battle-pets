@@ -188,16 +188,10 @@ function computeLiveByteSnapshot(byte, req) {
     decayOpts,
     decorEffects
   );
+  // Corruption: passive decay if clean byte, else time-based accrual scaled
+  // by dirtiness. Rate tuned by gameBalance.CORRUPTION_FULL_HOURS.
   let corruption = corruptionEngine.applyPassiveDecay(byte.corruption, needs);
-  if (criticalNeedCount(needs) > 0) {
-    corruption = corruptionEngine.applyGain(corruption, 'NEGLECT_TIME', needs, speedMult);
-  }
-  // Low hygiene accelerates corruption (dirty environment breeds system bugs)
-  const hygieneLevel = Number(needs.Hygiene || 0);
-  if (hygieneLevel < 40) {
-    const hygieneAccelMult = hygieneLevel < 15 ? 2.0 : 1.35;
-    corruption = corruptionEngine.applyGain(corruption, 'NEEDS_CRITICAL_TICK', needs, speedMult * hygieneAccelMult * 0.15);
-  }
+  corruption = corruptionEngine.applyTimeBasedNeglect(corruption, needs, minutesElapsed, speedMult);
 
   const avgNeed = needDecay.getAverageNeed(needs);
   const carePattern = carePatternEngine.getCarePattern(byte.dailyCareScore || 50);
@@ -523,13 +517,9 @@ router.patch('/:id/care', async (req, res) => {
     } else if (action === 'rest' || action === 'deep_rest' || action === 'calm') {
       byte.corruption = corruptionEngine.applyPassiveDecay(byte.corruption, byte.needs);
     }
-    // Hygiene state now affects corruption passively (checked in snapshot) —
-    // keeping byte clean prevents corruption buildup over time
-    const critCount = criticalNeedCount(byte.needs);
-    if (critCount > 0) {
-      byte.corruption = corruptionEngine.applyGain(byte.corruption, 'NEEDS_CRITICAL_TICK', byte.needs, careSpeedMult);
-      byte.needs.Mood = clampNeed(Number(byte.needs.Mood || 0) - 3);
-    }
+    // Corruption buildup from neglect is handled time-based in computeLiveByteSnapshot
+    // (corruptionEngine.applyTimeBasedNeglect). Do NOT stack an event-driven gain here —
+    // it fires on every care tap and punishes the player for caring.
 
     // Track care action for preference system
     const carePreference = tapInteractionEngine.trackCareAction(byte, action);
@@ -620,7 +610,7 @@ router.patch('/:id/care', async (req, res) => {
       taskCompletions: taskResult.completedIds,
       fullSetComplete: taskResult.fullSetComplete,
       corruptionTier: corruptionEngine.getCorruptionTier(byte.corruption),
-      criticalNeeds: critCount,
+      criticalNeeds: criticalNeedCount(byte.needs),
       quickFeedCount: byte.quickFeedCount,
       quickFeedResetAt: byte.quickFeedResetAt,
     });

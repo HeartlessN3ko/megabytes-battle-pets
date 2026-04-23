@@ -1,16 +1,19 @@
 /**
  * CORRUPTION ENGINE
- * Single source of truth for corruption gain, decay, and tier logic.
- * All values sourced from corruptionstates.md.
+ * Time-based neglect accrual + event-driven gains.
+ * Rate tuned by gameBalance.CORRUPTION_FULL_HOURS.
  */
 
-// --- GAIN TRIGGERS ---
+const gameBalance = require('../config/gameBalance');
+
+// --- EVENT-DRIVEN GAIN TRIGGERS ---
 // Applied per event. stability modifier can halve these.
+// Time-based neglect (hygiene-driven) is handled separately in applyTimeBasedNeglect.
 const CORRUPTION_GAIN = {
-  NEEDS_CRITICAL_TICK: 2,   // any need in critical state at check-in
+  NEEDS_CRITICAL_TICK: 2,   // legacy: per check-in if any need critical (retained for callers)
   OVERTRAINING:        3,   // bandwidth <= 0 and training attempted
   STATUS_AFFLICTED:    1,   // per battle tick while status active (battle engine)
-  NEGLECT_TIME:        1,   // per decay tick where any need is critical
+  NEGLECT_TIME:        1,   // legacy: per decay tick (retained for callers)
   CORRUPT_FOOD:        5,   // using a corrupt food item
 };
 
@@ -121,6 +124,33 @@ function applyPassiveDecay(current, needs) {
   return Math.max(0, (Number(current) || 0) - CORRUPTION_DECAY.PASSIVE);
 }
 
+/**
+ * Time-based neglect accrual.
+ * Rate scales with dirtiness: at Hygiene=0 → full rate (100 in CORRUPTION_FULL_HOURS),
+ * at Hygiene=100 → 0. Critical needs add a modest bonus.
+ *
+ * @param {number} current
+ * @param {Object} needs
+ * @param {number} minutesElapsed - real minutes since last tick (already capped upstream)
+ * @param {number} [speedMult=1]  - demo speed multiplier
+ * @returns {number} new corruption value (clamped to [0, 100])
+ */
+function applyTimeBasedNeglect(current, needs, minutesElapsed, speedMult = 1) {
+  if (!minutesElapsed || minutesElapsed <= 0) return Number(current) || 0;
+  const hygiene = Math.max(0, Math.min(100, Number(needs?.Hygiene ?? 100)));
+  const dirtiness = (100 - hygiene) / 100;   // 0..1
+  if (dirtiness <= 0) return Number(current) || 0;
+
+  const NEED_KEYS = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'];
+  const criticalCount = NEED_KEYS.reduce((n, k) => n + ((needs?.[k] ?? 100) < 30 ? 1 : 0), 0);
+  const critMod = 1 + Math.min(3, criticalCount) * 0.15;  // up to 1.45x
+
+  const safeSpeed = Number.isFinite(speedMult) && speedMult > 0 ? speedMult : 1;
+  const rate = gameBalance.corruptionRatePerMinute() * dirtiness * critMod * safeSpeed;
+  const gain = rate * minutesElapsed;
+  return Math.min(100, Math.max(0, (Number(current) || 0) + gain));
+}
+
 module.exports = {
   CORRUPTION_GAIN,
   CORRUPTION_DECAY,
@@ -130,4 +160,5 @@ module.exports = {
   applyGain,
   applyDecay,
   applyPassiveDecay,
+  applyTimeBasedNeglect,
 };

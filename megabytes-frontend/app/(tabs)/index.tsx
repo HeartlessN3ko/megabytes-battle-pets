@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import {
+  careAction,
   earnCurrency,
   evolveByte,
   getPlayer,
@@ -43,6 +44,11 @@ import { useByteRoaming } from '../../hooks/useByteRoaming';
 import { getDemoSpeedLabel } from '../../services/demoSession';
 import { generateByteThought } from '../../services/byteThoughts';
 import { getByteMotionProfile } from '../../services/byteMotion';
+import {
+  clutterSpawnProbability,
+  clutterSpawnProbabilityDirty,
+  poopDigestMs,
+} from '../../config/gameBalance';
 import HomeRoomStage from '../../components/HomeRoomStage';
 import RPSGame from '../../components/RPSGame';
 import SleepZsOverlay from '../../components/SleepZsOverlay';
@@ -488,7 +494,7 @@ export default function HomeScreen() {
     facing:     moveFacing,
     glance:     roamGlance,
   } = useByteRoaming({
-    halfSpreadX: (width * motionProfile.roamSpreadX) / 2,
+    halfSpreadX: (width * motionProfile.home.roamSpreadX) / 2,
     enabled:     !isSleeping && !emotion,
     boredom:     (needs.Fun ?? 100) < 30 || (needs.Mood ?? 100) < 35,
   });
@@ -774,10 +780,14 @@ export default function HomeScreen() {
   }, [refreshData]);
 
   useEffect(() => {
+    const POLL_SECONDS = 30;
     const t = setInterval(() => {
       const hygieneLow = (needs.Hygiene || 0) < 40;
-      if (Math.random() < (hygieneLow ? 0.22 : 0.08)) setClutter((prev) => Math.min(8, prev + 1));
-    }, 30000);
+      const p = hygieneLow
+        ? clutterSpawnProbabilityDirty(POLL_SECONDS)
+        : clutterSpawnProbability(POLL_SECONDS);
+      if (Math.random() < p) setClutter((prev) => Math.min(8, prev + 1));
+    }, POLL_SECONDS * 1000);
     return () => clearInterval(t);
   }, [needs.Hygiene]);
 
@@ -788,7 +798,7 @@ export default function HomeScreen() {
   // after the player returns home).
   useEffect(() => {
     const FEED_DETECT_MIN = 10;
-    const DIGEST_DELAY_MS = demoMode ? 15_000 : 90_000;
+    const DIGEST_DELAY_MS = poopDigestMs(demoMode);
     const current = Number(needs.Hunger ?? 0);
     const prev    = prevHungerRef.current;
     prevHungerRef.current = current;
@@ -1383,6 +1393,7 @@ export default function HomeScreen() {
         visible={rpsOpen}
         byteName={byteData?.byte?.name || 'BYTE'}
         onClose={() => { playSfx('mg_close', 0.7); setRpsOpen(false); }}
+        onWin={() => { careAction('rps', 'good').catch(() => {}); }}
       />
 
       {/* ── Stats modal ── */}

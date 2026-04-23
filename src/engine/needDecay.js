@@ -1,22 +1,21 @@
 /**
- * NEED DECAY ENGINE (REVISED)
- * Flat per-minute decay rates. Care actions with timing windows and spam penalties.
+ * NEED DECAY ENGINE
+ * Per-minute decay rates and care action effects are sourced from
+ * src/config/gameBalance.js. Timing windows and grade multipliers live here.
  * Applied on server check-ins.
  */
+
+const gameBalance = require('../config/gameBalance');
 
 const NEEDS = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'];
 
 // ─────────────────────────────────────────────────────────────────
-// DECAY RATES (per minute, awake)
+// DECAY RATES (per minute, awake) — derived from gameBalance.NEED_DECAY_HOURS
 // ─────────────────────────────────────────────────────────────────
-const DECAY_RATES = {
-  Hunger:    0.060, // full→empty ~28h ignored
-  Bandwidth: 0.050, // full→empty ~33h ignored
-  Hygiene:   0.045, // full→empty ~37h ignored
-  Fun:       0.055, // full→empty ~30h ignored
-  Social:    0.025,
-  Mood:      0.025,
-};
+const DECAY_RATES = NEEDS.reduce((acc, need) => {
+  acc[need] = gameBalance.decayRatePerMinute(need);
+  return acc;
+}, {});
 
 // Sleep-time Bandwidth/Mood regen is handled in needInterdependencyEngine.applySleepEffects,
 // not here. If restoring decay-side sleep logic, reintroduce a SLEEP_*_GAIN constant.
@@ -55,24 +54,18 @@ const TIMING_WINDOWS = {
 
 // ─────────────────────────────────────────────────────────────────
 // CARE RESTORE VALUES (base, before timing/grade multipliers)
+// Derived from gameBalance.CARE_GAIN_HOURS — edit that table to tune.
 // ─────────────────────────────────────────────────────────────────
-const CARE_RESTORE = {
-  // Quick / cheap variants (tap actions)
-  feed: { Hunger: 50, Mood: 4 },
-  clean: { Hygiene: 26, Mood: 4 },
-  rest: { Bandwidth: 28, Mood: 14 },
-  play: { Fun: 20, Social: 8, Mood: 12 },
-  pet: { Social: 10, Affection: 10, Mood: 3 },
-
-  // Long-form / minigame variants — fill the target need almost all the way.
-  // These are gated behind the longer room actions (meal minigame, deep clean,
-  // long sleep cycle, etc.) and should feel like a significant commitment.
-  meal:            { Hunger: 85, Mood: 10 },
-  'perfect-clean': { Hygiene: 80, Mood: 12 },
-  deep_rest:       { Bandwidth: 85, Mood: 20 },
-  calm:            { Mood: 45, Social: 15, Bandwidth: 10 },
-  deep_play:       { Fun: 60, Social: 20, Mood: 18 },
-};
+const CARE_ACTIONS = [
+  'feed', 'clean', 'rest', 'play', 'pet',
+  'meal', 'perfect-clean', 'deep_rest', 'deep_play', 'calm',
+  'rps',  // minigame win — uses gameBalance.MINIGAME_GAIN_HOURS
+];
+const CARE_RESTORE = CARE_ACTIONS.reduce((acc, action) => {
+  const map = gameBalance.careRestoreMap(action);
+  if (map) acc[action] = map;
+  return acc;
+}, {});
 
 // ─────────────────────────────────────────────────────────────────
 // GRADE MULTIPLIERS (from minigames)
@@ -186,6 +179,7 @@ const ACTION_TIMING_ALIAS = {
   deep_rest:       'rest',
   deep_play:       'play',
   calm:            null,
+  rps:             null,  // minigame win, always optimal
 };
 
 /**
@@ -222,6 +216,10 @@ function getTimingWindow(action, needValue) {
  * @returns {number} multiplier (1.0 = no penalty, 0.15 = heavy penalty)
  */
 function applySpamPenalty(lastCareActions = [], currentAction) {
+  // When gameBalance.ACTION_COOLDOWN_HOURS[action] is 0, the action has no spam
+  // limit — return neutral multiplier. Otherwise apply the legacy decay schedule.
+  if (gameBalance.cooldownMinutes(currentAction) <= 0) return 1.0;
+
   if (!Array.isArray(lastCareActions)) lastCareActions = [];
 
   let count = 1; // Count the current action as the first

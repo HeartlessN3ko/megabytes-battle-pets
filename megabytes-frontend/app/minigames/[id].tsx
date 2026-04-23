@@ -17,23 +17,27 @@ const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(ma
 const TOUCH_HIT_SLOP = { top: 18, bottom: 18, left: 18, right: 18 };
 const LARGE_TOUCH_HIT_SLOP = { top: 28, bottom: 28, left: 28, right: 28 };
 // Board sizing is now measured live via onLayout. Internal coords are normalized (0–1) and scaled at render/hit-test.
-// CHOMP (feed-upload) tuning — single difficulty tier per GDD decision 2026-04-18.
+// CHOMP (feed-upload) tuning — v2: byte sweeps top L↔R with shifting speed, launcher fixed at bottom-center.
 const CHOMP_ROUND_TOTAL = 12;
 const CHOMP_BAD_FOOD_CHANCE = 0.25;
-const CHOMP_SPAWN_INTERVAL_MS = 1400;
-const CHOMP_FOOD_DRIFT_DURATION_MS = 3200;
 const CHOMP_THROW_DURATION_MS = 280;
-const CHOMP_BYTE_BOB_AMPLITUDE_PX = 60;
-const CHOMP_BYTE_BOB_PERIOD_MS = 1600;
-const CHOMP_MOUTH_TOLERANCE_PX = 44;
 const CHOMP_REACTION_MS = 380;
+const CHOMP_LAUNCHER_X_NORM = 0.5;
+const CHOMP_LAUNCHER_RELOAD_MS = 300;
+const CHOMP_BYTE_SWEEP_BASE_MS_PER_SWEEP = 1800; // base time for one edge-to-edge pass
+const CHOMP_BYTE_SWEEP_VARIANCE = 0.6; // speed modulation depth (0 = constant speed)
+const CHOMP_BYTE_SWEEP_MOD_PERIOD_MS = 1800; // period of the speed-shifting sine
+const CHOMP_BYTE_SCALE = 0.5; // byte sprite scale — smaller = more sweep room
+const CHOMP_BYTE_HIT_TOLERANCE_PX = 36; // horizontal hit window at arrival (shrunk with byte)
+const CHOMP_FOOD_SIZE_PX = 38; // food glyph box
+const CHOMP_LAUNCHER_PAD_SIZE_PX = 56; // pad ring around launcher
 // Emoji placeholders until PixelLab food + Byte chomp sprites ship.
 const CHOMP_GOOD_FOOD = ['🍎', '🥦', '🍖'];
 const CHOMP_BAD_FOOD = ['🧪', '☠️'];
 // Byte reaction sprites — reuse existing Circle rig until dedicated chomp frames ship.
 const CHOMP_SPRITE_IDLE = require('../../assets/bytes/Circle/Circle-idle.gif');
-const CHOMP_SPRITE_CHOMP_GOOD = require('../../assets/bytes/Circle/Circle-blink-bounce.gif');
-const CHOMP_SPRITE_CHOMP_BAD = require('../../assets/bytes/Circle/Circle-tired.gif');
+const CHOMP_SPRITE_CHOMP_GOOD = require('../../assets/bytes/Circle/Circle-happyblush.gif');
+const CHOMP_SPRITE_CHOMP_BAD = require('../../assets/bytes/Circle/Circle-x-eyes.gif');
 const CHOMP_SPRITE_MISS = require('../../assets/bytes/Circle/Circle-looklowerleft-right.gif');
 const NEED_RESULT_ORDER = ['Hunger', 'Bandwidth', 'Hygiene', 'Fun', 'Social', 'Mood'];
 
@@ -229,12 +233,9 @@ export default function MiniGameRunnerScreen() {
     id: number;
     kind: 'good' | 'bad';
     glyph: string;
-    spawnedAt: number;
-    yNorm: number; // vertical position normalized 0–1 within play area
+    loadedAt: number; // when the food appeared in the launcher
+    xNorm: number; // horizontal position (launcher X while waiting, fixed during flight)
     thrownAt: number | null;
-    startXNorm: number; // horizontal spawn anchor (≈ -0.08)
-    endXNorm: number; // drift end anchor (≈ 1.08)
-    xAtThrow: number; // normalized x at moment of tap (for throw lerp)
     resolution: 'none' | 'good' | 'bad' | 'miss';
   };
   const [chompFoods, setChompFoods] = useState<ChompFood[]>([]);
@@ -257,6 +258,20 @@ export default function MiniGameRunnerScreen() {
   const chompNextIdRef = useRef(0);
   const chompReactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chompFlashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Pre-rolled food queue — lets us show a "next up" preview and makes the round deterministic once started.
+  type ChompQueueEntry = { kind: 'good' | 'bad'; glyph: string };
+  const chompQueueRef = useRef<ChompQueueEntry[]>([]);
+  const [chompQueueTick, setChompQueueTick] = useState(0); // bump to re-render preview slot when queue shifts
+  // Visual polish refs — purely cosmetic, mutate in-place and piggyback on chompTick for re-render.
+  type ChompVFX =
+    | { id: number; type: 'burst'; x: number; y: number; vx: number; vy: number; spawnedAt: number }
+    | { id: number; type: 'ripple'; x: number; y: number; spawnedAt: number }
+    | { id: number; type: 'check'; x: number; y: number; spawnedAt: number }
+    | { id: number; type: 'float'; x: number; y: number; text: string; spawnedAt: number };
+  const chompVFXRef = useRef<ChompVFX[]>([]);
+  const chompVFXNextIdRef = useRef(0);
+  const chompTrailRef = useRef<{ x: number; y: number; t: number }[]>([]);
+  const chompShakeUntilRef = useRef(0);
   // Live-measured play area size (pixels). Updated via onLayout on the active play board.
   const [boardSize, setBoardSize] = useState({ w: 260, h: 170 });
   const boardSizeRef = useRef(boardSize);
@@ -372,6 +387,18 @@ export default function MiniGameRunnerScreen() {
     chompNextIdRef.current = 0;
     chompRoundStartRef.current = Date.now();
     chompRoundClosedRef.current = false;
+    // Clear VFX/trail between rounds.
+    chompVFXRef.current = [];
+    chompVFXNextIdRef.current = 0;
+    chompTrailRef.current = [];
+    chompShakeUntilRef.current = 0;
+    // Pre-roll the full round's food queue so we can show "next up" previews.
+    chompQueueRef.current = Array.from({ length: CHOMP_ROUND_TOTAL }, () => {
+      const isBad = Math.random() < CHOMP_BAD_FOOD_CHANCE;
+      const pool = isBad ? CHOMP_BAD_FOOD : CHOMP_GOOD_FOOD;
+      return { kind: isBad ? 'bad' : 'good', glyph: pool[Math.floor(Math.random() * pool.length)] };
+    });
+    setChompQueueTick(0);
     if (chompReactionTimerRef.current) { clearTimeout(chompReactionTimerRef.current); chompReactionTimerRef.current = null; }
     if (chompFlashTimerRef.current) { clearTimeout(chompFlashTimerRef.current); chompFlashTimerRef.current = null; }
 
@@ -433,6 +460,14 @@ export default function MiniGameRunnerScreen() {
     setStatus(`${game.title} complete: ${g.toUpperCase()}. Finalizing results...`);
   }, [cleanupTimers, game, interactions, quality]);
 
+  // Keep a live ref to finishRound so timers/intervals started in startRound
+  // always invoke the LATEST closure (with current quality/interactions),
+  // not the stale one captured at setInterval time.
+  const finishRoundRef = useRef(finishRound);
+  useEffect(() => {
+    finishRoundRef.current = finishRound;
+  }, [finishRound]);
+
   useEffect(() => () => cleanupTimers(), [cleanupTimers]);
 
   useEffect(() => {
@@ -453,7 +488,10 @@ export default function MiniGameRunnerScreen() {
       setRemainingMs((prev) => {
         const next = prev - 100;
         if (next <= 0) {
-          setTimeout(() => finishRound(), 0);
+          // Use the live ref so this timer uses the CURRENT finishRound
+          // closure (with up-to-date quality/interactions), not the stale
+          // one captured when startRound first ran.
+          setTimeout(() => finishRoundRef.current?.(), 0);
           return 0;
         }
         return next;
@@ -469,7 +507,7 @@ export default function MiniGameRunnerScreen() {
         setCursor(wave * 100);
       }, 40);
     }
-  }, [finishRound, game, playGameSfx, resetRoundState, running, variant]);
+  }, [game, playGameSfx, resetRoundState, running, variant]);
 
   useEffect(() => {
     if (!game || autoStarted.current) return;
@@ -505,11 +543,14 @@ export default function MiniGameRunnerScreen() {
         // Long variants fire the CARE_RESTORE long-form action once (meal / perfect-clean /
         // sleep / deep_play) instead of double-calling the quick variant. This taps the
         // near-full restore values and avoids the spam-penalty second hit.
+        // Every care call is defended with .catch(() => null) so a flaky/unreachable
+        // backend can't hang the result popup — the player still gets a grade screen.
         if (game.id === 'feed-upload') {
           const beforeByte = await getByte().catch(() => null);
-          const result = variant === 'long'
-            ? await careAction('meal', grade, { mealCycle: true })
-            : await careAction('feed', grade, { mealCycle: true });
+          const result = await (variant === 'long'
+            ? careAction('meal', grade, { mealCycle: true })
+            : careAction('feed', grade, { mealCycle: true })
+          ).catch(() => null);
           if (result?.blocked) {
             const reason = result.reason === 'not_hungry'
               ? 'Byte isn\u2019t hungry right now.'
@@ -518,38 +559,51 @@ export default function MiniGameRunnerScreen() {
                 : 'Feed blocked. No effect applied.';
             effectLines = [reason];
             feedBlockedMessage = reason;
-          } else {
+          } else if (result) {
             effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
+          } else {
+            effectLines = ['Sync offline — effect will apply on reconnect.'];
           }
         } else if (game.id === 'run-cleanup') {
           const beforeByte = await getByte().catch(() => null);
-          const result = variant === 'long'
-            ? await careAction('perfect-clean', grade)
-            : await careAction('clean', grade);
-          effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
+          const result = await (variant === 'long'
+            ? careAction('perfect-clean', grade)
+            : careAction('clean', grade)
+          ).catch(() => null);
+          effectLines = result
+            ? diffNeedResults(beforeByte?.byte?.needs, result?.needs)
+            : ['Sync offline — effect will apply on reconnect.'];
           markHomeClutterCleared();
         } else if (game.id === 'stabilize-signal') {
           const beforeByte = await getByte().catch(() => null);
-          const result = variant === 'long'
-            ? await careAction('deep_rest', grade)
-            : await careAction('rest', grade);
-          effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
+          const result = await (variant === 'long'
+            ? careAction('deep_rest', grade)
+            : careAction('rest', grade)
+          ).catch(() => null);
+          effectLines = result
+            ? diffNeedResults(beforeByte?.byte?.needs, result?.needs)
+            : ['Sync offline — effect will apply on reconnect.'];
         } else if (game.id === 'engage-simulation' || game.id === 'sync-link' || game.id === 'emote-align') {
           // Route play minigames through careAction so CARE_RESTORE values apply.
           const beforeByte = await getByte().catch(() => null);
-          const result = variant === 'long'
-            ? await careAction('deep_play', grade)
-            : await careAction('play', grade);
-          effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
+          const result = await (variant === 'long'
+            ? careAction('deep_play', grade)
+            : careAction('play', grade)
+          ).catch(() => null);
+          effectLines = result
+            ? diffNeedResults(beforeByte?.byte?.needs, result?.needs)
+            : ['Sync offline — effect will apply on reconnect.'];
         } else if (game.id.startsWith('training-') && game.stat) {
-          try {
-            const trainResult = await trainStat(game.stat, grade);
+          const trainResult = await trainStat(game.stat, grade).catch((err: any) => {
+            console.error(`trainStat failed for ${game.stat}:`, err?.message);
+            return null;
+          });
+          if (trainResult) {
             const gain = Math.max(0, Number(trainResult?.gain || 0));
             effectLines = gain > 0 ? [`${game.stat} +${gain}`] : [`${game.stat} +0`];
-            await syncByte(); // REFRESH byte data after training so stats persist
-          } catch (err: any) {
-            console.error(`trainStat failed for ${game.stat}:`, err?.message);
-            throw err;
+            await syncByte().catch(() => null); // REFRESH byte data after training so stats persist
+          } else {
+            effectLines = ['Sync offline — training will apply on reconnect.'];
           }
         }
       }
@@ -630,11 +684,22 @@ export default function MiniGameRunnerScreen() {
   }, [finishRound, game, playGameSfx, running, tapGoal, variant]);
 
   // CHOMP helpers + game loop (feed-upload)
-  const chompByteYAt = useCallback((playH: number, elapsedMs: number) => {
-    if (playH <= 0) return 0;
-    const center = playH * 0.5;
-    const t = (elapsedMs / CHOMP_BYTE_BOB_PERIOD_MS) * Math.PI * 2;
-    return center + Math.sin(t) * CHOMP_BYTE_BOB_AMPLITUDE_PX;
+  // Byte sweeps top L↔R (ping-pong) with sine-modulated speed.
+  // Closed-form phase: ∫ (1/base)(1 + v*sin(2π s/mod)) ds = t/base + (v*mod)/(2π base) * (1 - cos(2π t/mod))
+  // One sweep = phase 1; triangle-wave folds phase → [0,1] → [1,0] → ...
+  const chompByteXAt = useCallback((playW: number, elapsedMs: number, spriteW: number) => {
+    if (playW <= 0) return 0;
+    const base = CHOMP_BYTE_SWEEP_BASE_MS_PER_SWEEP;
+    const mod = CHOMP_BYTE_SWEEP_MOD_PERIOD_MS;
+    const v = CHOMP_BYTE_SWEEP_VARIANCE;
+    const phase = elapsedMs / base + (v * mod) / (2 * Math.PI * base) * (1 - Math.cos((2 * Math.PI * elapsedMs) / mod));
+    const folded = phase % 2; // 0..2
+    const tri = folded < 1 ? folded : 2 - folded; // 0..1..0
+    // Sprite has transparent inner padding — let visible body nearly kiss the edges.
+    const marginX = spriteW * 0.4;
+    const travelMin = marginX;
+    const travelMax = playW - marginX;
+    return travelMin + tri * (travelMax - travelMin);
   }, []);
 
   const triggerChompReaction = useCallback((kind: 'good' | 'bad' | 'miss') => {
@@ -649,6 +714,53 @@ export default function MiniGameRunnerScreen() {
     chompFlashTimerRef.current = setTimeout(() => setChompFlash(false), 260);
   }, []);
 
+  // VFX spawn helpers — all refs, piggyback on chompTick re-render.
+  const spawnChompBurst = useCallback((x: number, y: number) => {
+    const now = Date.now();
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (i / 6) * Math.PI * 2 + Math.random() * 0.6;
+      const speed = 0.08 + Math.random() * 0.06; // px/ms
+      chompVFXRef.current.push({
+        id: chompVFXNextIdRef.current++,
+        type: 'burst',
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        spawnedAt: now,
+      });
+    }
+    chompVFXRef.current.push({
+      id: chompVFXNextIdRef.current++,
+      type: 'float',
+      x,
+      y,
+      text: '+1',
+      spawnedAt: now,
+    });
+  }, []);
+  const spawnChompRipple = useCallback((x: number, y: number) => {
+    chompVFXRef.current.push({
+      id: chompVFXNextIdRef.current++,
+      type: 'ripple',
+      x,
+      y,
+      spawnedAt: Date.now(),
+    });
+  }, []);
+  const spawnChompCheck = useCallback((x: number, y: number) => {
+    chompVFXRef.current.push({
+      id: chompVFXNextIdRef.current++,
+      type: 'check',
+      x,
+      y,
+      spawnedAt: Date.now(),
+    });
+  }, []);
+  const triggerChompShake = useCallback(() => {
+    chompShakeUntilRef.current = Date.now() + 180;
+  }, []);
+
   const onChompFoodTap = useCallback((foodId: number) => {
     if (!running || game?.id !== 'feed-upload') return;
     const idx = chompFoodsRef.current.findIndex((f) => f.id === foodId);
@@ -656,113 +768,127 @@ export default function MiniGameRunnerScreen() {
     const food = chompFoodsRef.current[idx];
     if (food.resolution !== 'none' || food.thrownAt !== null) return;
     const now = Date.now();
-    const driftProgress = clamp((now - food.spawnedAt) / CHOMP_FOOD_DRIFT_DURATION_MS, 0, 1);
-    const xAtThrow = food.startXNorm + driftProgress * (food.endXNorm - food.startXNorm);
-    const updated: ChompFood = { ...food, thrownAt: now, xAtThrow };
+    const updated: ChompFood = { ...food, thrownAt: now };
     const nextFoods = chompFoodsRef.current.slice();
     nextFoods[idx] = updated;
     chompFoodsRef.current = nextFoods;
     setChompFoods(nextFoods);
     setInteractions((v) => v + 1);
-  }, [running, game?.id]);
+    // Ripple ring at launcher on tap.
+    const w = boardSizeRef.current.w;
+    const h = boardSizeRef.current.h;
+    spawnChompRipple(CHOMP_LAUNCHER_X_NORM * w, h - 40);
+  }, [running, game?.id, spawnChompRipple]);
 
   useEffect(() => {
     if (!running || game?.id !== 'feed-upload') return;
     const startAt = chompRoundStartRef.current || Date.now();
     chompRoundStartRef.current = startAt;
-    let lastSpawnAt = startAt - CHOMP_SPAWN_INTERVAL_MS + 600; // first food shortly after round start
+    let nextLoadAt = startAt + 400; // first food appears shortly after round start
+
+    const loadNextFood = (now: number) => {
+      const entry = chompQueueRef.current.shift();
+      if (!entry) return; // queue drained — shouldn't happen until round end
+      setChompQueueTick((t) => (t + 1) % 1_000_000);
+      const food: ChompFood = {
+        id: chompNextIdRef.current++,
+        kind: entry.kind,
+        glyph: entry.glyph,
+        loadedAt: now,
+        xNorm: CHOMP_LAUNCHER_X_NORM,
+        thrownAt: null,
+        resolution: 'none',
+      };
+      chompFoodsRef.current = [...chompFoodsRef.current, food];
+      setChompFoods(chompFoodsRef.current);
+      chompSpawnCountRef.current += 1;
+      setChompSpawnCount(chompSpawnCountRef.current);
+      if (entry.kind === 'good') {
+        chompGoodSpawnedRef.current += 1;
+        setChompGoodSpawned(chompGoodSpawnedRef.current);
+      }
+      playGameSfx('minigame_target_spawn', 0.38, 120);
+    };
 
     const tick = setInterval(() => {
       const now = Date.now();
+      const w = boardSizeRef.current.w;
+      const h = boardSizeRef.current.h;
 
-      // Spawn schedule
-      if (chompSpawnCountRef.current < CHOMP_ROUND_TOTAL && (now - lastSpawnAt) >= CHOMP_SPAWN_INTERVAL_MS) {
-        lastSpawnAt = now;
-        const isBad = Math.random() < CHOMP_BAD_FOOD_CHANCE;
-        const kind: 'good' | 'bad' = isBad ? 'bad' : 'good';
-        const glyphPool = isBad ? CHOMP_BAD_FOOD : CHOMP_GOOD_FOOD;
-        const glyph = glyphPool[Math.floor(Math.random() * glyphPool.length)];
-        const yNorm = 0.18 + Math.random() * 0.64;
-        const food: ChompFood = {
-          id: chompNextIdRef.current++,
-          kind,
-          glyph,
-          spawnedAt: now,
-          yNorm,
-          thrownAt: null,
-          startXNorm: -0.08,
-          endXNorm: 1.08,
-          xAtThrow: -0.08,
-          resolution: 'none',
-        };
-        chompFoodsRef.current = [...chompFoodsRef.current, food];
-        setChompFoods(chompFoodsRef.current);
-        chompSpawnCountRef.current += 1;
-        setChompSpawnCount(chompSpawnCountRef.current);
-        if (!isBad) {
-          chompGoodSpawnedRef.current += 1;
-          setChompGoodSpawned(chompGoodSpawnedRef.current);
-        }
-        playGameSfx('minigame_target_spawn', 0.38, 120);
+      // Launcher load: one food at a time, ROUND_TOTAL total. Only loads when no food is waiting OR in flight.
+      const hasPending = chompFoodsRef.current.some((f) => f.resolution === 'none');
+      if (!hasPending && chompSpawnCountRef.current < CHOMP_ROUND_TOTAL && now >= nextLoadAt) {
+        loadNextFood(now);
       }
 
-      // Resolve foods
-      const h = boardSizeRef.current.h;
+      // Resolve thrown foods (flight complete → hit-test byte X vs food X)
       let changed = false;
       for (const food of chompFoodsRef.current) {
         if (food.resolution !== 'none') continue;
-        if (food.thrownAt !== null) {
-          if (now - food.thrownAt >= CHOMP_THROW_DURATION_MS) {
-            const byteY = chompByteYAt(h, now - startAt);
-            const foodY = food.yNorm * h;
-            const inMouth = Math.abs(byteY - foodY) <= CHOMP_MOUTH_TOLERANCE_PX;
-            if (food.kind === 'good' && inMouth) {
-              food.resolution = 'good';
-              chompGoodCaughtRef.current += 1;
-              setChompGoodCaught(chompGoodCaughtRef.current);
-              triggerChompReaction('good');
-              playGameSfx('minigame_feed_upload', 0.82, 70);
-              playGameSfx('minigame_score_tick', 0.6, 80);
-            } else if (food.kind === 'bad' && inMouth) {
-              food.resolution = 'bad';
-              chompBadEatenRef.current += 1;
-              setChompBadEaten(chompBadEatenRef.current);
-              triggerChompReaction('bad');
-              triggerChompFlash();
-              playGameSfx('minigame_feed_upload', 0.95, 50);
+        if (food.thrownAt !== null && now - food.thrownAt >= CHOMP_THROW_DURATION_MS) {
+          const spriteW = Math.min(h * 0.55, 140) * CHOMP_BYTE_SCALE;
+          const byteX = chompByteXAt(w, now - startAt, spriteW);
+          const foodX = food.xNorm * w;
+          const inBite = Math.abs(byteX - foodX) <= CHOMP_BYTE_HIT_TOLERANCE_PX;
+          // Byte row Y for VFX spawn — approximate top strip.
+          const byteRowY = h * 0.22;
+          if (food.kind === 'good' && inBite) {
+            food.resolution = 'good';
+            chompGoodCaughtRef.current += 1;
+            setChompGoodCaught(chompGoodCaughtRef.current);
+            triggerChompReaction('good');
+            playGameSfx('minigame_feed_upload', 0.82, 70);
+            playGameSfx('minigame_score_good', 0.72, 80);
+            spawnChompBurst(byteX, byteRowY);
+          } else if (food.kind === 'bad' && inBite) {
+            food.resolution = 'bad';
+            chompBadEatenRef.current += 1;
+            setChompBadEaten(chompBadEatenRef.current);
+            triggerChompReaction('bad');
+            triggerChompFlash();
+            triggerChompShake();
+            playGameSfx('minigame_feed_upload', 0.95, 50);
+          } else {
+            food.resolution = 'miss';
+            if (food.kind === 'good') {
+              chompGoodMissedRef.current += 1;
+              setChompGoodMissed(chompGoodMissedRef.current);
+              // Whiffed good food — fail cue.
+              playGameSfx('minigame_score_fail', 0.58, 80);
             } else {
-              food.resolution = 'miss';
-              if (food.kind === 'good') {
-                chompGoodMissedRef.current += 1;
-                setChompGoodMissed(chompGoodMissedRef.current);
-              }
-              triggerChompReaction('miss');
-              playGameSfx('minigame_score_miss', 0.58, 80);
+              // Bad food fired into the void — reward cue.
+              playGameSfx('minigame_score_good', 0.62, 80);
+              spawnChompCheck(w / 2, 28);
             }
-            changed = true;
+            triggerChompReaction('miss');
           }
-        } else if (now - food.spawnedAt >= CHOMP_FOOD_DRIFT_DURATION_MS) {
-          food.resolution = 'miss';
-          if (food.kind === 'good') {
-            chompGoodMissedRef.current += 1;
-            setChompGoodMissed(chompGoodMissedRef.current);
-          }
+          // Live score update — only good catches drive the SCORE badge (monotonic).
+          // Bad-eaten penalty still applies to the FINAL grade in finishRound; it doesn't erase mid-round progress.
+          const expectedGood = CHOMP_ROUND_TOTAL * (1 - CHOMP_BAD_FOOD_CHANCE);
+          setQuality(clamp(chompGoodCaughtRef.current / expectedGood, 0, 1));
+          // Schedule next food load after this one resolves
+          nextLoadAt = now + CHOMP_LAUNCHER_RELOAD_MS;
           changed = true;
         }
       }
 
-      // Purge fully-faded foods (kept 300ms after resolution for visual settle)
+      // Purge foods that have flown off the top of the stage.
       const beforeLen = chompFoodsRef.current.length;
       chompFoodsRef.current = chompFoodsRef.current.filter((f) => {
-        if (f.resolution === 'none') return true;
-        const anchorAt = f.thrownAt ?? f.spawnedAt;
-        const durationTo = f.thrownAt ? CHOMP_THROW_DURATION_MS : CHOMP_FOOD_DRIFT_DURATION_MS;
-        return now < anchorAt + durationTo + 300;
+        if (f.thrownAt === null) return true;
+        // Good/bad hits: fade then purge ~300ms after arrival at byte row.
+        if (f.resolution === 'good' || f.resolution === 'bad') {
+          return now < f.thrownAt + CHOMP_THROW_DURATION_MS + 300;
+        }
+        // Miss (and unresolved post-arrival): let it fly past byte and off the top.
+        // At constant velocity, food exits top at ~throwDur * (launcherY / (launcherY - byteCenterY)).
+        // Approx: remove ~750ms after throw start (covers tallest stage).
+        return now < f.thrownAt + 750;
       });
       if (chompFoodsRef.current.length !== beforeLen) changed = true;
       if (changed) setChompFoods([...chompFoodsRef.current]);
 
-      // Round-end check
+      // Round-end check: all 12 loaded + every food resolved
       if (!chompRoundClosedRef.current &&
           chompSpawnCountRef.current >= CHOMP_ROUND_TOTAL &&
           chompFoodsRef.current.every((f) => f.resolution !== 'none')) {
@@ -775,11 +901,36 @@ export default function MiniGameRunnerScreen() {
         setTimeout(() => finishRound(q), 300);
       }
 
+      // Byte trail: sample byte position each tick, keep last ~8 samples.
+      {
+        const spriteW = Math.min(h * 0.55, 140) * CHOMP_BYTE_SCALE;
+        const byteX = chompByteXAt(w, now - startAt, spriteW);
+        const byteCenterY = h * 0.22;
+        chompTrailRef.current.push({ x: byteX, y: byteCenterY, t: now });
+        if (chompTrailRef.current.length > 8) chompTrailRef.current.shift();
+        // Prune stale trail (>400ms).
+        while (chompTrailRef.current.length > 0 && now - chompTrailRef.current[0].t > 400) {
+          chompTrailRef.current.shift();
+        }
+      }
+
+      // Prune expired VFX.
+      if (chompVFXRef.current.length > 0) {
+        chompVFXRef.current = chompVFXRef.current.filter((v) => {
+          const age = now - v.spawnedAt;
+          if (v.type === 'burst') return age < 550;
+          if (v.type === 'ripple') return age < 500;
+          if (v.type === 'check') return age < 650;
+          if (v.type === 'float') return age < 700;
+          return false;
+        });
+      }
+
       setChompTick((t) => (t + 1) % 1_000_000);
     }, 33);
 
     return () => clearInterval(tick);
-  }, [running, game?.id, chompByteYAt, finishRound, playGameSfx, triggerChompFlash, triggerChompReaction]);
+  }, [running, game?.id, chompByteXAt, finishRound, playGameSfx, triggerChompFlash, triggerChompReaction, spawnChompBurst, spawnChompCheck, triggerChompShake]);
 
   const scrubPan = useMemo(
     () =>
@@ -1039,7 +1190,9 @@ export default function MiniGameRunnerScreen() {
   const accent = game.accent;
   const gradeColor = gradeAccent(grade);
   const score = Math.round(quality * 100);
-  const navigationLocked = running || syncing || postProcessing;
+  // Exit remains enabled during sync/post-process so a slow/failed backend
+  // can't trap the player on the results screen. Only the active round locks it out.
+  const navigationLocked = running;
 
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
@@ -1061,19 +1214,85 @@ export default function MiniGameRunnerScreen() {
           <View style={[styles.play, { borderColor: `${accent}50` }]}>
           {game.id === 'feed-upload' ? (
             <View
-              style={[styles.chompStage, { borderColor: `${accent}66` }]}
+              style={[
+                styles.chompStage,
+                { borderColor: `${accent}66` },
+                (() => {
+                  const left = chompShakeUntilRef.current - Date.now();
+                  if (left <= 0) return null;
+                  const mag = Math.min(left / 180, 1) * 4;
+                  return {
+                    transform: [
+                      { translateX: (Math.random() - 0.5) * mag * 2 },
+                      { translateY: (Math.random() - 0.5) * mag * 2 },
+                    ],
+                  };
+                })(),
+              ]}
               onLayout={(e) => setBoardSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
             >
               <View style={styles.chompBg} pointerEvents="none" />
+              {/* Grid atmosphere */}
               {(() => {
-                // Byte (bobbing on the right). Uses chompTick as dep to re-render at 30fps.
+                const w = boardSize.w;
+                const h = boardSize.h;
+                const vLines = 8;
+                const hLines = 6;
+                const out: React.ReactNode[] = [];
+                for (let i = 1; i < vLines; i += 1) {
+                  out.push(
+                    <View
+                      key={`gv-${i}`}
+                      pointerEvents="none"
+                      style={[styles.chompGridLineV, { left: (w * i) / vLines }]}
+                    />,
+                  );
+                }
+                for (let i = 1; i < hLines; i += 1) {
+                  out.push(
+                    <View
+                      key={`gh-${i}`}
+                      pointerEvents="none"
+                      style={[styles.chompGridLineH, { top: (h * i) / hLines }]}
+                    />,
+                  );
+                }
+                return out;
+              })()}
+              {/* Corner brackets */}
+              <View pointerEvents="none" style={[styles.chompCorner, { top: 4, left: 4, borderTopWidth: 2, borderLeftWidth: 2 }]} />
+              <View pointerEvents="none" style={[styles.chompCorner, { top: 4, right: 4, borderTopWidth: 2, borderRightWidth: 2 }]} />
+              <View pointerEvents="none" style={[styles.chompCorner, { bottom: 4, left: 4, borderBottomWidth: 2, borderLeftWidth: 2 }]} />
+              <View pointerEvents="none" style={[styles.chompCorner, { bottom: 4, right: 4, borderBottomWidth: 2, borderRightWidth: 2 }]} />
+              {/* Byte sweep trail */}
+              {(() => {
+                void chompTick;
+                const now = Date.now();
+                return chompTrailRef.current.map((p, i, arr) => {
+                  const age = now - p.t;
+                  const opacity = Math.max(0, 1 - age / 400) * 0.35 * ((i + 1) / arr.length);
+                  const size = 10 + (i / arr.length) * 6;
+                  return (
+                    <View
+                      key={`trail-${p.t}-${i}`}
+                      pointerEvents="none"
+                      style={[
+                        styles.chompTrailDot,
+                        { left: p.x - size / 2, top: p.y - size / 2, width: size, height: size, borderRadius: size / 2, opacity },
+                      ]}
+                    />
+                  );
+                });
+              })()}
+              {(() => {
+                // Byte sweeps the top of the board L↔R. chompTick forces re-render at 30fps.
                 void chompTick;
                 const w = boardSize.w;
                 const h = boardSize.h;
-                const byteSize = Math.min(h * 0.55, 140);
-                const byteRightPad = 20;
+                const byteSize = Math.min(h * 0.55, 140) * CHOMP_BYTE_SCALE;
+                const byteTopPad = 18;
                 const elapsed = Date.now() - (chompRoundStartRef.current || Date.now());
-                const byteY = chompByteYAt(h, elapsed);
+                const byteX = chompByteXAt(w, elapsed, byteSize);
                 const sprite =
                   chompReaction === 'good'
                     ? CHOMP_SPRITE_CHOMP_GOOD
@@ -1088,8 +1307,8 @@ export default function MiniGameRunnerScreen() {
                     style={[
                       styles.chompByte,
                       {
-                        left: w - byteSize - byteRightPad,
-                        top: byteY - byteSize / 2,
+                        left: byteX - byteSize / 2,
+                        top: byteTopPad,
                         width: byteSize,
                         height: byteSize,
                       },
@@ -1100,28 +1319,71 @@ export default function MiniGameRunnerScreen() {
                 );
               })()}
 
+              {/* Launcher tray — framed strip at the bottom. Rendered BEFORE food so food paints on top. */}
+              {(() => {
+                void chompQueueTick;
+                const w = boardSize.w;
+                const h = boardSize.h;
+                const slotSize = CHOMP_LAUNCHER_PAD_SIZE_PX;
+                const previewSize = Math.round(slotSize * 0.65);
+                const gap = 10;
+                const framePadding = 8;
+                const frameWidth = slotSize + gap + previewSize + framePadding * 2;
+                const frameHeight = slotSize + framePadding * 2;
+                const frameLeft = CHOMP_LAUNCHER_X_NORM * w - slotSize / 2 - framePadding;
+                const frameTop = h - frameHeight - 12;
+                const nextEntry = chompQueueRef.current[0];
+                return (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      styles.chompLauncherFrame,
+                      { left: frameLeft, top: frameTop, width: frameWidth, height: frameHeight, padding: framePadding },
+                    ]}
+                  >
+                    <View style={[styles.chompLauncherSlot, { width: slotSize, height: slotSize }]} />
+                    <View
+                      style={[
+                        styles.chompLauncherPreview,
+                        { width: previewSize, height: previewSize, marginLeft: gap },
+                      ]}
+                    >
+                      {nextEntry ? (
+                        <Text style={[styles.chompFoodGlyph, styles.chompPreviewGlyph, nextEntry.kind === 'bad' && styles.chompPreviewGlyphBad]}>
+                          {nextEntry.glyph}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
+                );
+              })()}
+
               {chompFoods.map((food) => {
                 const w = boardSize.w;
                 const h = boardSize.h;
                 const now = Date.now();
-                const foodSize = 54;
-                let xNorm: number;
+                const foodSize = CHOMP_FOOD_SIZE_PX;
+                const byteSize = Math.min(h * 0.55, 140) * CHOMP_BYTE_SCALE;
+                const launcherY = h - foodSize * 0.5 - 24; // bottom-center launcher Y
+                const byteCenterY = 18 + byteSize / 2;
+                const x = food.xNorm * w;
+                let y: number;
                 if (food.thrownAt !== null) {
-                  const byteSize = Math.min(h * 0.55, 140);
-                  const byteAnchorX = w - byteSize - 20 + byteSize * 0.35; // mouth-ish anchor
-                  const byteAnchorXNorm = w > 0 ? byteAnchorX / w : 1;
-                  const p = clamp((now - food.thrownAt) / CHOMP_THROW_DURATION_MS, 0, 1);
-                  xNorm = food.xAtThrow + (byteAnchorXNorm - food.xAtThrow) * p;
+                  // Constant velocity from launcher → byte row (at CHOMP_THROW_DURATION_MS) → off top.
+                  const speedPxPerMs = (launcherY - byteCenterY) / CHOMP_THROW_DURATION_MS;
+                  y = launcherY - speedPxPerMs * (now - food.thrownAt);
+                  // Good/bad hits: stop at byte row (swallowed). Miss: keep flying past off-screen.
+                  if ((food.resolution === 'good' || food.resolution === 'bad') && y < byteCenterY) {
+                    y = byteCenterY;
+                  }
                 } else {
-                  const p = clamp((now - food.spawnedAt) / CHOMP_FOOD_DRIFT_DURATION_MS, 0, 1);
-                  xNorm = food.startXNorm + (food.endXNorm - food.startXNorm) * p;
+                  y = launcherY;
                 }
-                const x = xNorm * w;
-                const y = food.yNorm * h;
                 const isThrown = food.thrownAt !== null;
-                const resolved = food.resolution !== 'none';
-                const opacity = resolved ? 0.15 : 1;
-                const disabled = resolved || isThrown;
+                const isEaten = food.resolution === 'good' || food.resolution === 'bad';
+                // Good/bad hits fade (swallowed). Missed food keeps visible until it exits top.
+                const opacity = isEaten ? 0.15 : 1;
+                const disabled = food.resolution !== 'none' || isThrown;
                 return (
                   <TouchableOpacity
                     key={`chomp-food-${food.id}`}
@@ -1138,6 +1400,72 @@ export default function MiniGameRunnerScreen() {
                   </TouchableOpacity>
                 );
               })}
+
+              {/* VFX layer */}
+              {(() => {
+                void chompTick;
+                const now = Date.now();
+                return chompVFXRef.current.map((v) => {
+                  const age = now - v.spawnedAt;
+                  if (v.type === 'burst') {
+                    const t = age / 550;
+                    const x = v.x + v.vx * age;
+                    const y = v.y + v.vy * age + 0.0002 * age * age; // mild gravity
+                    const opacity = Math.max(0, 1 - t);
+                    return (
+                      <View
+                        key={`vfx-${v.id}`}
+                        pointerEvents="none"
+                        style={[styles.chompBurstDot, { left: x - 3, top: y - 3, opacity }]}
+                      />
+                    );
+                  }
+                  if (v.type === 'ripple') {
+                    const t = age / 500;
+                    const size = 20 + t * 60;
+                    const opacity = Math.max(0, 1 - t);
+                    return (
+                      <View
+                        key={`vfx-${v.id}`}
+                        pointerEvents="none"
+                        style={[
+                          styles.chompRippleRing,
+                          { left: v.x - size / 2, top: v.y - size / 2, width: size, height: size, borderRadius: size / 2, opacity },
+                        ]}
+                      />
+                    );
+                  }
+                  if (v.type === 'check') {
+                    const t = age / 650;
+                    const scale = t < 0.3 ? t / 0.3 : 1 + (t - 0.3) * 0.3;
+                    const opacity = t < 0.7 ? 1 : Math.max(0, 1 - (t - 0.7) / 0.3);
+                    return (
+                      <Text
+                        key={`vfx-${v.id}`}
+                        pointerEvents="none"
+                        style={[styles.chompCheckPulse, { left: v.x - 20, top: v.y - 14, opacity, transform: [{ scale }] }]}
+                      >
+                        ✓
+                      </Text>
+                    );
+                  }
+                  if (v.type === 'float') {
+                    const t = age / 700;
+                    const y = v.y - t * 32;
+                    const opacity = Math.max(0, 1 - t);
+                    return (
+                      <Text
+                        key={`vfx-${v.id}`}
+                        pointerEvents="none"
+                        style={[styles.chompFloatText, { left: v.x - 14, top: y, opacity }]}
+                      >
+                        {v.text}
+                      </Text>
+                    );
+                  }
+                  return null;
+                });
+              })()}
 
               {chompFlash ? <View pointerEvents="none" style={styles.chompFlash} /> : null}
 
@@ -1318,7 +1646,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   scrubBoard: { width: '100%', gap: 14, alignItems: 'center', justifyContent: 'center' },
-  // CHOMP (feed-upload) stage styles. Placeholder backdrop until kitchen_bg.png ships.
   chompStage: {
     flex: 1,
     width: '100%',
@@ -1330,7 +1657,66 @@ const styles = StyleSheet.create({
   },
   chompBg: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(30,20,14,0.55)',
+    backgroundColor: 'rgba(10,18,40,0.7)',
+  },
+  chompGridLineV: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: 'rgba(120,190,255,0.06)',
+  },
+  chompGridLineH: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(120,190,255,0.06)',
+  },
+  chompCorner: {
+    position: 'absolute',
+    width: 18,
+    height: 18,
+    borderColor: 'rgba(120,220,255,0.55)',
+  },
+  chompTrailDot: {
+    position: 'absolute',
+    backgroundColor: 'rgba(140,210,255,0.6)',
+  },
+  chompBurstDot: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#ffe28a',
+  },
+  chompRippleRing: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderColor: 'rgba(255,230,140,0.85)',
+  },
+  chompCheckPulse: {
+    position: 'absolute',
+    width: 40,
+    height: 28,
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#7dffb5',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  chompFloatText: {
+    position: 'absolute',
+    width: 28,
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#ffe28a',
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.7)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   chompByte: {
     position: 'absolute',
@@ -1365,13 +1751,44 @@ const styles = StyleSheet.create({
   chompHud: {
     position: 'absolute',
     top: 10,
-    left: 10,
+    right: 10,
     paddingHorizontal: 10,
     paddingVertical: 5,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(120,190,255,0.22)',
+  },
+  chompLauncherFrame: {
+    position: 'absolute',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(180,220,255,0.4)',
+    backgroundColor: 'rgba(18,34,66,0.72)',
+  },
+  chompLauncherSlot: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(180,220,255,0.35)',
+    backgroundColor: 'rgba(40,80,140,0.3)',
+  },
+  chompLauncherPreview: {
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(180,220,255,0.25)',
+    backgroundColor: 'rgba(28,50,92,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chompPreviewGlyph: {
+    fontSize: 22,
+    opacity: 0.85,
+  },
+  chompPreviewGlyphBad: {
+    color: '#ff9a9a',
   },
   chompHudText: {
     color: '#fff',
@@ -1502,4 +1919,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12,
   },
-  });
+});

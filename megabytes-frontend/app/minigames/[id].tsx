@@ -159,6 +159,27 @@ function diffNeedResults(before: any, after: any) {
     .filter(Boolean) as string[];
 }
 
+// When a care action lands cleanly but its target need is already at cap,
+// explain *what* is maxed rather than returning a blanket "no effect" line.
+function capMessageForCareAction(gameId: string, beforeNeeds: any): string | null {
+  if (!beforeNeeds) return null;
+  const hygiene = Number(beforeNeeds.Hygiene || 0);
+  const bandwidth = Number(beforeNeeds.Bandwidth || 0);
+  const social = Number(beforeNeeds.Social || 0);
+  const fun = Number(beforeNeeds.Fun || 0);
+  if (gameId === 'run-cleanup' && hygiene >= 100) {
+    return 'Byte is already spotless. Hygiene is full.';
+  }
+  if (gameId === 'stabilize-signal' && bandwidth >= 100) {
+    return 'Byte is fully rested. Bandwidth is full.';
+  }
+  if ((gameId === 'engage-simulation' || gameId === 'sync-link' || gameId === 'emote-align')
+      && social >= 100 && fun >= 100) {
+    return 'Byte is thoroughly entertained. Social and Fun are full.';
+  }
+  return null;
+}
+
 function resultSummaryFor(game: MiniGameDef, grade: Grade, effectLines: string[]) {
   if (grade === 'fail') return 'Run failed. No room effect was applied.';
   if (effectLines.length > 0) return `${game.title} completed. Room effects are ready to apply when you return.`;
@@ -188,7 +209,7 @@ const SCRUB_LONG_SPAWN_MS = 440;
 const SCRUB_CLUSTER_MIN = 2;
 const SCRUB_CLUSTER_MAX = 4;
 const SCRUB_NODE_SIZE_PX = 42;
-const SCRUB_HIT_RADIUS_PX = 42;
+const SCRUB_HIT_RADIUS_PX = 40;
 const SCRUB_CLUSTER_RADIUS_PX = 48;
 const SCRUB_BURST_TTL_MS = 480;
 const SCRUB_BYTE_REACTION_MS = 420;
@@ -624,9 +645,15 @@ export default function MiniGameRunnerScreen() {
             ? careAction('perfect-clean', grade)
             : careAction('clean', grade)
           ).catch(() => null);
-          effectLines = result
-            ? diffNeedResults(beforeByte?.byte?.needs, result?.needs)
-            : ['Sync offline — effect will apply on reconnect.'];
+          if (result) {
+            effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
+            if (effectLines.length === 0) {
+              const capMsg = capMessageForCareAction(game.id, beforeByte?.byte?.needs);
+              if (capMsg) effectLines = [capMsg];
+            }
+          } else {
+            effectLines = ['Sync offline — effect will apply on reconnect.'];
+          }
           markHomeClutterCleared();
         } else if (game.id === 'stabilize-signal') {
           const beforeByte = await getByte().catch(() => null);
@@ -634,9 +661,15 @@ export default function MiniGameRunnerScreen() {
             ? careAction('deep_rest', grade)
             : careAction('rest', grade)
           ).catch(() => null);
-          effectLines = result
-            ? diffNeedResults(beforeByte?.byte?.needs, result?.needs)
-            : ['Sync offline — effect will apply on reconnect.'];
+          if (result) {
+            effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
+            if (effectLines.length === 0) {
+              const capMsg = capMessageForCareAction(game.id, beforeByte?.byte?.needs);
+              if (capMsg) effectLines = [capMsg];
+            }
+          } else {
+            effectLines = ['Sync offline — effect will apply on reconnect.'];
+          }
         } else if (game.id === 'engage-simulation' || game.id === 'sync-link' || game.id === 'emote-align') {
           // Route play minigames through careAction so CARE_RESTORE values apply.
           const beforeByte = await getByte().catch(() => null);
@@ -644,9 +677,15 @@ export default function MiniGameRunnerScreen() {
             ? careAction('deep_play', grade)
             : careAction('play', grade)
           ).catch(() => null);
-          effectLines = result
-            ? diffNeedResults(beforeByte?.byte?.needs, result?.needs)
-            : ['Sync offline — effect will apply on reconnect.'];
+          if (result) {
+            effectLines = diffNeedResults(beforeByte?.byte?.needs, result?.needs);
+            if (effectLines.length === 0) {
+              const capMsg = capMessageForCareAction(game.id, beforeByte?.byte?.needs);
+              if (capMsg) effectLines = [capMsg];
+            }
+          } else {
+            effectLines = ['Sync offline — effect will apply on reconnect.'];
+          }
         } else if (game.id.startsWith('training-') && game.stat) {
           const trainResult = await trainStat(game.stat, grade).catch((err: any) => {
             console.error(`trainStat failed for ${game.stat}:`, err?.message);

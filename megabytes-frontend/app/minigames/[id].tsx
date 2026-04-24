@@ -213,8 +213,6 @@ const SCRUB_HIT_RADIUS_PX = 40;
 const SCRUB_CLUSTER_RADIUS_PX = 48;
 const SCRUB_BURST_TTL_MS = 480;
 const SCRUB_BYTE_REACTION_MS = 420;
-const SCRUB_COMBO_BONUS_THRESHOLD = 3;
-const SCRUB_BYTE_SIZE_PX = 64;
 const SCRUB_SPRITE_IDLE = require('../../assets/bytes/Circle/Circle-idle.gif');
 const SCRUB_SPRITE_HAPPY = require('../../assets/bytes/Circle/Circle-happyblush.gif');
 
@@ -1139,7 +1137,9 @@ export default function MiniGameRunnerScreen() {
             grimeMaxComboRef.current = swipeComboRef.current;
             setGrimeMaxCombo(swipeComboRef.current);
           }
-          if (swipeComboRef.current >= SCRUB_COMBO_BONUS_THRESHOLD) triggerScrubReaction();
+          // Any clear triggers the blush — keeps the byte reacting the whole
+          // time the player is actively scrubbing.
+          triggerScrubReaction();
 
           grimeClearedRef.current += cleared.length;
           setGrimeCleared(grimeClearedRef.current);
@@ -1663,43 +1663,35 @@ export default function MiniGameRunnerScreen() {
               {...scrubPan.panHandlers}
             >
               <View style={styles.chompBg} pointerEvents="none" />
-              {/* Grid atmosphere */}
-              {(() => {
-                const w = boardSize.w;
-                const h = boardSize.h;
-                const out: React.ReactNode[] = [];
-                for (let i = 1; i < 8; i += 1) {
-                  out.push(<View key={`sgv-${i}`} pointerEvents="none" style={[styles.chompGridLineV, { left: (w * i) / 8 }]} />);
-                }
-                for (let i = 1; i < 6; i += 1) {
-                  out.push(<View key={`sgh-${i}`} pointerEvents="none" style={[styles.chompGridLineH, { top: (h * i) / 6 }]} />);
-                }
-                return out;
-              })()}
-              {/* Corner brackets */}
+
+              {/* Close-up byte — fills the stage as the backdrop. Swaps to blush when scrubbing. */}
+              {boardSize.w > 0 ? (() => {
+                const size = Math.min(boardSize.w, boardSize.h) * 0.9;
+                return (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      width: size,
+                      height: size,
+                      left: (boardSize.w - size) / 2,
+                      top: (boardSize.h - size) / 2,
+                    }}
+                  >
+                    <Image
+                      source={scrubReaction === 'good' ? SCRUB_SPRITE_HAPPY : SCRUB_SPRITE_IDLE}
+                      style={{ width: '100%', height: '100%' }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                );
+              })() : null}
+
+              {/* Corner brackets — keep the sci-fi monitor frame */}
               <View pointerEvents="none" style={[styles.chompCorner, { top: 4, left: 4, borderTopWidth: 2, borderLeftWidth: 2 }]} />
               <View pointerEvents="none" style={[styles.chompCorner, { top: 4, right: 4, borderTopWidth: 2, borderRightWidth: 2 }]} />
               <View pointerEvents="none" style={[styles.chompCorner, { bottom: 4, left: 4, borderBottomWidth: 2, borderLeftWidth: 2 }]} />
               <View pointerEvents="none" style={[styles.chompCorner, { bottom: 4, right: 4, borderBottomWidth: 2, borderRightWidth: 2 }]} />
-
-              {/* Byte sprite — watches from top-center, happy reaction on combo. */}
-              {boardSize.w > 0 ? (
-                <View
-                  pointerEvents="none"
-                  style={[styles.chompByte, {
-                    width: SCRUB_BYTE_SIZE_PX,
-                    height: SCRUB_BYTE_SIZE_PX,
-                    left: boardSize.w / 2 - SCRUB_BYTE_SIZE_PX / 2,
-                    top: 6,
-                  }]}
-                >
-                  <Image
-                    source={scrubReaction === 'good' ? SCRUB_SPRITE_HAPPY : SCRUB_SPRITE_IDLE}
-                    style={styles.chompByteSprite}
-                    resizeMode="contain"
-                  />
-                </View>
-              ) : null}
 
               {/* Grime nodes */}
               {grimeNodes.map((n) => (

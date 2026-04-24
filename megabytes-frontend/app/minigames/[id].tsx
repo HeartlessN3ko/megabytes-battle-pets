@@ -223,6 +223,7 @@ export default function MiniGameRunnerScreen() {
   const roomPath = resolveRoomPath(room);
 
   const [running, setRunning] = useState(false);
+  const [scrubIntroShown, setScrubIntroShown] = useState(true);
   const [remainingMs, setRemainingMs] = useState(durationMs);
   const [interactions, setInteractions] = useState(0);
   const [quality, setQuality] = useState(0);
@@ -549,9 +550,18 @@ export default function MiniGameRunnerScreen() {
 
   useEffect(() => {
     if (!game || autoStarted.current) return;
+    // Scrub waits for the player to dismiss the intro overlay.
+    if (game.id === 'run-cleanup') return;
     autoStarted.current = true;
     setTimeout(() => startRound(), 100);
   }, [game, startRound]);
+
+  const beginScrub = useCallback(() => {
+    if (autoStarted.current) return;
+    autoStarted.current = true;
+    setScrubIntroShown(false);
+    setTimeout(() => startRound(), 40);
+  }, [startRound]);
 
   const applyOutcome = useCallback(async () => {
     if (!game || syncing || synced) return;
@@ -1665,6 +1675,30 @@ export default function MiniGameRunnerScreen() {
                   {grimeCleared}/{scrubTarget}   x{grimeCombo}
                 </Text>
               </View>
+
+              {/* Intro overlay — blocks play until the player taps START */}
+              {scrubIntroShown ? (
+                <View style={styles.scrubIntroOverlay}>
+                  <View style={styles.scrubIntroCard}>
+                    <Text style={styles.scrubIntroTitle}>DEEP CLEAN</Text>
+                    <Text style={styles.scrubIntroGesture}>SWIPE</Text>
+                    <Text style={styles.scrubIntroBody}>
+                      Drag your finger across grime to wipe it clean.{"\n"}
+                      Chain multiple in one swipe for combo bonus.
+                    </Text>
+                    <Text style={styles.scrubIntroGoal}>
+                      Goal: {scrubTarget} clears
+                    </Text>
+                    <TouchableOpacity
+                      style={[styles.scrubIntroButton, { borderColor: accent }]}
+                      onPress={beginScrub}
+                      hitSlop={LARGE_TOUCH_HIT_SLOP}
+                    >
+                      <Text style={[styles.scrubIntroButtonText, { color: accent }]}>START</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
             </View>
           ) : null}
 
@@ -1831,6 +1865,64 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'rgba(140,220,255,0.9)',
     backgroundColor: 'rgba(140,220,255,0.18)',
+  },
+  scrubIntroOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(6,14,30,0.82)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  scrubIntroCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(140,220,255,0.45)',
+    backgroundColor: 'rgba(10,24,52,0.95)',
+    paddingVertical: 22,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  scrubIntroTitle: {
+    color: '#e8f6ff',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 2,
+    marginBottom: 10,
+  },
+  scrubIntroGesture: {
+    color: '#8ce9ff',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 6,
+    marginBottom: 12,
+  },
+  scrubIntroBody: {
+    color: 'rgba(220,238,255,0.88)',
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  scrubIntroGoal: {
+    color: 'rgba(140,220,255,0.85)',
+    fontSize: 12,
+    letterSpacing: 1.2,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  scrubIntroButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 26,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    backgroundColor: 'rgba(140,220,255,0.08)',
+  },
+  scrubIntroButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 3,
   },
   chompStage: {
     flex: 1,

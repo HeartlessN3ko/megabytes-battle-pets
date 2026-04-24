@@ -175,16 +175,30 @@ function randomRange(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function buildCleanupPanels() {
-  return Array.from({ length: 3 }, () => {
-    const barCount = randomRange(1, 6);
-    const bars = Array.from({ length: barCount }, () => ({
-      width: randomRange(54, 130),
-      need: randomRange(42, 92),
-    }));
-    return { barCount, bars };
-  });
-}
+// DEEP-CLEAN (run-cleanup) — v2: broad-swipe clearing (Fruit-Ninja family).
+// Grime nodes spawn in clusters; the player swipes across them to clear.
+// Combo within a single swipe grants bonuses. Per research doc: cleaning
+// maps to broad-swipe verb, not trace-path / drag-endpoint.
+const SCRUB_QUICK_TARGET = 14;
+const SCRUB_LONG_TARGET = 28;
+const SCRUB_QUICK_MAX_ACTIVE = 6;
+const SCRUB_LONG_MAX_ACTIVE = 9;
+const SCRUB_QUICK_SPAWN_MS = 620;
+const SCRUB_LONG_SPAWN_MS = 440;
+const SCRUB_CLUSTER_MIN = 2;
+const SCRUB_CLUSTER_MAX = 4;
+const SCRUB_NODE_SIZE_PX = 42;
+const SCRUB_HIT_RADIUS_PX = 30;
+const SCRUB_CLUSTER_RADIUS_PX = 48;
+const SCRUB_BURST_TTL_MS = 480;
+const SCRUB_BYTE_REACTION_MS = 420;
+const SCRUB_COMBO_BONUS_THRESHOLD = 3;
+const SCRUB_BYTE_SIZE_PX = 64;
+const SCRUB_SPRITE_IDLE = require('../../assets/bytes/Circle/Circle-idle.gif');
+const SCRUB_SPRITE_HAPPY = require('../../assets/bytes/Circle/Circle-happyblush.gif');
+
+type GrimeNode = { id: number; x: number; y: number; size: number };
+type ScrubBurst = { id: number; x: number; y: number; born: number };
 
 function buildTracePatterns(variant: Variant) {
   // amplitude/offset are normalized fractions of board height (centerline = 0.5).
@@ -277,10 +291,20 @@ export default function MiniGameRunnerScreen() {
   const boardSizeRef = useRef(boardSize);
   useEffect(() => { boardSizeRef.current = boardSize; }, [boardSize]);
 
-  const [cleanedCount, setCleanedCount] = useState(0);
-  const [cleanupPanels, setCleanupPanels] = useState<{ barCount: number; bars: { width: number; need: number }[] }[]>([]);
-  const [cleanupStage, setCleanupStage] = useState(0);
-  const scrubDistanceRef = useRef(0);
+  const [grimeNodes, setGrimeNodes] = useState<GrimeNode[]>([]);
+  const [grimeCleared, setGrimeCleared] = useState(0);
+  const [grimeCombo, setGrimeCombo] = useState(0);
+  const [grimeMaxCombo, setGrimeMaxCombo] = useState(0);
+  const [scrubBursts, setScrubBursts] = useState<ScrubBurst[]>([]);
+  const [scrubReaction, setScrubReaction] = useState<'idle' | 'good'>('idle');
+  const grimeNodesRef = useRef<GrimeNode[]>([]);
+  const grimeClearedRef = useRef(0);
+  const grimeMaxComboRef = useRef(0);
+  const swipeComboRef = useRef(0);
+  const scrubNextIdRef = useRef(0);
+  const scrubBurstIdRef = useRef(0);
+  const scrubSpawnTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scrubReactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
   const [traceSamples, setTraceSamples] = useState(0);
@@ -313,12 +337,12 @@ export default function MiniGameRunnerScreen() {
   const sequencePreviewRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoStarted = useRef(false);
   const roundClosedRef = useRef(false);
-  const cleanupStageRef = useRef(0);
   const traceStageRef = useRef(0);
   const tapGoal = useMemo(() => (game ? targetGoalFor(game, variant) : 0), [game, variant]);
   const pairGoal = variant === 'long' ? 3 : 2;
-  const activeCleanupPanel = cleanupPanels[cleanupStage] ?? null;
-  const scrubGoal = activeCleanupPanel?.barCount ?? 0;
+  const scrubTarget = variant === 'long' ? SCRUB_LONG_TARGET : SCRUB_QUICK_TARGET;
+  const scrubMaxActive = variant === 'long' ? SCRUB_LONG_MAX_ACTIVE : SCRUB_QUICK_MAX_ACTIVE;
+  const scrubSpawnMs = variant === 'long' ? SCRUB_LONG_SPAWN_MS : SCRUB_QUICK_SPAWN_MS;
   const activeTracePattern = tracePatterns[traceStage] ?? null;
   const traceGoal = activeTracePattern?.goal ?? 0;
 
@@ -335,9 +359,16 @@ export default function MiniGameRunnerScreen() {
       clearTimeout(sequencePreviewRef.current);
       sequencePreviewRef.current = null;
     }
+    if (scrubSpawnTimerRef.current) {
+      clearInterval(scrubSpawnTimerRef.current);
+      scrubSpawnTimerRef.current = null;
+    }
+    if (scrubReactionTimerRef.current) {
+      clearTimeout(scrubReactionTimerRef.current);
+      scrubReactionTimerRef.current = null;
+    }
   }, []);
 
-  const cleanupStageLockRef = useRef(0);
   const sfxThrottleRef = useRef<Partial<Record<SfxKey, number>>>({});
 
   const playGameSfx = useCallback((key: SfxKey, volume = 0.9, minGapMs = 0) => {
@@ -402,12 +433,19 @@ export default function MiniGameRunnerScreen() {
     if (chompReactionTimerRef.current) { clearTimeout(chompReactionTimerRef.current); chompReactionTimerRef.current = null; }
     if (chompFlashTimerRef.current) { clearTimeout(chompFlashTimerRef.current); chompFlashTimerRef.current = null; }
 
-    setCleanedCount(0);
-    const nextCleanupPanels = buildCleanupPanels();
-    setCleanupPanels(nextCleanupPanels);
-    setCleanupStage(0);
-    cleanupStageRef.current = 0;
-    scrubDistanceRef.current = 0;
+    // Deep-clean reset — clear grime field, bursts, byte reaction, combo tracking.
+    setGrimeNodes([]);
+    grimeNodesRef.current = [];
+    setGrimeCleared(0);
+    grimeClearedRef.current = 0;
+    setGrimeCombo(0);
+    setGrimeMaxCombo(0);
+    grimeMaxComboRef.current = 0;
+    swipeComboRef.current = 0;
+    setScrubBursts([]);
+    setScrubReaction('idle');
+    scrubNextIdRef.current = 0;
+    scrubBurstIdRef.current = 0;
     lastPointRef.current = null;
 
     setTraceSamples(0);
@@ -932,76 +970,135 @@ export default function MiniGameRunnerScreen() {
     return () => clearInterval(tick);
   }, [running, game?.id, chompByteXAt, finishRound, playGameSfx, triggerChompFlash, triggerChompReaction, spawnChompBurst, spawnChompCheck, triggerChompShake]);
 
+  // Deep-clean helpers — burst particles, byte reaction flash, grime cluster spawner.
+  const addScrubBurst = useCallback((x: number, y: number) => {
+    const id = ++scrubBurstIdRef.current;
+    const burst: ScrubBurst = { id, x, y, born: Date.now() };
+    setScrubBursts((prev) => [...prev, burst]);
+    setTimeout(() => {
+      setScrubBursts((prev) => prev.filter((b) => b.id !== id));
+    }, SCRUB_BURST_TTL_MS);
+  }, []);
+
+  const triggerScrubReaction = useCallback(() => {
+    setScrubReaction('good');
+    if (scrubReactionTimerRef.current) clearTimeout(scrubReactionTimerRef.current);
+    scrubReactionTimerRef.current = setTimeout(() => setScrubReaction('idle'), SCRUB_BYTE_REACTION_MS);
+  }, []);
+
+  const spawnGrimeCluster = useCallback((bw: number, bh: number) => {
+    if (bw <= 0 || bh <= 0) return;
+    const cx = 40 + Math.random() * Math.max(1, bw - 80);
+    const cy = 70 + Math.random() * Math.max(1, bh - 140);
+    const count = SCRUB_CLUSTER_MIN + Math.floor(Math.random() * (SCRUB_CLUSTER_MAX - SCRUB_CLUSTER_MIN + 1));
+    const newNodes: GrimeNode[] = [];
+    for (let i = 0; i < count; i += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = Math.random() * SCRUB_CLUSTER_RADIUS_PX;
+      const x = clamp(cx + Math.cos(angle) * r, 24, bw - 24);
+      const y = clamp(cy + Math.sin(angle) * r, 24, bh - 24);
+      const id = ++scrubNextIdRef.current;
+      newNodes.push({ id, x, y, size: SCRUB_NODE_SIZE_PX * (0.85 + Math.random() * 0.3) });
+    }
+    grimeNodesRef.current = [...grimeNodesRef.current, ...newNodes];
+    setGrimeNodes(grimeNodesRef.current);
+  }, []);
+
+  // Deep-clean game loop — seeds the stage then spawns clusters on interval while running.
+  useEffect(() => {
+    if (!running || game?.id !== 'run-cleanup') return;
+    const bw = boardSize.w;
+    const bh = boardSize.h;
+    if (bw <= 0 || bh <= 0) return;
+
+    let spawnCount = 0;
+    const spawnCap = Math.ceil((scrubTarget * 1.4) / SCRUB_CLUSTER_MAX);
+
+    spawnGrimeCluster(bw, bh);
+    spawnCount += 1;
+
+    const tick = setInterval(() => {
+      if (grimeClearedRef.current >= scrubTarget) return;
+      if (spawnCount >= spawnCap) return;
+      if (grimeNodesRef.current.length >= scrubMaxActive) return;
+      spawnGrimeCluster(bw, bh);
+      spawnCount += 1;
+    }, scrubSpawnMs);
+
+    scrubSpawnTimerRef.current = tick;
+    return () => {
+      clearInterval(tick);
+      if (scrubSpawnTimerRef.current === tick) scrubSpawnTimerRef.current = null;
+    };
+  }, [running, game?.id, boardSize.w, boardSize.h, scrubTarget, scrubMaxActive, scrubSpawnMs, spawnGrimeCluster]);
+
   const scrubPan = useMemo(
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => running && game?.kind === 'scrub',
         onMoveShouldSetPanResponder: () => running && game?.kind === 'scrub',
         onPanResponderGrant: (_, g) => {
-          playGameSfx('minigame_cleanup_scrub', 0.7, 120);
           lastPointRef.current = { x: g.moveX, y: g.moveY };
+          swipeComboRef.current = 0;
+          setGrimeCombo(0);
         },
         onPanResponderMove: (_, g) => {
           if (!running || game?.kind !== 'scrub') return;
           setInteractions((v) => v + 1);
           const p = { x: g.moveX, y: g.moveY };
-          if (lastPointRef.current) {
-            const dx = p.x - lastPointRef.current.x;
-            const dy = p.y - lastPointRef.current.y;
-            const delta = Math.hypot(dx, dy);
-            const panel = cleanupPanels[cleanupStageRef.current];
-            if (!panel) {
-              lastPointRef.current = p;
-              return;
-            }
-            const nextDistance = scrubDistanceRef.current + delta;
-            scrubDistanceRef.current = nextDistance;
-            let remaining = nextDistance;
-            let nextClean = 0;
-            for (const bar of panel.bars) {
-              if (remaining >= bar.need) {
-                nextClean += 1;
-                remaining -= bar.need;
-              } else {
-                break;
-              }
-            }
-            nextClean = Math.min(panel.barCount, nextClean);
-            setCleanedCount(nextClean);
-            const totalProgress = cleanupStageRef.current + nextClean / Math.max(panel.barCount, 1);
-            const nextQuality = clamp(0.32 + (totalProgress / 3) * 0.68, 0, 1);
-            setQuality(nextQuality);
-            if (nextClean >= panel.barCount) {
-              playGameSfx('minigame_score_tick', 0.58, 90);
-              // Lock stage switch to prevent immediate progression if hand is still on screen
-              const now = Date.now();
-              if (cleanupStageLockRef.current > now) {
-                return; // Still locked, don't advance yet
-              }
-
-              if (cleanupStageRef.current >= 2) {
-                setTimeout(() => finishRound(nextQuality), 60);
-              } else {
-                cleanupStageRef.current += 1;
-                cleanupStageLockRef.current = now + 200; // Lock for 200ms
-                const nextStage = cleanupStageRef.current;
-                setCleanupStage(nextStage);
-                scrubDistanceRef.current = 0;
-                setCleanedCount(0);
-                setStatus(`Panel ${nextStage + 1} loaded. Scrub the nodes clean.`);
-              }
-            }
-          }
           lastPointRef.current = p;
+
+          // Hit-test finger against every active grime node.
+          const hitIds: number[] = [];
+          for (const node of grimeNodesRef.current) {
+            const dx = p.x - node.x;
+            const dy = p.y - node.y;
+            const r = SCRUB_HIT_RADIUS_PX + node.size * 0.5;
+            if (dx * dx + dy * dy <= r * r) hitIds.push(node.id);
+          }
+          if (hitIds.length === 0) return;
+
+          const hitSet = new Set(hitIds);
+          const cleared = grimeNodesRef.current.filter((n) => hitSet.has(n.id));
+          grimeNodesRef.current = grimeNodesRef.current.filter((n) => !hitSet.has(n.id));
+          setGrimeNodes(grimeNodesRef.current);
+          for (const n of cleared) addScrubBurst(n.x, n.y);
+
+          playGameSfx('minigame_cleanup_scrub', 0.55, 45);
+
+          swipeComboRef.current += cleared.length;
+          setGrimeCombo(swipeComboRef.current);
+          if (swipeComboRef.current > grimeMaxComboRef.current) {
+            grimeMaxComboRef.current = swipeComboRef.current;
+            setGrimeMaxCombo(swipeComboRef.current);
+          }
+          if (swipeComboRef.current >= SCRUB_COMBO_BONUS_THRESHOLD) triggerScrubReaction();
+
+          grimeClearedRef.current += cleared.length;
+          setGrimeCleared(grimeClearedRef.current);
+
+          const clearedRatio = Math.min(1, grimeClearedRef.current / Math.max(1, scrubTarget));
+          const comboBonus = Math.min(1, grimeMaxComboRef.current / 5);
+          const q = clamp(clearedRatio * 0.85 + comboBonus * 0.15, 0, 1);
+          setQuality(q);
+
+          if (grimeClearedRef.current >= scrubTarget) {
+            playGameSfx('minigame_score_tick', 0.65, 80);
+            setTimeout(() => finishRound(q), 80);
+          }
         },
         onPanResponderRelease: () => {
+          swipeComboRef.current = 0;
+          setGrimeCombo(0);
           lastPointRef.current = null;
         },
         onPanResponderTerminate: () => {
+          swipeComboRef.current = 0;
+          setGrimeCombo(0);
           lastPointRef.current = null;
         },
       }),
-    [cleanupPanels, finishRound, game?.kind, playGameSfx, running]
+    [addScrubBurst, finishRound, game?.kind, playGameSfx, running, scrubTarget, triggerScrubReaction]
   );
 
   const tracePan = useMemo(
@@ -1484,18 +1581,89 @@ export default function MiniGameRunnerScreen() {
           ) : null}
 
           {game.kind === 'scrub' ? (
-            <View style={styles.fill} {...scrubPan.panHandlers}>
-              <View style={[styles.scrubBoard, styles.boardShell, { borderColor: `${accent}66` }]}>
-                {activeCleanupPanel?.bars.map((bar, idx) => (
-                  <View
-                    key={`${cleanupStage}-${idx}`}
-                    style={[
-                      styles.patch,
-                      { width: bar.width },
-                      idx < cleanedCount && styles.patchClean,
-                    ]}
+            <View
+              style={[styles.chompStage, { borderColor: `${accent}66` }]}
+              onLayout={(e) => setBoardSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+              {...scrubPan.panHandlers}
+            >
+              <View style={styles.chompBg} pointerEvents="none" />
+              {/* Grid atmosphere */}
+              {(() => {
+                const w = boardSize.w;
+                const h = boardSize.h;
+                const out: React.ReactNode[] = [];
+                for (let i = 1; i < 8; i += 1) {
+                  out.push(<View key={`sgv-${i}`} pointerEvents="none" style={[styles.chompGridLineV, { left: (w * i) / 8 }]} />);
+                }
+                for (let i = 1; i < 6; i += 1) {
+                  out.push(<View key={`sgh-${i}`} pointerEvents="none" style={[styles.chompGridLineH, { top: (h * i) / 6 }]} />);
+                }
+                return out;
+              })()}
+              {/* Corner brackets */}
+              <View pointerEvents="none" style={[styles.chompCorner, { top: 4, left: 4, borderTopWidth: 2, borderLeftWidth: 2 }]} />
+              <View pointerEvents="none" style={[styles.chompCorner, { top: 4, right: 4, borderTopWidth: 2, borderRightWidth: 2 }]} />
+              <View pointerEvents="none" style={[styles.chompCorner, { bottom: 4, left: 4, borderBottomWidth: 2, borderLeftWidth: 2 }]} />
+              <View pointerEvents="none" style={[styles.chompCorner, { bottom: 4, right: 4, borderBottomWidth: 2, borderRightWidth: 2 }]} />
+
+              {/* Byte sprite — watches from top-center, happy reaction on combo. */}
+              {boardSize.w > 0 ? (
+                <View
+                  pointerEvents="none"
+                  style={[styles.chompByte, {
+                    width: SCRUB_BYTE_SIZE_PX,
+                    height: SCRUB_BYTE_SIZE_PX,
+                    left: boardSize.w / 2 - SCRUB_BYTE_SIZE_PX / 2,
+                    top: 6,
+                  }]}
+                >
+                  <Image
+                    source={scrubReaction === 'good' ? SCRUB_SPRITE_HAPPY : SCRUB_SPRITE_IDLE}
+                    style={styles.chompByteSprite}
+                    resizeMode="contain"
                   />
-                ))}
+                </View>
+              ) : null}
+
+              {/* Grime nodes */}
+              {grimeNodes.map((n) => (
+                <View
+                  key={`g-${n.id}`}
+                  pointerEvents="none"
+                  style={[styles.scrubGrime, {
+                    width: n.size,
+                    height: n.size,
+                    left: n.x - n.size / 2,
+                    top: n.y - n.size / 2,
+                    borderRadius: n.size / 2,
+                  }]}
+                />
+              ))}
+
+              {/* Burst particles */}
+              {scrubBursts.map((b) => {
+                const age = Math.min(1, (Date.now() - b.born) / SCRUB_BURST_TTL_MS);
+                const scale = 1 + age * 1.6;
+                const opacity = 1 - age;
+                return (
+                  <View
+                    key={`b-${b.id}`}
+                    pointerEvents="none"
+                    style={[styles.scrubBurstRing, {
+                      left: b.x - 22,
+                      top: b.y - 22,
+                      transform: [{ scale }],
+                      opacity,
+                    }]}
+                  />
+                );
+              })}
+
+              {/* HUD */}
+              <View pointerEvents="none" style={styles.chompHud}>
+                <Text style={styles.chompHudText}>
+                  {grimeCleared}/{scrubTarget}   x{grimeCombo}
+                </Text>
               </View>
             </View>
           ) : null}
@@ -1645,7 +1813,25 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     paddingHorizontal: 12,
   },
-  scrubBoard: { width: '100%', gap: 14, alignItems: 'center', justifyContent: 'center' },
+  scrubGrime: {
+    position: 'absolute',
+    backgroundColor: 'rgba(78,42,20,0.92)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,186,120,0.4)',
+    shadowColor: 'rgba(0,0,0,0.55)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+  },
+  scrubBurstRing: {
+    position: 'absolute',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: 'rgba(140,220,255,0.9)',
+    backgroundColor: 'rgba(140,220,255,0.18)',
+  },
   chompStage: {
     flex: 1,
     width: '100%',
@@ -1812,18 +1998,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
   },
   targetText: { color: '#2a1a08', fontSize: 18, fontWeight: '900' },
-  patch: {
-    height: 22,
-    borderRadius: 99,
-    borderWidth: 1,
-    borderColor: 'rgba(255,207,138,0.34)',
-    backgroundColor: 'rgba(72,41,16,0.98)',
-  },
-  patchClean: {
-    borderColor: 'rgba(110,244,188,0.36)',
-    backgroundColor: 'rgba(110,244,188,0.95)',
-    opacity: 0.18,
-  },
   traceBoardFill: {
     flex: 1,
     width: '100%',

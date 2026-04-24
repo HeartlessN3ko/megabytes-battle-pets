@@ -140,7 +140,6 @@ export default function RoomScene({
   const recommendedTypes = useMemo(() => {
     if (title === 'KITCHEN') return ['recovery', 'clutch'];
     if (title === 'BATHROOM') return ['utility', 'recovery'];
-    if (title === 'BEDROOM') return ['recovery', 'clutch'];
     return ['utility', 'recovery'];
   }, [title]);
   const recommendedTypeSet = useMemo(() => new Set(recommendedTypes), [recommendedTypes]);

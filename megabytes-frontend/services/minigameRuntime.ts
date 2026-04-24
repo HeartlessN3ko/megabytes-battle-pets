@@ -1,4 +1,4 @@
-export type MiniGameRoomId = 'kitchen' | 'bathroom' | 'bedroom' | 'play-room' | 'training-center';
+export type MiniGameRoomId = 'kitchen' | 'bathroom' | 'play-room' | 'training-center';
 
 export type MiniGameResultPayload = {
   room: MiniGameRoomId;

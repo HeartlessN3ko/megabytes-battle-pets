@@ -86,7 +86,7 @@ export default function TrainingCenterRoom() {
     const fatigue = getTrainingFatigue();
     const usableEnergy = Math.max(0, Math.round(liveBandwidth - fatigue));
     if (usableEnergy < 12) {
-      setStatus('Byte energy too low for training. Rest in bedroom or use an energy item.');
+      setStatus('Byte energy too low for training. Let it rest or use an energy item.');
       return;
     }
     setStatus(`Launching ${label.toUpperCase()} training protocol...`);

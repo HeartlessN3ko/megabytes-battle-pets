@@ -75,7 +75,6 @@ function shuffledSymbols(variant: Variant) {
 function resolveRoomPath(room: string | undefined) {
   if (room === 'kitchen') return '/rooms/kitchen';
   if (room === 'bathroom') return '/rooms/bathroom';
-  if (room === 'bedroom') return '/rooms/bedroom';
   if (room === 'play-room') return '/rooms/play-room';
   if (room === 'training-center') return '/rooms/training-center';
   return null;

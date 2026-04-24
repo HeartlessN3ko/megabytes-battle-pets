@@ -117,7 +117,6 @@ const UTILITY_BAR = [
 const ROOM_MENU = [
   { key: 'kitchen',   title: 'KITCHEN',      subtitle: 'Feed and meals',        icon: 'restaurant-outline',      route: '/rooms/kitchen',          color: '#ffcb58' },
   { key: 'bathroom',  title: 'BATHROOM',     subtitle: 'Clean and wash',        icon: 'water-outline',           route: '/rooms/bathroom',         color: '#56d9ff' },
-  { key: 'bedroom',   title: 'BEDROOM',      subtitle: 'Rest and calm',         icon: 'bed-outline',             route: '/rooms/bedroom',          color: '#9d86ff' },
   { key: 'training',  title: 'TRAINING',     subtitle: 'Stat drills',           icon: 'barbell-outline',         route: '/rooms/training-center',  color: '#d48fff' },
   { key: 'clinic',    title: 'CLINIC',       subtitle: 'Recovery support',      icon: 'medkit-outline',          route: '/rooms/clinic',           color: '#8deac7' },
   { key: 'play',      title: 'PLAY ROOM',    subtitle: 'Mood support',          icon: 'game-controller-outline', route: '/rooms/play-room',        color: '#ff8dd2' },

@@ -28,7 +28,7 @@ export type MiniGameDef = {
   title: string;
   subtitle: string;
   kind: MiniGameKind;
-  room: 'kitchen' | 'bathroom' | 'bedroom' | 'play-room' | 'training-center' | 'all';
+  room: 'kitchen' | 'bathroom' | 'play-room' | 'training-center' | 'all';
   stat?: 'Power' | 'Speed' | 'Defense' | 'Special' | 'Stamina' | 'Accuracy' | 'Agility';
   accent: string;
 };
@@ -37,7 +37,9 @@ export const MINI_GAME_DEFS: MiniGameDef[] = [
   { id: 'feed-upload', title: 'UPLOAD NUTRIENTS', subtitle: 'Tap nutrient packets', kind: 'tap-target', room: 'kitchen', accent: '#ffcf6f' },
   { id: 'run-cleanup', title: 'RUN CLEANUP', subtitle: 'Scrub BYTE clean', kind: 'scrub', room: 'bathroom', accent: '#84dcff' },
   { id: 'engage-simulation', title: 'ENGAGE SIMULATION', subtitle: 'Quick stimulation taps', kind: 'tap-target', room: 'play-room', accent: '#ff9cdf' },
-  { id: 'stabilize-signal', title: 'STABILIZE SIGNAL', subtitle: 'Trace and align signal', kind: 'trace', room: 'bedroom', accent: '#9cc5ff' },
+  // Bedroom room retired 2026-04-23; sleep mechanic moving to home screen.
+  // Minigame kept as a stub for the sleep redesign — slot into 'all' until it's rewritten.
+  { id: 'stabilize-signal', title: 'STABILIZE SIGNAL', subtitle: 'Trace and align signal', kind: 'trace', room: 'all', accent: '#9cc5ff' },
   { id: 'sync-link', title: 'SYNC LINK', subtitle: 'Match social nodes', kind: 'match', room: 'play-room', accent: '#8bf2cb' },
   { id: 'emote-align', title: 'EMOTE ALIGN', subtitle: 'Repeat emote pattern', kind: 'sequence', room: 'play-room', accent: '#ff9b9b' },
 

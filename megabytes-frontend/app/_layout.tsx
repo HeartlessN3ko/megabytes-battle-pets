@@ -9,6 +9,8 @@ export default function RootLayout() {
         <Stack.Screen name="egg" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="dev-menu" />
       </Stack>
     </EvolutionProvider>
   );

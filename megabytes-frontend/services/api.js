@@ -144,6 +144,16 @@ export const evolveByte = (itemUsed = null, playerChoice = {}) =>
 export const getByteMoves = () => request('GET', `/api/byte/${activeIds().byteId}/moves`);
 export const updateByteLoadout = (payload) => request('PATCH', `/api/byte/${activeIds().byteId}/loadout`, payload);
 
+// Dev-only mutations (wire the in-app dev menu to backend admin routes)
+export const devAdjustNeed = (need, delta) =>
+  request('POST', `/api/byte/${activeIds().byteId}/dev/need`, { need, delta });
+export const devAdjustCorruption = (delta) =>
+  request('POST', `/api/byte/${activeIds().byteId}/dev/corruption`, { delta });
+export const devResetByte = () =>
+  request('POST', `/api/byte/${activeIds().byteId}/dev/reset`);
+export const devAdjustByteBits = (delta) =>
+  request('POST', `/api/player/${activeIds().playerId}/dev/bytebits`, { delta });
+
 // Player
 export const getPlayer = () => request('GET', `/api/player/${activeIds().playerId}`);
 export const getInventory = () => request('GET', `/api/player/${activeIds().playerId}/inventory`);

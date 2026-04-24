@@ -20,13 +20,19 @@ import { Animated, StyleSheet } from 'react-native';
 type Props = {
   /** Byte corruption value (0–100). */
   corruption: number;
-  /** Byte sprite size in px (square). */
+  /** Aura size in px (square). */
   size: number;
+  /** Size of the containing byte sprite box. Used to center the aura. Defaults to size (no centering). */
+  containerSize?: number;
 };
 
 const THRESHOLD = 25;
 
-export default function CorruptionAura({ corruption, size }: Props) {
+export default function CorruptionAura({ corruption, size, containerSize }: Props) {
+  const container = containerSize ?? size;
+  const offsetX = (container - size) / 2;
+  // Align to the byte's ground plane: bottom of container, minus a touch for sprite bottom padding.
+  const offsetY = container - size;
   // Clamp: invisible below threshold, ramps to 1.0 at 100.
   const intensity = Math.max(0, Math.min(1, (corruption - THRESHOLD) / (100 - THRESHOLD)));
 
@@ -91,6 +97,8 @@ export default function CorruptionAura({ corruption, size }: Props) {
         {
           width: size,
           height: size,
+          top: offsetY,
+          left: offsetX,
           opacity: flicker,
           transform: [{ translateX: jitter }],
         },
@@ -144,8 +152,6 @@ export default function CorruptionAura({ corruption, size }: Props) {
 const styles = StyleSheet.create({
   wrap: {
     position: 'absolute',
-    top: 0,
-    left: 0,
     overflow: 'hidden',
   },
 });

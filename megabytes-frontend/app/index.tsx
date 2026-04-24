@@ -4,7 +4,6 @@ import {
   StyleSheet, Animated, Dimensions, StatusBar,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { getOnboardingProgress } from '../services/api';
 import appConfig from '../app.json';
 const BUILD_VERSION = appConfig.expo.version;
 
@@ -36,15 +35,8 @@ export default function SplashScreen() {
     const routeAfterSplash = async () => {
       // Hold splash visible for ~1.6s so the animation reads.
       await new Promise((r) => setTimeout(r, 1600));
-      let target = '/(tabs)';
-      try {
-        const progress = await getOnboardingProgress();
-        if (progress && progress.isComplete === false) {
-          target = '/onboarding/flow';
-        }
-      } catch {
-        // Offline or server cold — send them to tabs; tabs handles its own error states.
-      }
+      // Onboarding is disabled until its rewrite — always enter the main game.
+      const target = '/(tabs)';
       if (cancelled || routed.current) return;
       routed.current = true;
       Animated.timing(fadeIn, { toValue: 0, duration: 400, useNativeDriver: true }).start(() => {

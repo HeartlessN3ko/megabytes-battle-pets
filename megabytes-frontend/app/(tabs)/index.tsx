@@ -1280,7 +1280,7 @@ export default function HomeScreen() {
             <TouchableOpacity onPress={handleByteTap} activeOpacity={1}>
               <Image source={petSprite} style={styles.byteSprite} resizeMode="contain" />
             </TouchableOpacity>
-            <CorruptionAura corruption={corruptionValue} size={width * 0.3} />
+            <CorruptionAura corruption={corruptionValue} size={width * 0.15} containerSize={width * 0.3} />
             <SleepZsOverlay visible={isSleeping} />
             <NeedRequestBubble need={requestedNeed} />
           </Animated.View>

@@ -79,4 +79,27 @@ router.get('/:id/inventory', optionalAuth, async (req, res) => {
   }
 });
 
+// ─── DEV ENDPOINTS ─────────────────────────────────────────────────────────
+// Direct state mutations for the in-app dev menu. No auth gate yet; tighten
+// before public release.
+
+// POST /api/player/:id/dev/bytebits  body: { delta }  OR  { value }
+// Bypasses daily income caps — writes straight to the doc.
+router.post('/:id/dev/bytebits', optionalAuth, async (req, res) => {
+  try {
+    const { delta, value } = req.body || {};
+    const player = await Player.findById(req.params.id);
+    if (!player) return res.status(404).json({ error: 'Not found' });
+
+    const current = Number(player.byteBits || 0);
+    const next = value != null ? Number(value) : current + Number(delta || 0);
+    player.byteBits = Math.max(0, Math.floor(next));
+    await player.save();
+
+    res.json({ byteBits: player.byteBits });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

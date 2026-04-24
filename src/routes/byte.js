@@ -1395,4 +1395,97 @@ router.post('/:id/daily-care/reset', async (req, res) => {
   }
 });
 
+// ─── DEV ENDPOINTS ─────────────────────────────────────────────────────────
+// Direct state mutations for the in-app dev menu. No auth gate yet; tighten
+// before public release.
+
+const NEED_KEYS = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'];
+
+// POST /:id/dev/need  body: { need, delta }   OR  { need, value }
+router.post('/:id/dev/need', async (req, res) => {
+  try {
+    const { need, delta, value } = req.body || {};
+    if (!NEED_KEYS.includes(need)) {
+      return res.status(400).json({ error: `need must be one of ${NEED_KEYS.join(', ')}` });
+    }
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    const current = Number(byte.needs?.[need] ?? 0);
+    const next = value != null
+      ? Number(value)
+      : current + Number(delta || 0);
+    byte.needs[need] = clampNeed(next);
+    byte.markModified('needs');
+    await byte.save();
+
+    res.json({ need, value: byte.needs[need], needs: byte.needs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/dev/corruption  body: { delta }  OR  { value }
+router.post('/:id/dev/corruption', async (req, res) => {
+  try {
+    const { delta, value } = req.body || {};
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    const current = Number(byte.corruption || 0);
+    const next = value != null ? Number(value) : current + Number(delta || 0);
+    byte.corruption = Math.max(0, Math.min(100, next));
+    await byte.save();
+
+    res.json({ corruption: byte.corruption });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/dev/reset  — returns byte to fresh egg state (Stage 0)
+router.post('/:id/dev/reset', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    byte.isEgg = true;
+    byte.evolutionStage = 0;
+    byte.shape = 'Circle';
+    byte.animal = null;
+    byte.element = null;
+    byte.feature = null;
+    byte.branch = null;
+    byte.temperament = null;
+
+    NEED_KEYS.forEach((k) => { byte.needs[k] = 100; });
+    byte.markModified('needs');
+
+    byte.corruption = 0;
+    byte.affection = 50;
+    byte.level = 1;
+    byte.xp = 0;
+    byte.dailyCareStreak = 0;
+    byte.dailyCareScore = 0;
+    byte.lastNeedsUpdate = new Date();
+    byte.bornAt = new Date();
+
+    await byte.save();
+    res.json({
+      message: 'Byte reset to egg state',
+      byte: {
+        isEgg: byte.isEgg,
+        evolutionStage: byte.evolutionStage,
+        shape: byte.shape,
+        needs: byte.needs,
+        corruption: byte.corruption,
+        level: byte.level,
+        xp: byte.xp,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

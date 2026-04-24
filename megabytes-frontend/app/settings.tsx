@@ -1,3 +1,8 @@
+/**
+ * Settings screen — minimal for now. Hosts the DEVELOPER card which
+ * routes to the in-app dev menu.
+ */
+
 import React from 'react';
 import {
   ImageBackground,
@@ -32,6 +37,16 @@ export default function SettingsScreen() {
             <Text style={styles.section}>GAMEPLAY</Text>
             <Text style={styles.placeholder}>No settings available yet.</Text>
           </View>
+
+          <View style={styles.card}>
+            <Text style={styles.section}>DEVELOPER</Text>
+            <TouchableOpacity
+              onPress={() => router.push('/dev-menu')}
+              style={styles.devBtn}
+            >
+              <Text style={styles.devBtnText}>DEV MENU</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       </SafeAreaView>
     </ImageBackground>
@@ -60,7 +75,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(8,18,62,0.84)',
     paddingHorizontal: 14,
     paddingVertical: 12,
-    gap: 10,
+    gap: 8,
   },
   section: {
     color: '#9fe3ff',
@@ -70,8 +85,24 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   placeholder: {
-    color: 'rgba(208,232,255,0.72)',
+    color: 'rgba(198,236,255,0.7)',
     fontSize: 12,
-    lineHeight: 16,
+  },
+  devBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,160,100,0.55)',
+    backgroundColor: 'rgba(60,20,10,0.78)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+  },
+  devBtnText: {
+    color: '#ffc89a',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1.0,
   },
 });

@@ -161,7 +161,14 @@ export default function DevMenuScreen() {
                   'Returns byte to Stage 0 egg. Needs → 100, corruption → 0, level/xp → 1/0. Cannot be undone.',
                   [
                     { text: 'Cancel', style: 'cancel' },
-                    { text: 'Reset', style: 'destructive', onPress: () => run('reset', 'Reset', () => devResetByte()) },
+                    {
+                      text: 'Reset',
+                      style: 'destructive',
+                      onPress: async () => {
+                        await run('reset', 'Reset', () => devResetByte());
+                        router.replace('/(tabs)');
+                      },
+                    },
                   ]
                 );
               }}

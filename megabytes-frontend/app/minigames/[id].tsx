@@ -188,7 +188,7 @@ const SCRUB_LONG_SPAWN_MS = 440;
 const SCRUB_CLUSTER_MIN = 2;
 const SCRUB_CLUSTER_MAX = 4;
 const SCRUB_NODE_SIZE_PX = 42;
-const SCRUB_HIT_RADIUS_PX = 30;
+const SCRUB_HIT_RADIUS_PX = 42;
 const SCRUB_CLUSTER_RADIUS_PX = 48;
 const SCRUB_BURST_TTL_MS = 480;
 const SCRUB_BYTE_REACTION_MS = 420;
@@ -305,6 +305,10 @@ export default function MiniGameRunnerScreen() {
   const scrubNextIdRef = useRef(0);
   const scrubBurstIdRef = useRef(0);
   const scrubSpawnTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scrubSpawnsDoneRef = useRef(false);
+  const scrubTotalSpawnedRef = useRef(0);
+  const scrubStageRef = useRef<View | null>(null);
+  const scrubStageOffsetRef = useRef({ x: 0, y: 0 });
   const scrubReactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -447,6 +451,8 @@ export default function MiniGameRunnerScreen() {
     setScrubReaction('idle');
     scrubNextIdRef.current = 0;
     scrubBurstIdRef.current = 0;
+    scrubSpawnsDoneRef.current = false;
+    scrubTotalSpawnedRef.current = 0;
     lastPointRef.current = null;
 
     setTraceSamples(0);
@@ -1011,6 +1017,7 @@ export default function MiniGameRunnerScreen() {
       newNodes.push({ id, x, y, size: SCRUB_NODE_SIZE_PX * (0.85 + Math.random() * 0.3) });
     }
     grimeNodesRef.current = [...grimeNodesRef.current, ...newNodes];
+    scrubTotalSpawnedRef.current += newNodes.length;
     setGrimeNodes(grimeNodesRef.current);
   }, []);
 
@@ -1023,16 +1030,20 @@ export default function MiniGameRunnerScreen() {
 
     let spawnCount = 0;
     const spawnCap = Math.ceil((scrubTarget * 1.4) / SCRUB_CLUSTER_MAX);
+    scrubSpawnsDoneRef.current = false;
 
     spawnGrimeCluster(bw, bh);
     spawnCount += 1;
 
     const tick = setInterval(() => {
-      if (grimeClearedRef.current >= scrubTarget) return;
-      if (spawnCount >= spawnCap) return;
+      if (spawnCount >= spawnCap) {
+        scrubSpawnsDoneRef.current = true;
+        return;
+      }
       if (grimeNodesRef.current.length >= scrubMaxActive) return;
       spawnGrimeCluster(bw, bh);
       spawnCount += 1;
+      if (spawnCount >= spawnCap) scrubSpawnsDoneRef.current = true;
     }, scrubSpawnMs);
 
     scrubSpawnTimerRef.current = tick;
@@ -1048,17 +1059,24 @@ export default function MiniGameRunnerScreen() {
         onStartShouldSetPanResponder: () => running && game?.kind === 'scrub',
         onMoveShouldSetPanResponder: () => running && game?.kind === 'scrub',
         onPanResponderGrant: (_, g) => {
-          lastPointRef.current = { x: g.moveX, y: g.moveY };
+          // Cache the stage's screen offset so finger coords can be translated
+          // into stage-local space for hit testing.
+          scrubStageRef.current?.measureInWindow((px, py) => {
+            scrubStageOffsetRef.current = { x: px, y: py };
+          });
+          const off = scrubStageOffsetRef.current;
+          lastPointRef.current = { x: g.moveX - off.x, y: g.moveY - off.y };
           swipeComboRef.current = 0;
           setGrimeCombo(0);
         },
         onPanResponderMove: (_, g) => {
           if (!running || game?.kind !== 'scrub') return;
           setInteractions((v) => v + 1);
-          const p = { x: g.moveX, y: g.moveY };
+          const off = scrubStageOffsetRef.current;
+          const p = { x: g.moveX - off.x, y: g.moveY - off.y };
           lastPointRef.current = p;
 
-          // Hit-test finger against every active grime node.
+          // Hit-test finger against every active grime node (local coords).
           const hitIds: number[] = [];
           for (const node of grimeNodesRef.current) {
             const dx = p.x - node.x;
@@ -1087,12 +1105,15 @@ export default function MiniGameRunnerScreen() {
           grimeClearedRef.current += cleared.length;
           setGrimeCleared(grimeClearedRef.current);
 
-          const clearedRatio = Math.min(1, grimeClearedRef.current / Math.max(1, scrubTarget));
+          // Quality: ratio of grime wiped vs what's been spawned, plus a small combo kicker.
+          const totalSpawned = Math.max(1, scrubTotalSpawnedRef.current);
+          const clearedRatio = Math.min(1, grimeClearedRef.current / totalSpawned);
           const comboBonus = Math.min(1, grimeMaxComboRef.current / 5);
           const q = clamp(clearedRatio * 0.85 + comboBonus * 0.15, 0, 1);
           setQuality(q);
 
-          if (grimeClearedRef.current >= scrubTarget) {
+          // Round ends only when the spawner has finished AND the board is clean.
+          if (scrubSpawnsDoneRef.current && grimeNodesRef.current.length === 0) {
             playGameSfx('minigame_score_tick', 0.65, 80);
             setTimeout(() => finishRound(q), 80);
           }
@@ -1592,8 +1613,14 @@ export default function MiniGameRunnerScreen() {
 
           {game.kind === 'scrub' ? (
             <View
+              ref={scrubStageRef}
               style={[styles.chompStage, { borderColor: `${accent}66` }]}
-              onLayout={(e) => setBoardSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+              onLayout={(e) => {
+                setBoardSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height });
+                scrubStageRef.current?.measureInWindow((px, py) => {
+                  scrubStageOffsetRef.current = { x: px, y: py };
+                });
+              }}
               {...scrubPan.panHandlers}
             >
               <View style={styles.chompBg} pointerEvents="none" />
@@ -1672,7 +1699,7 @@ export default function MiniGameRunnerScreen() {
               {/* HUD */}
               <View pointerEvents="none" style={styles.chompHud}>
                 <Text style={styles.chompHudText}>
-                  {grimeCleared}/{scrubTarget}   x{grimeCombo}
+                  CLEARED: {grimeCleared}   x{grimeCombo}
                 </Text>
               </View>
 
@@ -1684,10 +1711,8 @@ export default function MiniGameRunnerScreen() {
                     <Text style={styles.scrubIntroGesture}>SWIPE</Text>
                     <Text style={styles.scrubIntroBody}>
                       Drag your finger across grime to wipe it clean.{"\n"}
-                      Chain multiple in one swipe for combo bonus.
-                    </Text>
-                    <Text style={styles.scrubIntroGoal}>
-                      Goal: {scrubTarget} clears
+                      Chain multiple in one swipe for combo bonus.{"\n"}
+                      Clear every patch to finish.
                     </Text>
                     <TouchableOpacity
                       style={[styles.scrubIntroButton, { borderColor: accent }]}
@@ -1905,14 +1930,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 10,
   },
-  scrubIntroGoal: {
-    color: 'rgba(140,220,255,0.85)',
-    fontSize: 12,
-    letterSpacing: 1.2,
-    fontWeight: '700',
-    marginBottom: 16,
-  },
   scrubIntroButton: {
+    marginTop: 6,
     paddingVertical: 10,
     paddingHorizontal: 26,
     borderRadius: 10,

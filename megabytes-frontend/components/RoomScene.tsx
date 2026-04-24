@@ -174,7 +174,7 @@ export default function RoomScene({
     glance:     roamGlance,
   } = useByteRoaming({
     halfSpreadX: (width * motionProfile.room.roamSpreadX) / 2,
-    enabled:     !hidePet && !isSleeping,
+    enabled:     false, // Rooms: byte stays stationary, per Skye 2026-04-23
     boredom:     (needs.Fun ?? 100) < 30 || (needs.Mood ?? 100) < 35,
   });
 
@@ -942,7 +942,7 @@ const styles = StyleSheet.create({
   },
   stageHud: {
     position: 'absolute',
-    top: 160,
+    top: 208,
     left: 0,
     right: 0,
     paddingHorizontal: 6,

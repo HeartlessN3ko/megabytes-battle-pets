@@ -46,15 +46,14 @@ const STAGE_CARE_AVAILABILITY = {
 
 // Per-stage base render scale. Frontend final scale = STAGE_BASE_SCALE * statScale(Strength).
 // Per Skye 2026-04-26: all stages render at native sprite size — visual size
-// differentiation comes from the sprite art itself (baby art is drawn small,
-// adult art is drawn full-size, etc.). Elder is the only stage that may want
-// a non-1.0 modifier — currently 1.00 pending Skye's call on wither effect.
+// differentiation comes from the sprite art itself. Elder gets a slight 0.95
+// wither (-5%) for the "softer/diminished" wind-down read.
 const STAGE_BASE_SCALE = {
   baby:  1.00,
   child: 1.00,
   teen:  1.00,
   adult: 1.00,
-  elder: 1.00,
+  elder: 0.95,
 };
 
 // Per-stage animation tick multiplier. Lower = faster anim cycle. Elder is slower.

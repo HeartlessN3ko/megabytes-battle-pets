@@ -665,10 +665,10 @@ export default function HomeScreen() {
 
   // Stat-driven render scale: stage base × Strength modifier. Mirror of
   // backend lifespanEngine.STAGE_BASE_SCALE.
-  // Per Skye 2026-04-26: all stages render at native sprite size — visual
-  // size differentiation comes from the sprite art (baby drawn small, etc.).
+  // Per Skye 2026-04-26: native sprite size for all except elder, which
+  // gets a 0.95 wither for the wind-down read.
   const STAGE_BASE_SCALE: Record<LifespanStage, number> = {
-    baby: 1.00, child: 1.00, teen: 1.00, adult: 1.00, elder: 1.00,
+    baby: 1.00, child: 1.00, teen: 1.00, adult: 1.00, elder: 0.95,
   };
   const strengthStat = Number(byteData?.byte?.stats?.Power ?? byteData?.byte?.stats?.Strength ?? 10);
   const strengthMult = Math.max(0.7, Math.min(1.4, 1 + (strengthStat - 10) * 0.015));

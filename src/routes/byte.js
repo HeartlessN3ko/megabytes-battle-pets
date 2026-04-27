@@ -277,6 +277,8 @@ router.post('/:id/sync', async (req, res) => {
     const shouldWake = byte.isSleeping && (
       !byte.sleepUntil ||
       new Date() >= new Date(byte.sleepUntil) ||
+      // Early wake: Bandwidth has recovered enough to end the nap early.
+      needInterdependencyEngine.shouldWakeFromRecovery(byte.needs?.Bandwidth) ||
       req.body?.forceWakeup
     );
 
@@ -321,18 +323,24 @@ router.post('/:id/sync', async (req, res) => {
       byte.sleepUntil = null;
     }
 
-    // AUTO-SLEEP: byte collapses when bandwidth bottoms out — but NEVER
-    // within 5 minutes of a wake. Without this grace window, a freshly-woken
-    // byte with low Bandwidth gets re-slept on the next sync, locking the
-    // user out of interactions.
+    // AUTO-SLEEP: tiered behavior based on Bandwidth + lights. See
+    // needInterdependencyEngine.getAutoSleepBehavior for the truth table.
+    // 5-min wake grace prevents re-sleep flicker after a manual wake.
     const AUTO_SLEEP_COOLDOWN_MS = 5 * 60 * 1000;
     const msSinceWake = byte.lastWakeTime
       ? Date.now() - new Date(byte.lastWakeTime).getTime()
       : Infinity;
     const withinWakeGrace = msSinceWake < AUTO_SLEEP_COOLDOWN_MS;
-    if (!byte.isSleeping && !withinWakeGrace && Number(byte.needs?.Bandwidth ?? 100) <= 5) {
-      byte.isSleeping = true;
-      byte.sleepUntil = new Date(Date.now() + 20 * 60 * 1000); // 20 minutes
+    if (!byte.isSleeping && !withinWakeGrace) {
+      const lightsOn = byte.lightsOn !== false;
+      const sleepBehavior = needInterdependencyEngine.getAutoSleepBehavior(
+        byte.needs?.Bandwidth,
+        lightsOn
+      );
+      if (sleepBehavior.shouldSleep) {
+        byte.isSleeping = true;
+        byte.sleepUntil = new Date(Date.now() + sleepBehavior.durationMs);
+      }
     }
 
     // Affection: session bonus (first sync / returning player)

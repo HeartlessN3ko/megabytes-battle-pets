@@ -214,6 +214,70 @@ function applyLightsAnnoyance(needs = {}, lightsOn = true, isSleeping = false, m
   return adjusted;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// AUTONOMOUS SLEEP BEHAVIOR (home-screen)
+// ─────────────────────────────────────────────────────────────────
+// Tiered: lights ON suppresses sleep until exhausted; lights OFF lets the
+// byte nap based on how tired it is. Different durations per tier so a
+// drowsy power-nap doesn't lock the byte out for 25 minutes.
+//
+// | Bandwidth | Lights ON         | Lights OFF        |
+// | --------- | ----------------- | ----------------- |
+// | ≥ 30      | awake             | awake             |
+// | 15–29     | awake (Mood drag) | drowsy nap, 10min |
+// | 5–14      | awake (Mood drag) | tired sleep, 15min|
+// | 0–4       | auto-sleep        | deep sleep, 25min |
+const SLEEP_TIERS = {
+  drowsy:    { maxBandwidth: 29, durationMs: 10 * 60 * 1000 },
+  tired:     { maxBandwidth: 14, durationMs: 15 * 60 * 1000 },
+  exhausted: { maxBandwidth:  4, durationMs: 25 * 60 * 1000 },
+};
+
+// Early-wake threshold: if Bandwidth recovers above this, sleep ends even
+// before sleepUntil fires.
+const SLEEP_WAKE_BANDWIDTH = 80;
+
+/**
+ * Decide whether the byte should auto-sleep this tick.
+ * Pure function — caller handles wake-grace and persistence.
+ *
+ * @param {number} bandwidth - current Bandwidth (0–100)
+ * @param {boolean} lightsOn - true if home lights are on
+ * @returns {{ shouldSleep: boolean, durationMs: number, tier: 'drowsy'|'tired'|'exhausted'|null }}
+ */
+function getAutoSleepBehavior(bandwidth, lightsOn) {
+  const bw = Math.max(0, Math.min(100, Number(bandwidth ?? 100)));
+
+  // Exhausted: sleeps regardless of lights (drains Mood via lights annoyance
+  // if lights were on at exhaustion, but byte still falls down).
+  if (bw <= SLEEP_TIERS.exhausted.maxBandwidth) {
+    return { shouldSleep: true, durationMs: SLEEP_TIERS.exhausted.durationMs, tier: 'exhausted' };
+  }
+
+  // Lights ON suppresses naps until the byte is exhausted.
+  if (lightsOn) return { shouldSleep: false, durationMs: 0, tier: null };
+
+  // Lights OFF + tired tier
+  if (bw <= SLEEP_TIERS.tired.maxBandwidth) {
+    return { shouldSleep: true, durationMs: SLEEP_TIERS.tired.durationMs, tier: 'tired' };
+  }
+
+  // Lights OFF + drowsy tier
+  if (bw <= SLEEP_TIERS.drowsy.maxBandwidth) {
+    return { shouldSleep: true, durationMs: SLEEP_TIERS.drowsy.durationMs, tier: 'drowsy' };
+  }
+
+  return { shouldSleep: false, durationMs: 0, tier: null };
+}
+
+/**
+ * Should the byte wake early because Bandwidth has recovered enough?
+ * Lets short naps end as soon as the byte is rested.
+ */
+function shouldWakeFromRecovery(bandwidth) {
+  return Number(bandwidth ?? 0) >= SLEEP_WAKE_BANDWIDTH;
+}
+
 module.exports = {
   applyDecayInterdependency,
   applyCareInterdependency,
@@ -221,6 +285,10 @@ module.exports = {
   checkBehaviorImpact,
   applySleepModifiers,
   applyLightsAnnoyance,
+  getAutoSleepBehavior,
+  shouldWakeFromRecovery,
+  SLEEP_TIERS,
+  SLEEP_WAKE_BANDWIDTH,
   BANDWIDTH_TIRED_THRESHOLD,
   LIGHTS_ANNOY_MOOD_PER_MIN,
 };

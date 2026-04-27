@@ -75,6 +75,9 @@ export default function DevMenuScreen() {
       const res = await fn();
       const msg = res?.message || res?.status || 'OK';
       setLastResult(`[${label}] ${typeof msg === 'string' ? msg : 'OK'}`);
+      // Auto-return to home so the effect (sprite swap, need bar, etc.)
+      // is visible immediately. Home screen refetches on focus.
+      router.replace('/(tabs)');
     } catch (err: any) {
       setLastResult(`[${label}] FAILED: ${err?.message || 'unknown'}`);
       Alert.alert(label, err?.message || 'Request failed');

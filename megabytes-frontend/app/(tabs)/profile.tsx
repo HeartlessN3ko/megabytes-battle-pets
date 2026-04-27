@@ -4,6 +4,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { getPlayer } from '../../services/api';
 
+// Dev menu shortcut on profile (per Skye 2026-04-26 — Settings was buried).
+// Visible in dev builds; production builds need EXPO_PUBLIC_DEV_MENU=1.
+const DEV_MENU_ENABLED = __DEV__ || String(process.env.EXPO_PUBLIC_DEV_MENU || '') === '1';
+
 export default function ProfileScreen() {
   const router = useRouter();
   const [player, setPlayer] = useState<any>(null);
@@ -46,13 +50,23 @@ export default function ProfileScreen() {
             ))}
           </View>
 
-          <TouchableOpacity
-            onPress={() => router.push('/settings' as any)}
-            activeOpacity={0.8}
-            style={styles.settingsBtn}
-          >
-            <Text style={styles.settingsText}>⚙ SETTINGS</Text>
-          </TouchableOpacity>
+          {DEV_MENU_ENABLED ? (
+            <TouchableOpacity
+              onPress={() => router.push('/dev-menu' as any)}
+              activeOpacity={0.8}
+              style={styles.devBtn}
+            >
+              <Text style={styles.devBtnText}>⚡ DEV MENU</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              onPress={() => router.push('/settings' as any)}
+              activeOpacity={0.8}
+              style={styles.settingsBtn}
+            >
+              <Text style={styles.settingsText}>⚙ SETTINGS</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       </SafeAreaView>
     </ImageBackground>
@@ -90,4 +104,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   settingsText: { color: '#9fe3ff', fontSize: 13, fontWeight: '800', letterSpacing: 1.4 },
+  devBtn: {
+    marginTop: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,160,100,0.6)',
+    backgroundColor: 'rgba(60,20,10,0.78)',
+    alignItems: 'center',
+  },
+  devBtnText: { color: '#ffc89a', fontSize: 13, fontWeight: '800', letterSpacing: 1.4 },
 });

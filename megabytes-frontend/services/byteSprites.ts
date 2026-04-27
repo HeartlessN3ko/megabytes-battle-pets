@@ -87,16 +87,30 @@ const STAGE_INHERITS: Partial<Record<LifespanStage, LifespanStage>> = {
 
 /**
  * Get the sprite for a given lifespan stage + key.
- * Resolution order: stage own → inherited stage → ADULT.
+ * Resolution order:
+ *   1. stage's own override for the requested key
+ *   2. stage's own `idle` (so partially-shipped stages still show their art
+ *      even when the byte is in a state we haven't drawn yet)
+ *   3. inherited stage's override for the requested key
+ *   4. inherited stage's `idle`
+ *   5. ADULT for the requested key
+ *
+ * The idle fallback at steps 2 and 4 is what keeps baby visible when only
+ * `Circlebaby-idle.gif` has shipped — every state resolves to the baby idle
+ * instead of falling through to adult and breaking the visual.
  */
 export function getStageSprite(stage: LifespanStage | string | null | undefined, key: SpriteKey) {
   const s = (stage as LifespanStage) || 'adult';
   const own = STAGE_OVERRIDES[s]?.[key];
   if (own) return own;
+  const ownIdle = STAGE_OVERRIDES[s]?.idle;
+  if (ownIdle) return ownIdle;
   const parent = STAGE_INHERITS[s];
   if (parent) {
     const inherited = STAGE_OVERRIDES[parent]?.[key];
     if (inherited) return inherited;
+    const inheritedIdle = STAGE_OVERRIDES[parent]?.idle;
+    if (inheritedIdle) return inheritedIdle;
   }
   return ADULT[key];
 }

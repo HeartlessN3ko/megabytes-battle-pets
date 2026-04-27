@@ -61,8 +61,13 @@ const ByteSchema = new mongoose.Schema({
   branch:      { type: String, enum: ['Battle', 'Nurture'], default: null },
   temperament: { type: String, enum: ['Noble','Kind','Calm','Focused','Proud','Fierce','Energetic','Alert','Sneaky','Mysterious','Cold','Wanderer','Anxious','Unstable','Corrupt'], default: null },
 
-  // Current evolution stage index (0–5 maps to shape→temperament)
+  // [EXPANSION 1] GDD-style evolution stage index (0–5 maps to shape→temperament).
+  // v1 does NOT use this — kept for Expansion 1 forward-compat.
   evolutionStage: { type: Number, default: 0, min: 0, max: 5 },
+
+  // v1 lifespan progression. Driven by level via lifespanEngine.getStageForLevel().
+  // Source of truth for stage-gated UI, sprite scale, decay multipliers.
+  lifespanStage: { type: String, enum: ['baby','child','teen','adult','elder'], default: 'baby' },
 
   // Stats
   stats: { type: StatsSchema, default: () => ({ Power: 10, Speed: 10, Defense: 10, Stamina: 10, Special: 10, Accuracy: 10 }) },
@@ -130,6 +135,7 @@ const ByteSchema = new mongoose.Schema({
   sleepUntil: { type: Date, default: null },
   lastPlayerActivity: { type: Date, default: Date.now }, // Track player activity for adaptive sleep
   lastWakeTime: { type: Date, default: null }, // Set on every wake. Blocks sync's auto-sleep for 5 min so the byte can't re-sleep mid-interaction.
+  lightsOn: { type: Boolean, default: true }, // Home-screen lights toggle. When true AND Bandwidth is low, needInterdependencyEngine applies a mild Mood drag (byte is annoyed by lights).
 
   // Tap interaction system
   tapWindow: { type: [Date], default: [] }, // Rolling 3s window of tap timestamps
@@ -150,6 +156,10 @@ const ByteSchema = new mongoose.Schema({
 
   // Session tracking
   lastLoginAt: { type: Date, default: null },
+
+  // Mood recovery tracking — set when Mood crosses 50→<50, cleared when it
+  // crosses back above 50 (and elapsed hours fed to behaviorTracker.recordMoodRecovery).
+  moodLowSinceAt: { type: Date, default: null },
 
   // Care pattern tracking
   dailyCareScore: { type: Number, default: 0 },

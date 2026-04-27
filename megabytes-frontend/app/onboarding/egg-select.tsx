@@ -14,36 +14,43 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { selectOnboardingEgg, advanceOnboarding } from '../../services/api';
 
+// v1: only Circle ships. Other 4 shapes are [LOCKED] until art is produced.
+// `locked` shapes render as disabled tiles with a lock icon.
 const SHAPES = [
   {
     id: 'circle',
     name: 'Circle',
     description: 'Balanced and adaptive.\nStable growth across all systems.\nResponds well to consistent interaction.',
     icon: 'ellipse',
+    locked: false,
   },
   {
     id: 'square',
     name: 'Square',
-    description: 'Defensive and grounded.\nHigher durability.\nMaintains stability under strain.',
+    description: 'Defensive and grounded.\nLocked — coming in a future release.',
     icon: 'square',
+    locked: true,
   },
   {
     id: 'triangle',
     name: 'Triangle',
-    description: 'Aggressive and fast.\nHigher output potential.\nLower tolerance for instability.',
+    description: 'Aggressive and fast.\nLocked — coming in a future release.',
     icon: 'triangle',
+    locked: true,
   },
   {
     id: 'diamond',
     name: 'Diamond',
-    description: 'Precise and focused.\nHigher accuracy.\nOptimized for controlled execution.',
+    description: 'Precise and focused.\nLocked — coming in a future release.',
     icon: 'diamond',
+    locked: true,
   },
   {
     id: 'hexagon',
     name: 'Hexagon',
-    description: 'Stable and efficient.\nReliable performance.\nHandles mixed conditions well.',
+    description: 'Stable and efficient.\nLocked — coming in a future release.',
     icon: 'shapes',
+    locked: true,
   },
 ];
 
@@ -100,20 +107,25 @@ export default function EggSelectScreen() {
               style={[
                 styles.shapeCard,
                 selected === shape.id && styles.shapeCardSelected,
+                shape.locked && styles.shapeCardLocked,
               ]}
-              onPress={() => handleSelect(shape.id)}
-              disabled={loading}
+              onPress={() => { if (!shape.locked) handleSelect(shape.id); }}
+              disabled={loading || shape.locked}
+              activeOpacity={shape.locked ? 1 : 0.7}
             >
               <View style={styles.shapeTop}>
                 <Ionicons
                   name={shape.icon as any}
                   size={32}
-                  color={selected === shape.id ? '#7cffb2' : '#7ec8ff'}
+                  color={shape.locked ? '#5a6a85' : (selected === shape.id ? '#7cffb2' : '#7ec8ff')}
                 />
-                <Text style={styles.shapeName}>{shape.name}</Text>
+                <Text style={[styles.shapeName, shape.locked && styles.shapeNameLocked]}>{shape.name}</Text>
+                {shape.locked && (
+                  <Ionicons name="lock-closed" size={16} color="#5a6a85" style={{ marginLeft: 'auto' }} />
+                )}
               </View>
-              <Text style={styles.shapeDesc}>{shape.description}</Text>
-              {selected === shape.id && (
+              <Text style={[styles.shapeDesc, shape.locked && styles.shapeDescLocked]}>{shape.description}</Text>
+              {selected === shape.id && !shape.locked && (
                 <View style={styles.selectedIndicator}>
                   <Ionicons name="checkmark-circle" size={20} color="#7cffb2" />
                 </View>
@@ -153,9 +165,15 @@ const styles = StyleSheet.create({
     borderColor: '#7cffb2',
     backgroundColor: 'rgba(124,255,178,0.1)',
   },
+  shapeCardLocked: {
+    opacity: 0.45,
+    borderColor: 'rgba(126,200,255,0.08)',
+  },
   shapeTop: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
   shapeName: { fontSize: 16, fontWeight: '800', color: '#d9efff' },
+  shapeNameLocked: { color: '#7a8aa0' },
   shapeDesc: { fontSize: 12, fontWeight: '500', color: 'rgba(212,238,255,0.7)', lineHeight: 18 },
+  shapeDescLocked: { color: 'rgba(212,238,255,0.4)' },
 
   selectedIndicator: { position: 'absolute', top: 12, right: 12 },
 

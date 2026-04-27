@@ -129,6 +129,24 @@ const TEMPERAMENT_HOOKS = {
     '[ByteName] is glitching slightly and acting outside normal parameters.',
     '[ByteName] is leaning into corruption and seems stronger for it.',
   ],
+  // PLACEHOLDER COPY — Claude wrote stubs to keep the temperament hook system
+  // online. ChatGPT should replace these with proper byte-thought flavor.
+  Energetic: [
+    '[ByteName] is running hot and burning through cycles like they are free.',
+    '[ByteName] cannot sit still and refuses to optimize the loop.',
+  ],
+  Alert: [
+    '[ByteName] is scanning every packet that drifts past, just in case.',
+    '[ByteName] noticed something three seconds before you did.',
+  ],
+  Cold: [
+    '[ByteName] is processing without commentary and not asking questions.',
+    '[ByteName] is conserving warmth and routing around small talk.',
+  ],
+  Wanderer: [
+    '[ByteName] is drifting through unrelated subnets for no documented reason.',
+    '[ByteName] forgot what it was doing and started doing something else.',
+  ],
 };
 
 function pick(list) {

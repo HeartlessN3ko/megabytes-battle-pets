@@ -168,54 +168,33 @@ function pickTemperament(temperamentScores) {
 }
 
 /**
- * Hatch a byte: assign animal + temperament, transition from egg, advance stage.
+ * Hatch a byte: transition from egg → baby (v1 lifespan).
+ * v1 leaves animal + temperament UNLOCKED — they belong to [EXPANSION 1] (animal)
+ * or drift internally over time (temperament). The helpers above (assignAnimal,
+ * calculateTemperamentScores, pickTemperament) are kept exported for the
+ * Expansion 1 hatch path when it ships.
+ *
  * @param {Object} byte - Byte document
- * @param {Object} eggMetrics - Egg metrics (with feedCount, cleanCount, etc.)
- * @param {number} hatchAgeHours - Total hours egg was active
- * @param {Object} behaviorScores - Pre-calculated behavior scores (optional, will recalc if missing)
+ * @param {Object} _eggMetrics - Egg metrics (unused in v1, kept for signature compat)
+ * @param {number} _hatchAgeHours - unused in v1
+ * @param {Object} _behaviorScores - unused in v1
  * @returns {Object} Updated byte (not saved)
  */
-function hatchByte(byte, eggMetrics, hatchAgeHours, behaviorScores = null) {
+function hatchByte(byte, _eggMetrics, _hatchAgeHours, _behaviorScores = null) {
   if (!byte) return null;
   if (!byte.shape) throw new Error('Byte must have shape before hatching');
 
-  const eggMetricsEngine = require('./eggMetricsEngine');
-
-  // Calculate behavior scores if not provided
-  if (!behaviorScores) {
-    behaviorScores = eggMetricsEngine.convertToBehaviorScores(eggMetrics, hatchAgeHours);
-  }
-
-  // Assign animal from behavior scores
-  const animal = assignAnimal(behaviorScores);
-
-  // Calculate shape-only and animal-only bias scores separately
-  // (passing null suppresses that source inside calculateBiasScores)
-  const shapeBias = calculateBiasScores(byte.shape, null);
-  const animalBias = calculateBiasScores(null, animal);
-
-  // Average behavior score across all actions (simple heuristic)
-  const behaviorScore = Object.values(behaviorScores).reduce((a, b) => a + b, 0) / 20;
-
-  // Calculate temperament scores
-  const tempScores = calculateTemperamentScores(behaviorScore, shapeBias, animalBias, {});
-
-  // Pick temperament
-  let temperament = pickTemperament(tempScores);
-
-  // Verify temperament is valid
-  try {
-    getTemperamentPassive(temperament);
-  } catch (e) {
-    console.warn(`[eggHatchEngine] Invalid temperament ${temperament}, defaulting to Kind`);
-    temperament = 'Kind';
-  }
-
-  // Transition byte from egg to hatched state
+  // Transition byte from egg → baby (v1 lifespan stage 1)
   byte.isEgg = false;
-  byte.animal = animal;
-  byte.temperament = temperament;
-  byte.evolutionStage = 1; // Stage 1: shape + animal + temperament locked
+  byte.lifespanStage = 'baby';
+
+  // v1: animal + temperament stay null. Animal is [EXPANSION 1].
+  // Temperament drifts over time via temperamentEngine, hidden from the player.
+  byte.animal = null;
+  byte.temperament = null;
+
+  // evolutionStage stays at 0 in v1 (forward-compat field for Expansion 1 only)
+  byte.evolutionStage = 0;
 
   // Clear egg-specific fields
   byte.hatchAt = null;

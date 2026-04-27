@@ -124,17 +124,33 @@ function applyPassiveDecay(current, needs) {
 }
 
 /**
+ * Defense stat → corruption-gain reduction multiplier.
+ * Defense 10 (default) = 1.0x (neutral).
+ * Each Defense point above 10 reduces by 0.02. Clamped to [0.5, 1.0].
+ * v1 stat cap is 25, so max reduction is 30% (0.70x).
+ *
+ * @param {number} defense
+ * @returns {number} multiplier 0.5–1.0
+ */
+function defenseModifier(defense = 10) {
+  const d = Number(defense) || 10;
+  const mult = 1 - (d - 10) * 0.02;
+  return Math.max(0.5, Math.min(1.0, mult));
+}
+
+/**
  * Time-based neglect accrual.
  * Rate scales with dirtiness: at Hygiene=0 → full rate (100 in CORRUPTION_FULL_HOURS),
- * at Hygiene=100 → 0. Critical needs add a modest bonus.
+ * at Hygiene=100 → 0. Critical needs add a modest bonus. Defense reduces gain.
  *
  * @param {number} current
  * @param {Object} needs
  * @param {number} minutesElapsed - real minutes since last tick (already capped upstream)
  * @param {number} [speedMult=1]  - reserved multiplier (default 1)
+ * @param {number} [defense=10]   - byte.stats.Defense; reduces gain via defenseModifier()
  * @returns {number} new corruption value (clamped to [0, 100])
  */
-function applyTimeBasedNeglect(current, needs, minutesElapsed, speedMult = 1) {
+function applyTimeBasedNeglect(current, needs, minutesElapsed, speedMult = 1, defense = 10) {
   if (!minutesElapsed || minutesElapsed <= 0) return Number(current) || 0;
   const hygiene = Math.max(0, Math.min(100, Number(needs?.Hygiene ?? 100)));
   const dirtiness = (100 - hygiene) / 100;   // 0..1
@@ -145,7 +161,8 @@ function applyTimeBasedNeglect(current, needs, minutesElapsed, speedMult = 1) {
   const critMod = 1 + Math.min(3, criticalCount) * 0.15;  // up to 1.45x
 
   const safeSpeed = Number.isFinite(speedMult) && speedMult > 0 ? speedMult : 1;
-  const rate = gameBalance.corruptionRatePerMinute() * dirtiness * critMod * safeSpeed;
+  const defMod = defenseModifier(defense);
+  const rate = gameBalance.corruptionRatePerMinute() * dirtiness * critMod * safeSpeed * defMod;
   const gain = rate * minutesElapsed;
   return Math.min(100, Math.max(0, (Number(current) || 0) + gain));
 }
@@ -156,6 +173,7 @@ module.exports = {
   getCorruptionTier,
   stabilityModifier,
   hygieneModifier,
+  defenseModifier,
   applyGain,
   applyDecay,
   applyPassiveDecay,

@@ -182,10 +182,45 @@ function applySleepModifiers(needs = {}, isSleeping = false, minutesAsleep = 0) 
   return adjusted;
 }
 
+/**
+ * Lights-on annoyance: when the home-screen lights are on AND the byte is
+ * tired (low Bandwidth), apply a small Mood drag per minute. Caller decides
+ * the minute delta — typically it's the elapsed minutes since last tick.
+ *
+ * Quiet when:
+ *   - lights are off (dark room — preferred for rest)
+ *   - byte is already asleep (sleep modifier handles that path)
+ *   - Bandwidth >= BANDWIDTH_TIRED_THRESHOLD (not tired yet)
+ *
+ * @param {Object} needs       - current needs (will not be mutated)
+ * @param {boolean} lightsOn   - true if the home lights are on
+ * @param {boolean} isSleeping - true if byte is asleep (no drag while asleep)
+ * @param {number} minutesElapsed - minutes since last tick
+ * @returns {Object} adjusted needs
+ */
+const BANDWIDTH_TIRED_THRESHOLD = 30;
+const LIGHTS_ANNOY_MOOD_PER_MIN = 0.05;
+
+function applyLightsAnnoyance(needs = {}, lightsOn = true, isSleeping = false, minutesElapsed = 0) {
+  if (!lightsOn) return needs;
+  if (isSleeping) return needs;
+  if (!Number.isFinite(minutesElapsed) || minutesElapsed <= 0) return needs;
+  const bandwidth = Number(needs.Bandwidth ?? 100);
+  if (bandwidth >= BANDWIDTH_TIRED_THRESHOLD) return needs;
+
+  const adjusted = { ...needs };
+  const drag = LIGHTS_ANNOY_MOOD_PER_MIN * minutesElapsed;
+  adjusted.Mood = Math.max(0, Number(needs.Mood ?? 0) - drag);
+  return adjusted;
+}
+
 module.exports = {
   applyDecayInterdependency,
   applyCareInterdependency,
   getGrowthMultiplierFromNeeds,
   checkBehaviorImpact,
   applySleepModifiers,
+  applyLightsAnnoyance,
+  BANDWIDTH_TIRED_THRESHOLD,
+  LIGHTS_ANNOY_MOOD_PER_MIN,
 };

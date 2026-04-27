@@ -4,6 +4,7 @@ let homeClutterClearedAt = 0;
 const HOME_CLUTTER_KEY   = 'megabytes.home_clutter_count';
 const PENDING_POOP_KEY   = 'megabytes.home_pending_poop_at';
 const LAST_SEEN_LEVEL_KEY = 'megabytes.last_seen_level'; // per-byte, key is `${prefix}.${byteId}`
+const LIGHTS_ON_KEY       = 'megabytes.home_lights_on';
 
 export function markHomeClutterCleared() {
   homeClutterClearedAt = Date.now();
@@ -86,6 +87,27 @@ export async function setLastSeenLevel(byteId, level) {
   const safe = Math.max(1, Math.floor(Number(level || 1)));
   try {
     await AsyncStorage.setItem(levelKey(byteId), String(safe));
+  } catch {
+    // non-fatal
+  }
+}
+
+// Home "lights" toggle. When OFF, the room area dims (byte is encouraged to
+// sleep); when ON during low-Bandwidth, the backend applies a mild Mood drag.
+// Default is ON. Stored client-local so the toggle survives app restarts.
+export async function getLightsOn() {
+  try {
+    const raw = await AsyncStorage.getItem(LIGHTS_ON_KEY);
+    if (raw == null) return true;
+    return raw === '1' || raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+export async function saveLightsOn(on) {
+  try {
+    await AsyncStorage.setItem(LIGHTS_ON_KEY, on ? '1' : '0');
   } catch {
     // non-fatal
   }

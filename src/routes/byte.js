@@ -9,6 +9,8 @@ const corruptionEngine = require('../engine/corruptionEngine');
 const evolutionEngine  = require('../engine/evolutionEngine');
 const carePatternEngine    = require('../engine/carePatternEngine');
 const xpEngine             = require('../engine/xpEngine');
+const lifespanEngine       = require('../engine/lifespanEngine');
+const { calcTemperamentScore } = require('../engine/temperamentEngine');
 const needInterdependencyEngine = require('../engine/needInterdependencyEngine');
 const streakEngine         = require('../engine/streakEngine');
 const neglectEngine        = require('../engine/neglectEngine');
@@ -150,9 +152,13 @@ async function validateAndNormalizeLoadout(byte, payload = {}) {
   };
 }
 
-function getDecayOptions(_req) {
+function getDecayOptions(_req, byte = null) {
   // Real-time decay only. Demo mode was removed.
-  return {};
+  // Lifespan stage is plumbed in here so per-stage decay multipliers apply
+  // automatically at every applyDecay call site.
+  const opts = {};
+  if (byte && byte.lifespanStage) opts.stage = byte.lifespanStage;
+  return opts;
 }
 
 function getSleepRecoveryMinutes(byte, req, now = new Date()) {
@@ -169,7 +175,11 @@ function getSleepRecoveryMinutes(byte, req, now = new Date()) {
 }
 
 function computeLiveByteSnapshot(byte, req) {
-  const decayOpts = getDecayOptions(req);
+  // Backfill lifespanStage for bytes that pre-date the field (one-time per byte).
+  if (!byte.lifespanStage) {
+    byte.lifespanStage = lifespanEngine.getStageForLevel(byte.level || 1);
+  }
+  const decayOpts = getDecayOptions(req, byte);
   const now = new Date();
   const speedMult = decayOpts.speedMultiplier || 1;
   const rawMinutes = ((now - new Date(byte.lastNeedsUpdate)) / (1000 * 60)) * speedMult;
@@ -185,9 +195,11 @@ function computeLiveByteSnapshot(byte, req) {
     decorEffects
   );
   // Corruption: passive decay if clean byte, else time-based accrual scaled
-  // by dirtiness. Rate tuned by gameBalance.CORRUPTION_FULL_HOURS.
+  // by dirtiness. Rate tuned by gameBalance.CORRUPTION_FULL_HOURS. Defense
+  // stat reduces gain (see corruptionEngine.defenseModifier).
   let corruption = corruptionEngine.applyPassiveDecay(byte.corruption, needs);
-  corruption = corruptionEngine.applyTimeBasedNeglect(corruption, needs, minutesElapsed, speedMult);
+  const defenseStat = byte.stats?.Defense ?? byte.stats?.toObject?.()?.Defense ?? 10;
+  corruption = corruptionEngine.applyTimeBasedNeglect(corruption, needs, minutesElapsed, speedMult, defenseStat);
 
   const avgNeed = needDecay.getAverageNeed(needs);
   const carePattern = carePatternEngine.getCarePattern(byte.dailyCareScore || 50);
@@ -197,8 +209,17 @@ function computeLiveByteSnapshot(byte, req) {
   const sleepRecoveryMinutes = getSleepRecoveryMinutes(byte, req, now);
   const recoveredNeeds = needInterdependencyEngine.applySleepModifiers(needs, byte.isSleeping, sleepRecoveryMinutes);
 
+  // Lights-on annoyance: if the player left the home lights on AND the byte
+  // is tired and awake, drag Mood slightly over elapsed time.
+  const lightsAdjustedNeeds = needInterdependencyEngine.applyLightsAnnoyance(
+    recoveredNeeds,
+    byte.lightsOn !== false, // default ON if legacy byte doc has no field
+    byte.isSleeping,
+    minutesElapsed
+  );
+
   return {
-    needs: recoveredNeeds,
+    needs: lightsAdjustedNeeds,
     lastNeedsUpdate,
     corruption,
     computedStats: statEngine.applyNeedModifiers(
@@ -267,10 +288,31 @@ router.post('/:id/sync', async (req, res) => {
       60
     );
 
+    // Capture pre-sync Mood for recovery tracking (recordMoodRecovery wire-in)
+    const preSyncMood = Number(byte.needs?.Mood ?? 100);
+
     const snapshot = computeLiveByteSnapshot(byte, req);
     byte.needs = snapshot.needs;
     byte.lastNeedsUpdate = snapshot.lastNeedsUpdate;
     byte.corruption = snapshot.corruption;
+
+    // Mood recovery tracking: detect crossings around the 50 threshold.
+    //  - Cross 50→<50: stamp moodLowSinceAt.
+    //  - Cross <50→≥50: compute hours, record, clear stamp.
+    // Drives behaviorMetrics.moodRecoveryTime, which feeds Kind / Anxious /
+    // Cold temperament scoring.
+    const newMood = Number(byte.needs?.Mood ?? 100);
+    if (preSyncMood >= 50 && newMood < 50 && !byte.moodLowSinceAt) {
+      byte.moodLowSinceAt = new Date();
+    } else if (preSyncMood < 50 && newMood >= 50 && byte.moodLowSinceAt) {
+      const hoursToRecover = (Date.now() - new Date(byte.moodLowSinceAt).getTime()) / (1000 * 60 * 60);
+      byte.behaviorMetrics = behaviorTracker.recordMoodRecovery(
+        byte.behaviorMetrics?.toObject?.() || byte.behaviorMetrics || {},
+        hoursToRecover
+      );
+      byte.markModified('behaviorMetrics');
+      byte.moodLowSinceAt = null;
+    }
 
     // ADAPTIVE SLEEP: clear sleep state only after accruing final recovery on sync
     if (shouldWake) {
@@ -295,6 +337,27 @@ router.post('/:id/sync', async (req, res) => {
     // Affection: session bonus (first sync / returning player)
     const lastLogin = byte.lastLoginAt ? new Date(byte.lastLoginAt).getTime() : 0;
     const gapHours = (Date.now() - lastLogin) / (1000 * 60 * 60);
+
+    // Behavior metrics: record a new session if the gap from last sync is
+    // > 30 min. Drives loginFrequency, sessionGapTime, timeOfDayPattern —
+    // which feed Noble/Calm/Sneaky/Mysterious/Wanderer/Anxious temperaments.
+    // Skip on the very first sync (lastLogin === 0) to avoid recording an
+    // infinite gap.
+    if (lastLogin > 0 && gapHours > 0.5) {
+      const hour = new Date().getHours();
+      const timeOfDay =
+        hour < 6  ? 'night'   :
+        hour < 12 ? 'morning' :
+        hour < 18 ? 'afternoon' :
+                    'evening';
+      const sessionMetrics = behaviorTracker.recordSession(
+        byte.behaviorMetrics?.toObject?.() || byte.behaviorMetrics || {},
+        { durationMinutes: 0, gapHoursSinceLast: gapHours, timeOfDay }
+      );
+      byte.behaviorMetrics = sessionMetrics;
+      byte.markModified('behaviorMetrics');
+    }
+
     affectionEngine.applySessionBonus(byte);
 
     // Emit session_start event to daily tasks
@@ -317,11 +380,23 @@ router.post('/:id/sync', async (req, res) => {
     // Affection: tick decay/gain using elapsed minutes from before this sync
     if (syncElapsedMin > 0.1) affectionEngine.tickAffection(byte, syncElapsedMin);
 
+    // Hidden temperament drift — recompute from current behavior metrics on
+    // every sync. v1 keeps this internal (no UI label per Skye's call), but
+    // byte.temperament is read by frontend byteThoughts to bias the thought
+    // pool. With behavior weight 0.60 dominating in v1 (animal/element are
+    // null for v1 bytes), temperament tracks care patterns naturally.
+    try {
+      const { temperament } = calcTemperamentScore(byte);
+      if (temperament) byte.temperament = temperament;
+    } catch (_e) { /* never block sync on temperament calc */ }
+
     // Passive XP (time-based, from computeLiveByteSnapshot)
     if (snapshot.passiveXPGain > 0) {
+      const oldLevel = byte.level;
       const passiveLevelUp = xpEngine.applyXPGain(byte.level, byte.xp || 0, snapshot.passiveXPGain);
       byte.level = passiveLevelUp.level;
       byte.xp = passiveLevelUp.xp;
+      lifespanEngine.applyLifespanTransition(byte, oldLevel);
     }
 
     // /sync is idempotent over time — on VersionError, refresh __v and retry once.
@@ -344,6 +419,7 @@ router.post('/:id/sync', async (req, res) => {
       corruptionTier: snapshot.corruptionTier,
       affection: byte.affection,
       passiveXPGain: snapshot.passiveXPGain,
+      ageDeathPending: lifespanEngine.shouldDieFromAge(byte.level) && !byte.isDevByte && byte.isAlive !== false,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -453,7 +529,7 @@ router.patch('/:id/care', async (req, res) => {
 
     // Apply decay first, then care
     const careDecorEffects = getActiveDecorEffects((byte.decorItems || []).map(i => i.id || i));
-    const decayed = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req), careDecorEffects);
+    const decayed = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req, byte), careDecorEffects);
 
     // Capture stat before care (for affection waste-range check)
     const TIMING_NEED = {
@@ -487,7 +563,16 @@ router.patch('/:id/care', async (req, res) => {
     byte.careHistory = carePatternEngine.recordCareAction(action, timingWindow.window, byte.careHistory || []);
 
     // Record behavior
-    const metrics = behaviorTracker.recordCare(byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics, action, updatedNeeds.Hunger);
+    let metrics = behaviorTracker.recordCare(byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics, action, updatedNeeds.Hunger);
+
+    // Play / rest behavior tracking — feeds playVsTrainRatio + restEnforcementRate,
+    // which drive Energetic/Kind/Calm/Cold/Focused temperaments.
+    if (action === 'play' || action === 'deep_play') {
+      metrics = behaviorTracker.recordPlay(metrics);
+    } else if (action === 'rest' || action === 'deep_rest' || action === 'calm') {
+      metrics = behaviorTracker.recordRest(metrics);
+    }
+
     byte.behaviorMetrics = metrics;
 
     // Non-corruption side effects
@@ -577,9 +662,11 @@ router.patch('/:id/care', async (req, res) => {
 
     // Total XP = care action XP + task completion XP
     const totalXP = finalXP + taskResult.xpAwarded;
+    const oldLevel = byte.level;
     const levelUp = xpEngine.applyXPGain(byte.level, byte.xp || 0, totalXP);
     byte.level = levelUp.level;
     byte.xp = levelUp.xp;
+    lifespanEngine.applyLifespanTransition(byte, oldLevel);
 
     // Increment quick-feed counter on successful feed
     if (action === 'feed') {
@@ -619,7 +706,7 @@ router.patch('/:id/train', async (req, res) => {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
-    const trainDecayOpts = getDecayOptions(req);
+    const trainDecayOpts = getDecayOptions(req, byte);
     const trainSpeedMult = trainDecayOpts.speedMultiplier || 1;
     const decayed = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), trainDecayOpts);
     byte.needs = decayed.needs;
@@ -775,7 +862,7 @@ router.get('/:id/stats', async (req, res) => {
   try {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
-    const { needs } = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req));
+    const { needs } = needDecay.applyDecay(byte.needs.toObject(), byte.lastNeedsUpdate, new Date(), getDecayOptions(req, byte));
     const computedStats = statEngine.applyNeedModifiers(byte.stats.toObject(), needs);
     res.json({ baseStats: byte.stats, computedStats, needs });
   } catch (err) {
@@ -834,6 +921,24 @@ router.patch('/:id/loadout', async (req, res) => {
     await byte.save();
 
     res.json({ equippedMoves: byte.equippedMoves, equippedUlt: byte.equippedUlt, equippedPassive: byte.equippedPassive });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// PATCH /:id/lights — toggle the home-screen lights for this byte.
+// Body: { lightsOn: boolean }. Annoyance is applied lazily in the snapshot
+// computation, not here — this route just persists the flag.
+router.patch('/:id/lights', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    const next = Boolean(req.body?.lightsOn);
+    byte.lightsOn = next;
+    await byte.save();
+
+    res.json({ lightsOn: byte.lightsOn });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1068,8 +1173,10 @@ router.post('/:id/die', async (req, res) => {
 
     const avgNeed = needDecay.getAverageNeed(byte.needs.toObject ? byte.needs.toObject() : byte.needs);
 
-    // PATH 1: Level 100 old age → legacy egg
-    if (byte.level >= 100 || req.body?.deathType === 'oldage') {
+    // PATH 1: old-age death → legacy egg.
+    // v1 lifespan caps at lifespanEngine.DEATH_LEVEL (50). Frontend can also
+    // trigger explicitly with body.deathType === 'oldage'.
+    if (byte.level >= lifespanEngine.DEATH_LEVEL || req.body?.deathType === 'oldage') {
       byte.isAlive = false;
       byte.diedAt = new Date();
       await byte.save();
@@ -1314,9 +1421,11 @@ router.post('/:id/wake-up', async (req, res) => {
     }
 
     if (restResult.xpAwarded > 0) {
+      const restOldLevel = byte.level;
       const restLevelUp = xpEngine.applyXPGain(byte.level, byte.xp || 0, restResult.xpAwarded);
       byte.level = restLevelUp.level;
       byte.xp = restLevelUp.xp;
+      lifespanEngine.applyLifespanTransition(byte, restOldLevel);
     }
 
     // ATOMIC persist — bypasses __v optimistic-concurrency check that caused
@@ -1333,6 +1442,7 @@ router.post('/:id/wake-up', async (req, res) => {
           lastNeedsUpdate: byte.lastNeedsUpdate,
           level: byte.level,
           xp: byte.xp,
+          lifespanStage: byte.lifespanStage,
           affection: byte.affection,
           activeDailyTasks: byte.activeDailyTasks,
           streakData: byte.streakData,
@@ -1451,6 +1561,9 @@ router.post('/:id/dev/reset', async (req, res) => {
 
     byte.isEgg = true;
     byte.evolutionStage = 0;
+    byte.lifespanStage = 'baby';
+    byte.isAlive = true;
+    byte.diedAt = null;
     byte.shape = 'Circle';
     byte.animal = null;
     byte.element = null;

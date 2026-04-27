@@ -10,7 +10,7 @@ import { useByteRoaming } from '../hooks/useByteRoaming';
 import { consumeItem, getByte, getInventory, getShopItems } from '../services/api';
 import { getByteMotionProfile } from '../services/byteMotion';
 import { initSfx, playSfx } from '../services/sfx';
-import { resolveByteSprite } from '../services/byteSprites';
+import { resolveByteSprite, getStageSprite, type LifespanStage } from '../services/byteSprites';
 
 const { width, height } = Dimensions.get('window');
 
@@ -80,13 +80,15 @@ type RoomInventoryItem = {
 
 const DEBUG_LINES = Array.from({ length: 16 }, (_, idx) => idx);
 
-// Glance sprites for rest-time look flicks. `look-up` falls back to blink-bounce
-// until that gif ships. Mirrors the mapping in app/(tabs)/index.tsx — keep in sync.
-const GLANCE_SPRITES: Record<'look-left' | 'look-right' | 'look-up' | 'look-down', any> = {
-  'look-left':  require('../assets/bytes/Circle/Circle-look-left.gif'),
-  'look-right': require('../assets/bytes/Circle/Circle-look-right.gif'),
-  'look-up':    require('../assets/bytes/Circle/Circle-blink-bounce.gif'), // TODO: replace when look-up gif ships
-  'look-down':  require('../assets/bytes/Circle/Circle-lookdown.gif'),
+// Glance lookup — maps useByteRoaming's glance state to a SpriteKey. Resolved
+// per-stage at render time via getStageSprite. lookUp falls back to blinkBounce
+// inside byteSprites until Circle-look-up.gif ships. Mirrors index.tsx.
+import type { SpriteKey } from '../services/byteSprites';
+const GLANCE_TO_SPRITE_KEY: Record<'look-left' | 'look-right' | 'look-up' | 'look-down', SpriteKey> = {
+  'look-left':  'lookLeft',
+  'look-right': 'lookRight',
+  'look-up':    'lookUp',
+  'look-down':  'lookDown',
 };
 
 export default function RoomScene({
@@ -178,30 +180,31 @@ export default function RoomScene({
   });
 
   // Sprite state machine — priority order matches home (minus emotion/idle-variant).
-  let petSprite: ReturnType<typeof require>;
+  // Stage-aware: pulls from lifespan-stage sprite map with adult fallback.
+  const lifespanStage: LifespanStage = (byteData?.byte?.lifespanStage as LifespanStage) || 'adult';
+  let petSprite: any;
   if (isSleeping || (needs.Bandwidth ?? 100) < 12) {
-    petSprite = require('../assets/bytes/Circle/Circle-sleeping.gif');
+    petSprite = getStageSprite(lifespanStage, 'sleeping');
   } else if (corruptionIsSick) {
-    petSprite = require('../assets/bytes/Circle/Circle-sick.gif');
+    petSprite = getStageSprite(lifespanStage, 'sick');
   } else if ((needs.Bandwidth ?? 100) < 20) {
-    petSprite = require('../assets/bytes/Circle/Circle-tired.gif');
+    petSprite = getStageSprite(lifespanStage, 'tired');
   } else if ((needs.Bandwidth ?? 100) < 35) {
-    petSprite = require('../assets/bytes/Circle/Circle-sleepy.gif');
+    petSprite = getStageSprite(lifespanStage, 'sleepy');
   } else if ((needs.Mood ?? 100) < 20) {
-    petSprite = require('../assets/bytes/Circle/Circle-angry.gif');
+    petSprite = getStageSprite(lifespanStage, 'angry');
   } else if ((needs.Mood ?? 100) < 35) {
-    petSprite = require('../assets/bytes/Circle/Circle-confused.gif');
+    petSprite = getStageSprite(lifespanStage, 'confused');
   } else if (moveFacing === 'left') {
-    petSprite = require('../assets/bytes/Circle/Circle-leftmove.gif');
+    petSprite = getStageSprite(lifespanStage, 'walkLeft');
   } else if (moveFacing === 'right') {
-    petSprite = require('../assets/bytes/Circle/Circle-rightmove.gif');
-  } else if (roamGlance && GLANCE_SPRITES[roamGlance]) {
-    petSprite = GLANCE_SPRITES[roamGlance];
+    petSprite = getStageSprite(lifespanStage, 'walkRight');
+  } else if (roamGlance && GLANCE_TO_SPRITE_KEY[roamGlance as keyof typeof GLANCE_TO_SPRITE_KEY]) {
+    petSprite = getStageSprite(lifespanStage, GLANCE_TO_SPRITE_KEY[roamGlance as keyof typeof GLANCE_TO_SPRITE_KEY]);
   } else if (allNeedsHappy) {
-    petSprite = require('../assets/bytes/Circle/Circle-idle-happy.gif');
+    petSprite = getStageSprite(lifespanStage, 'idleHappy');
   } else {
-    // Fall back to stage-aware idle sprite (evolution stage appropriate).
-    petSprite = resolveByteSprite(runtimeStage, { preferAnimatedIdle: true });
+    petSprite = getStageSprite(lifespanStage, 'idle');
   }
   const sceneEffectPalette = useMemo(() => {
     if (sceneEffect === 'stabilize') {

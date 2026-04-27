@@ -24,6 +24,7 @@ import {
   getPlayer,
   praiseByte,
   scoldByte,
+  setByteLights,
   syncByte,
   tapByte,
   wakeUpByte,
@@ -32,9 +33,11 @@ import {
   clearPendingPoop,
   getHomeClutterClearedAt,
   getLastSeenLevel,
+  getLightsOn,
   getPendingPoopAt,
   loadHomeClutterCount,
   saveHomeClutterCount,
+  saveLightsOn,
   setLastSeenLevel,
   setPendingPoopAt,
 } from '../../services/homeRuntimeState';
@@ -44,6 +47,7 @@ import { useActionGate } from '../../hooks/useActionGate';
 import { useByteRoaming } from '../../hooks/useByteRoaming';
 import { generateByteThought } from '../../services/byteThoughts';
 import { getByteMotionProfile } from '../../services/byteMotion';
+import { getStageSprite, type LifespanStage } from '../../services/byteSprites';
 import {
   clutterSpawnProbability,
   clutterSpawnProbabilityDirty,
@@ -65,29 +69,30 @@ const CORRUPTION_TIER_COLOR: Record<string, string> = {
 
 // Idle flavor pool — random one-shots during default rest state.
 // Fires every 8–15s, plays for IDLE_VARIANT_HOLD_MS, returns to blink-bounce.
-const IDLE_VARIANT_SPRITES: Record<string, any> = {
-  squish:       require('../../assets/bytes/Circle/Circle-squish.gif'),
-  'low-bounce': require('../../assets/bytes/Circle/Circle-low-bouncet.gif'),
-  lookdown:     require('../../assets/bytes/Circle/Circle-lookdown.gif'),
-  'look-left':  require('../../assets/bytes/Circle/Circle-look-left.gif'),
-  eyeroll:      require('../../assets/bytes/Circle/Circle-eyeroll.gif'),
-  wink:         require('../../assets/bytes/Circle/Circle-wink.gif'),
-  smile:        require('../../assets/bytes/Circle/Circle-smile.gif'),
-  blush:        require('../../assets/bytes/Circle/Circle-blush.gif'),
+// Map points at SpriteKeys in byteSprites; resolved per-stage at render time.
+const IDLE_VARIANT_TO_SPRITE_KEY: Record<string, import('../../services/byteSprites').SpriteKey> = {
+  squish:       'squish',
+  'low-bounce': 'lowBounce',
+  lookdown:     'lookDown',
+  'look-left':  'lookLeft',
+  eyeroll:      'eyeroll',
+  wink:         'wink',
+  smile:        'smile',
+  blush:        'blush',
 };
-const IDLE_VARIANT_KEYS = Object.keys(IDLE_VARIANT_SPRITES);
+const IDLE_VARIANT_KEYS = Object.keys(IDLE_VARIANT_TO_SPRITE_KEY);
 const IDLE_VARIANT_MIN_DELAY_MS = 8000;
 const IDLE_VARIANT_MAX_DELAY_MS = 15000;
 const IDLE_VARIANT_HOLD_MS      = 2500;
 
-// Glance lookup — maps useByteRoaming's glance state to an actual sprite.
-// `look-up` falls back to blink-bounce until Skye ships Circle-look-up.gif.
-// When that drops, swap the line and it's wired.
-const GLANCE_SPRITES: Record<string, any> = {
-  'look-left':  require('../../assets/bytes/Circle/Circle-look-left.gif'),
-  'look-right': require('../../assets/bytes/Circle/Circle-look-right.gif'),
-  'look-down':  require('../../assets/bytes/Circle/Circle-lookdown.gif'),
-  'look-up':    require('../../assets/bytes/Circle/Circle-blink-bounce.gif'), // TODO swap to Circle-look-up.gif when shipped
+// Glance lookup — maps useByteRoaming's glance state to a SpriteKey, resolved
+// per-stage at render time. `lookUp` currently falls back to blinkBounce inside
+// byteSprites until Circle-look-up.gif ships.
+const GLANCE_TO_SPRITE_KEY: Record<string, import('../../services/byteSprites').SpriteKey> = {
+  'look-left':  'lookLeft',
+  'look-right': 'lookRight',
+  'look-down':  'lookDown',
+  'look-up':    'lookUp',
 };
 
 const STAGE_NAMES = ['EGG', 'Stage 1 .PNG', 'Stage 2 .SVG', 'Stage 3 .GIF', 'Stage 4 .ANI', 'Stage 5 .MOV'];
@@ -401,17 +406,10 @@ function StatsModal({ visible, onClose, byteData, playerData, onEvolved }: {
 
             <Text style={styles.statsSection}>PROFILE</Text>
             {[
-              ['STAGE',               getStageName(byte?.evolutionStage || 0)],
-              ['SHAPE',               byte?.shape       || 'Pending'],
-              ['ANIMAL',              byte?.animal      || 'Pending'],
-              ['ELEMENT',             byte?.element     || 'Pending'],
-              ['FEATURE',             byte?.feature     || 'Pending'],
-              ['BRANCH',              byte?.branch      || 'Pending'],
-              ['TEMPERAMENT',         byte?.temperament || 'Pending'],
+              ['LIFE STAGE',          String(byte?.lifespanStage || 'baby').toUpperCase()],
+              ['SHAPE',               byte?.shape       || 'Circle'],
               ['TIME ALIVE',          formatAge(Date.now() - bornAtMs)],
               ['GENERATION',          String(Number(byte?.generation || 1))],
-              ['EVOLUTION READINESS', evolutionReadiness],
-              ['LEVEL GATE',          `${byteLevel} / ${gateLevel}`],
               ['CARE READINESS',      `Avg Need ${avgNeed}`],
             ].map(([k, v]) => (
               <View key={k} style={styles.kvRow}>
@@ -501,6 +499,7 @@ export default function HomeScreen() {
   const [rpsOpen,       setRpsOpen]       = useState(false);
   const [sleepUntil,    setSleepUntil]    = useState<Date | null>(null);
   const [wakeUpTaps,    setWakeUpTaps]    = useState(0);
+  const [lightsOn,      setLightsOn]      = useState(true);
 
   // ─── Derived data ────────────────────────────────────────────────────────────
 
@@ -523,6 +522,10 @@ export default function HomeScreen() {
     halfSpreadX: (width * motionProfile.home.roamSpreadX) / 2,
     enabled:     !isSleeping && !emotion,
     boredom:     (needs.Fun ?? 100) < 30 || (needs.Mood ?? 100) < 35,
+    // Speed stat tunes pace. Faster Speed = shorter travel + pause windows.
+    // mult = 1 + (Speed - 10) * 0.02, clamped to [0.7, 1.4] (v1 stat range).
+    travelDurationMin: 2800 / Math.max(0.7, Math.min(1.4, 1 + ((Number(byteData?.byte?.stats?.Speed ?? 10) - 10) * 0.02))),
+    travelDurationMax: 4600 / Math.max(0.7, Math.min(1.4, 1 + ((Number(byteData?.byte?.stats?.Speed ?? 10) - 10) * 0.02))),
   });
 
   // Pick the most urgent unmet need to surface as a request emote above the byte.
@@ -629,7 +632,7 @@ export default function HomeScreen() {
 
   // Sprite state machine — evaluated in priority order.
   // Higher-priority branches win; the default idle path may swap in a random
-  // flavor variant from IDLE_VARIANT_SPRITES (see effect above).
+  // flavor variant from IDLE_VARIANT_TO_SPRITE_KEY (see effect above).
   //
   // Corruption no longer drives the sick sprite — it's now shown as a glitch
   // aura via <CorruptionAura/>. The sick sprite fires only when every primary
@@ -649,35 +652,47 @@ export default function HomeScreen() {
     (needs.Fun       ?? 100) >= 70 &&
     (needs.Mood      ?? 100) >= 70;
 
-  let petSprite: ReturnType<typeof require>;
+  // v1 lifespan-stage-aware sprite resolution. Adult sprites are the
+  // current shipped set; other stages fall back to adult until art ships.
+  const lifespanStage: LifespanStage = (byteData?.byte?.lifespanStage as LifespanStage) || 'adult';
+
+  // Stat-driven render scale: stage base × Strength modifier. Mirror of
+  // backend lifespanEngine.STAGE_BASE_SCALE. v1 stat cap is 25 → max 1.225x.
+  const STAGE_BASE_SCALE: Record<LifespanStage, number> = {
+    baby: 0.70, child: 0.85, teen: 0.95, adult: 1.00, elder: 1.00,
+  };
+  const strengthStat = Number(byteData?.byte?.stats?.Power ?? byteData?.byte?.stats?.Strength ?? 10);
+  const strengthMult = Math.max(0.7, Math.min(1.4, 1 + (strengthStat - 10) * 0.015));
+  const byteFootprint = width * 0.3 * STAGE_BASE_SCALE[lifespanStage] * strengthMult;
+  let petSprite: any;
   if (emotion === 'praise') {
-    petSprite = require('../../assets/bytes/Circle/Circle-happyblush.gif');
+    petSprite = getStageSprite(lifespanStage, 'happyblush');
   } else if (emotion === 'scold') {
-    petSprite = require('../../assets/bytes/Circle/Circle-cry.gif');
+    petSprite = getStageSprite(lifespanStage, 'cry');
   } else if (isSleeping || (needs.Bandwidth ?? 100) < 12) {
-    petSprite = require('../../assets/bytes/Circle/Circle-sleeping.gif');
+    petSprite = getStageSprite(lifespanStage, 'sleeping');
   } else if (allNeedsCritical) {
-    petSprite = require('../../assets/bytes/Circle/Circle-sick.gif');
+    petSprite = getStageSprite(lifespanStage, 'sick');
   } else if ((needs.Bandwidth ?? 100) < 20) {
-    petSprite = require('../../assets/bytes/Circle/Circle-tired.gif');
+    petSprite = getStageSprite(lifespanStage, 'tired');
   } else if ((needs.Bandwidth ?? 100) < 35) {
-    petSprite = require('../../assets/bytes/Circle/Circle-sleepy.gif');
+    petSprite = getStageSprite(lifespanStage, 'sleepy');
   } else if ((needs.Mood ?? 100) < 20) {
-    petSprite = require('../../assets/bytes/Circle/Circle-angry.gif');
+    petSprite = getStageSprite(lifespanStage, 'angry');
   } else if ((needs.Mood ?? 100) < 35) {
-    petSprite = require('../../assets/bytes/Circle/Circle-confused.gif');
+    petSprite = getStageSprite(lifespanStage, 'confused');
   } else if (moveFacing === 'left') {
-    petSprite = require('../../assets/bytes/Circle/Circle-leftmove.gif');
+    petSprite = getStageSprite(lifespanStage, 'walkLeft');
   } else if (moveFacing === 'right') {
-    petSprite = require('../../assets/bytes/Circle/Circle-rightmove.gif');
-  } else if (roamGlance && GLANCE_SPRITES[roamGlance]) {
-    petSprite = GLANCE_SPRITES[roamGlance];
-  } else if (idleVariant && IDLE_VARIANT_SPRITES[idleVariant]) {
-    petSprite = IDLE_VARIANT_SPRITES[idleVariant];
+    petSprite = getStageSprite(lifespanStage, 'walkRight');
+  } else if (roamGlance && GLANCE_TO_SPRITE_KEY[roamGlance]) {
+    petSprite = getStageSprite(lifespanStage, GLANCE_TO_SPRITE_KEY[roamGlance]);
+  } else if (idleVariant && IDLE_VARIANT_TO_SPRITE_KEY[idleVariant]) {
+    petSprite = getStageSprite(lifespanStage, IDLE_VARIANT_TO_SPRITE_KEY[idleVariant]);
   } else if (allNeedsHappy) {
-    petSprite = require('../../assets/bytes/Circle/Circle-idle-happy.gif');
+    petSprite = getStageSprite(lifespanStage, 'idleHappy');
   } else {
-    petSprite = require('../../assets/bytes/Circle/Circle-blink-bounce.gif');
+    petSprite = getStageSprite(lifespanStage, 'blinkBounce');
   }
 
   // ─── Clutter nodes ───────────────────────────────────────────────────────────
@@ -781,6 +796,7 @@ export default function HomeScreen() {
   useEffect(() => {
     initSfx().catch(() => {});
     loadHomeClutterCount().then((count) => setClutter(Math.max(0, Math.min(8, count)))).catch(() => {});
+    getLightsOn().then((on) => setLightsOn(on)).catch(() => {});
     return () => {
       if (statusResetTimerRef.current)  clearTimeout(statusResetTimerRef.current);
       if (emotionTimerRef.current)      clearTimeout(emotionTimerRef.current);
@@ -1107,6 +1123,18 @@ export default function HomeScreen() {
     }
   }, [clutterNodes, refreshData]);
 
+  const handleToggleLights = useCallback(() => {
+    setLightsOn((prev) => {
+      const next = !prev;
+      saveLightsOn(next).catch(() => {});
+      // Fire-and-forget server sync. Server reads lightsOn on snapshot
+      // to decide whether to apply lights-on Mood annoyance.
+      setByteLights(next).catch(() => {});
+      playSfx('tap', 0.5);
+      return next;
+    });
+  }, []);
+
   const handleByteTap = useCallback(async () => {
     Animated.sequence([
       Animated.timing(tapScale, { toValue: 0.92, duration: 90, useNativeDriver: true }),
@@ -1277,9 +1305,9 @@ export default function HomeScreen() {
             ],
           }]}>
             <TouchableOpacity onPress={handleByteTap} activeOpacity={1}>
-              <Image source={petSprite} style={styles.byteSprite} resizeMode="contain" />
+              <Image source={petSprite} style={[styles.byteSprite, { width: byteFootprint, height: byteFootprint }]} resizeMode="contain" />
             </TouchableOpacity>
-            <CorruptionAura corruption={corruptionValue} size={width * 0.15} containerSize={width * 0.3} />
+            <CorruptionAura corruption={corruptionValue} size={byteFootprint * 0.5} containerSize={byteFootprint} />
             <SleepZsOverlay visible={isSleeping} />
             <NeedRequestBubble need={requestedNeed} />
           </Animated.View>
@@ -1332,6 +1360,29 @@ export default function HomeScreen() {
             <LevelUpBanner key={b.id}
               onDone={() => setLevelUpBanners((prev) => prev.filter((e) => e.id !== b.id))} />
           ))}
+
+          {/* Lights-off dimmer. Scoped to field (not needs/nav). pointerEvents='none'
+              so taps still reach the byte and clutter under the dim. */}
+          {!lightsOn && (
+            <>
+              <View pointerEvents="none" style={styles.lightsDim} />
+              <View pointerEvents="none" style={styles.lightsVignette} />
+            </>
+          )}
+
+          {/* Lights toggle — top-right of field, above everything else. */}
+          <TouchableOpacity
+            style={styles.lightsToggle}
+            onPress={handleToggleLights}
+            activeOpacity={0.7}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons
+              name={lightsOn ? 'bulb' : 'bulb-outline'}
+              size={18}
+              color={lightsOn ? '#ffdc6b' : '#6b7a90'}
+            />
+          </TouchableOpacity>
         </View>
 
         {/* ── 4. Brain widget / thought feed ── */}
@@ -1571,6 +1622,36 @@ const styles = StyleSheet.create({
   clutterEmoji:      { textAlign: 'center' },
   byteStage:         { position: 'absolute', bottom: '20%', zIndex: 3, pointerEvents: 'box-none' },
   byteSprite:        { width: width * 0.3, height: width * 0.3 },
+
+  // Lights-off dim. Two layers approximate a soft vignette: an outer darker
+  // wash plus an inset slightly-lighter pane so the center feels less crushed.
+  lightsDim: {
+    position: 'absolute',
+    left: 0, right: 0, top: 0, bottom: 0,
+    backgroundColor: 'rgba(3,6,20,0.62)',
+    zIndex: 8,
+  },
+  lightsVignette: {
+    position: 'absolute',
+    left: '6%', right: '6%', top: '6%', bottom: '6%',
+    backgroundColor: 'rgba(3,6,20,0.22)',
+    borderRadius: 60,
+    zIndex: 9,
+  },
+  lightsToggle: {
+    position: 'absolute',
+    top: 6,
+    right: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(9,14,52,0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(109,190,255,0.32)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 12,
+  },
 
   // Byte name label (floats at top of field)
   byteLabel: {

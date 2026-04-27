@@ -6,6 +6,7 @@
  */
 
 const gameBalance = require('../config/gameBalance');
+const lifespanEngine = require('./lifespanEngine');
 
 const NEEDS = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'];
 
@@ -136,6 +137,7 @@ function calcNeedLoss(minutesElapsed, needs = {}, wasOffline = false) {
 function applyDecay(needs, lastNeedsUpdate, now = new Date(), options = {}, decorEffects = {}) {
   const speedMultiplier = Number(options?.speedMultiplier || 1);
   const maxWindowMinutes = Number(options?.maxWindowMinutes || 60);
+  const stage = options?.stage || 'adult';  // lifespan stage; per-need multipliers
   const safeSpeed = Number.isFinite(speedMultiplier) && speedMultiplier > 0 ? speedMultiplier : 1;
   const safeMaxWindow = Number.isFinite(maxWindowMinutes) && maxWindowMinutes > 0 ? maxWindowMinutes : 60;
 
@@ -160,7 +162,8 @@ function applyDecay(needs, lastNeedsUpdate, now = new Date(), options = {}, deco
   const updated = {};
   for (const need of NEEDS) {
     const current = Number(needs?.[need] ?? 100);
-    let needLoss = loss[need] * neglectMult;
+    const stageMult = lifespanEngine.decayMultiplier(stage, need);
+    let needLoss = loss[need] * neglectMult * stageMult;
     if (need === 'Mood') needLoss *= moodDecayMult;
     updated[need] = Math.max(0, Math.min(100, current - needLoss));
   }

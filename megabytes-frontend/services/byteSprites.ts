@@ -1,4 +1,90 @@
-﻿export type NeedSnapshot = {
+/**
+ * Byte sprite resolver — v1 lifespan-stage aware.
+ * Per-stage sprite maps (baby/child/teen/adult/elder) with adult fallback.
+ * v1 ships with adult sprites only (the current Circle library); other stages
+ * inherit until Skye produces stage-specific art and we add their entries.
+ *
+ * Asset path convention (per Skye, 2026-04-26):
+ *   Stage-specific: assets/bytes/Circle/{stage}/Circle-{action}.gif
+ *   Flat (current):  assets/bytes/Circle/Circle-{action}.gif
+ */
+
+export type LifespanStage = 'baby' | 'child' | 'teen' | 'adult' | 'elder';
+
+export type SpriteKey =
+  | 'egg' | 'base' | 'idle' | 'idleHappy' | 'blinkBounce' | 'lowBounce'
+  | 'sleeping' | 'sleepy' | 'tired' | 'sick'
+  | 'angry' | 'confused' | 'cry' | 'xEyes' | 'happyblush' | 'blush' | 'smile'
+  | 'eyeroll' | 'wink' | 'squish' | 'upsidedown'
+  | 'lookLeft' | 'lookRight' | 'lookDown' | 'lookUp'
+  | 'looklowerLeft' | 'looklowerRight' | 'looklowerLeftRight'
+  | 'walkLeft' | 'walkRight';
+
+// Adult / flat Circle library — current shipped sprite set.
+const ADULT: Record<SpriteKey, any> = {
+  egg:                require('../assets/bytes/Circle/Circle-Egg.gif'),
+  base:               require('../assets/bytes/Circle/Circle-base.gif'),
+  idle:               require('../assets/bytes/Circle/Circle-idle.gif'),
+  idleHappy:          require('../assets/bytes/Circle/Circle-idle-happy.gif'),
+  blinkBounce:        require('../assets/bytes/Circle/Circle-blink-bounce.gif'),
+  lowBounce:          require('../assets/bytes/Circle/Circle-low-bouncet.gif'),
+  sleeping:           require('../assets/bytes/Circle/Circle-sleeping.gif'),
+  sleepy:             require('../assets/bytes/Circle/Circle-sleepy.gif'),
+  tired:              require('../assets/bytes/Circle/Circle-tired.gif'),
+  sick:               require('../assets/bytes/Circle/Circle-sick.gif'),
+  angry:              require('../assets/bytes/Circle/Circle-angry.gif'),
+  confused:           require('../assets/bytes/Circle/Circle-confused.gif'),
+  cry:                require('../assets/bytes/Circle/Circle-cry.gif'),
+  xEyes:              require('../assets/bytes/Circle/Circle-x-eyes.gif'),
+  happyblush:         require('../assets/bytes/Circle/Circle-happyblush.gif'),
+  blush:              require('../assets/bytes/Circle/Circle-blush.gif'),
+  smile:              require('../assets/bytes/Circle/Circle-smile.gif'),
+  eyeroll:            require('../assets/bytes/Circle/Circle-eyeroll.gif'),
+  wink:               require('../assets/bytes/Circle/Circle-wink.gif'),
+  squish:             require('../assets/bytes/Circle/Circle-squish.gif'),
+  upsidedown:         require('../assets/bytes/Circle/Circle-upsidedown.gif'),
+  lookLeft:           require('../assets/bytes/Circle/Circle-look-left.gif'),
+  lookRight:          require('../assets/bytes/Circle/Circle-look-right.gif'),
+  lookDown:           require('../assets/bytes/Circle/Circle-lookdown.gif'),
+  // No Circle-look-up.gif yet; falls back to blinkBounce until shipped.
+  lookUp:             require('../assets/bytes/Circle/Circle-blink-bounce.gif'),
+  looklowerLeft:      require('../assets/bytes/Circle/Circle-looklowerleft1.gif'),
+  looklowerRight:     require('../assets/bytes/Circle/Circle-looklowerright.gif'),
+  looklowerLeftRight: require('../assets/bytes/Circle/Circle-looklowerleft-right.gif'),
+  walkLeft:           require('../assets/bytes/Circle/Circle-leftmove.gif'),
+  walkRight:          require('../assets/bytes/Circle/Circle-rightmove.gif'),
+};
+
+// Per-stage overrides. Empty objects fall through to ADULT.
+// Add entries here when stage-specific GIFs ship to assets/bytes/Circle/{stage}/.
+// Example once baby art lands:
+//   baby: {
+//     idle: require('../assets/bytes/Circle/baby/Circle-idle.gif'),
+//     sleeping: require('../assets/bytes/Circle/baby/Circle-sleeping.gif'),
+//     ...
+//   }
+const STAGE_OVERRIDES: Record<LifespanStage, Partial<Record<SpriteKey, any>>> = {
+  baby:  {},
+  child: {},
+  teen:  {},
+  adult: {},
+  elder: {},
+};
+
+/**
+ * Get the sprite for a given lifespan stage + key.
+ * Falls back to adult/flat sprite if stage doesn't override.
+ */
+export function getStageSprite(stage: LifespanStage | string | null | undefined, key: SpriteKey) {
+  const s = (stage as LifespanStage) || 'adult';
+  return STAGE_OVERRIDES[s]?.[key] ?? ADULT[key];
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Legacy / compat exports — used by RoomScene.tsx + battle.tsx [EXPANSION 1]
+// ─────────────────────────────────────────────────────────────────
+
+export type NeedSnapshot = {
   Hunger?: number;
   Bandwidth?: number;
   Hygiene?: number;
@@ -12,21 +98,8 @@ type SpriteOptions = {
   preferAnimatedIdle?: boolean;
   preferAnimatedWalk?: boolean;
   facing?: 'left' | 'right' | 'idle';
+  stage?: LifespanStage | string | null;
 };
-
-const BYTE_SPRITES = {
-  egg:               require('../assets/bytes/Circle/Circle-Egg.gif'),
-  base:              require('../assets/bytes/Circle/Circle-base.gif'),
-  neutral:           require('../assets/bytes/Circle/Circle-blink-bounce.gif'),
-  smile:             require('../assets/bytes/Circle/Circle-idle.gif'),
-  frown:             require('../assets/bytes/Circle/Circle-looklowerleft1.gif'),
-  sleep:             require('../assets/bytes/Circle/Circle-sleeping.gif'),
-  tired:             require('../assets/bytes/Circle/Circle-tired.gif'),
-  anxious:           require('../assets/bytes/Circle/Circle-looklowerleft-right.gif'),
-  idleGif:           require('../assets/bytes/Circle/Circle-idle.gif'),
-  walkLeft:          require('../assets/bytes/Circle/Circle-leftmove.gif'),
-  walkRight:         require('../assets/bytes/Circle/Circle-rightmove.gif'),
-} as const;
 
 function n(value: unknown, fallback = 60) {
   const num = Number(value);
@@ -34,30 +107,29 @@ function n(value: unknown, fallback = 60) {
   return num;
 }
 
-export function resolveByteSprite(stage: number, options: SpriteOptions = {}) {
+export function resolveByteSprite(evolutionStage: number, options: SpriteOptions = {}) {
   const needs = options.needs || {};
   const mood = n(needs.Mood, 60);
   const bandwidth = n(needs.Bandwidth, 60);
   const hygiene = n(needs.Hygiene, 60);
+  const stage = options.stage || 'adult';
+  const get = (key: SpriteKey) => getStageSprite(stage, key);
 
-  if (stage <= 0) return BYTE_SPRITES.egg;
+  if (evolutionStage <= 0) return get('egg');
 
-  // All live stages use Circle stage 1 sprites until further evo art is ready
   if (options.preferAnimatedWalk) {
-    if (options.facing === 'left') return BYTE_SPRITES.walkLeft;
-    if (options.facing === 'right') return BYTE_SPRITES.walkRight;
+    if (options.facing === 'left') return get('walkLeft');
+    if (options.facing === 'right') return get('walkRight');
   }
 
   if (options.preferAnimatedIdle) {
-    return BYTE_SPRITES.idleGif;
+    return get('idle');
   }
 
-  if (bandwidth < 15) return BYTE_SPRITES.tired;
-  if (bandwidth < 35) return BYTE_SPRITES.tired;
-  if (bandwidth < 28) return BYTE_SPRITES.sleep;
-  if (mood < 30) return BYTE_SPRITES.anxious;
-  if (mood < 35 || hygiene < 25) return BYTE_SPRITES.frown;
-  if (mood >= 80) return BYTE_SPRITES.smile;
+  if (bandwidth < 35) return get('tired');
+  if (mood < 30) return get('looklowerLeftRight');
+  if (mood < 35 || hygiene < 25) return get('looklowerLeft');
+  if (mood >= 80) return get('idle');
 
-  return BYTE_SPRITES.neutral;
+  return get('blinkBounce');
 }

@@ -5,6 +5,11 @@ import { enterRoom, getByte, trainStat } from '../../services/api';
 import RoomScene, { RoomAction, RoomResultWindow } from '../../components/RoomScene';
 import { consumePendingMiniGameResult, getTrainingCooldownRemainingMs, getTrainingFatigue, recordTrainingUsage } from '../../services/minigameRuntime';
 
+// v1 lifespan-stage gate: training is only available to teen + adult.
+// Baby and child are too young; elder bytes have stopped training.
+type LifespanStage = 'baby' | 'child' | 'teen' | 'adult' | 'elder';
+const TRAINING_AVAILABLE_STAGES: LifespanStage[] = ['teen', 'adult'];
+
 export default function TrainingCenterRoom() {
   const router = useRouter();
   const [status, setStatus] = useState('Training center online. Drill systems ready.');
@@ -12,6 +17,7 @@ export default function TrainingCenterRoom() {
   const [resultWindow, setResultWindow] = useState<RoomResultWindow | null>(null);
   const [timerLine, setTimerLine] = useState<string | null>(null);
   const [bandwidth, setBandwidth] = useState(0);
+  const [lifespanStage, setLifespanStage] = useState<LifespanStage>('adult');
 
   const loadStats = React.useCallback(async () => {
     try {
@@ -19,6 +25,7 @@ export default function TrainingCenterRoom() {
       const stats = data?.byte?.stats || {};
       const needs = data?.byte?.needs || {};
       setBandwidth(Math.max(0, Number(needs.Bandwidth || 0)));
+      setLifespanStage(((data?.byte?.lifespanStage as LifespanStage) || 'adult'));
       setStatsMatrix([
         { label: 'POWER', value: Number(stats.Power || 0) },
         { label: 'SPEED', value: Number(stats.Speed || 0) },
@@ -71,6 +78,18 @@ export default function TrainingCenterRoom() {
   );
 
   const launchTrainingGame = React.useCallback(async (id: string, label: string) => {
+    // Lifespan stage gate
+    if (!TRAINING_AVAILABLE_STAGES.includes(lifespanStage)) {
+      if (lifespanStage === 'baby' || lifespanStage === 'child') {
+        setStatus('Byte is too young for training. Wait until it grows up a bit.');
+      } else if (lifespanStage === 'elder') {
+        setStatus('Byte is too old for training. Let it rest and enjoy its remaining time.');
+      } else {
+        setStatus('Training unavailable at this lifespan stage.');
+      }
+      return;
+    }
+
     const remaining = getTrainingCooldownRemainingMs();
     if (remaining > 0) {
       setStatus(`Training cooldown active: ${Math.ceil(remaining / 1000)}s remaining.`);
@@ -91,7 +110,7 @@ export default function TrainingCenterRoom() {
     }
     setStatus(`Launching ${label.toUpperCase()} training protocol...`);
     router.push({ pathname: '/minigames/[id]', params: { id, variant: 'long', room: 'training-center' } });
-  }, [bandwidth, router]);
+  }, [bandwidth, lifespanStage, router]);
 
   const primaryActions: RoomAction[] = [
     {
@@ -151,26 +170,15 @@ export default function TrainingCenterRoom() {
       disabled: false,
       onPress: () => launchTrainingGame('training-stamina', 'stamina').catch(() => {}),
     },
-    {
-      key: 'training-battle',
-      title: 'TRAINING BATTLE',
-      subtitle: 'Combat simulation',
-      icon: 'flash-outline',
-      color: '#8fd8ff',
-      disabled: false,
-      onPress: () => {
-        setStatus('Launching training battle simulation...');
-        router.push('/(tabs)/battle');
-      },
-    },
+    // TRAINING BATTLE removed — routes to battle screen which is [EXPANSION 1].
   ];
 
   return (
     <RoomScene
       title="TRAINING CENTER"
-      subtitle="COMBAT PREP"
-      roomTag="STAT DEVELOPMENT"
-      ambient="Select a stat to begin training protocol. Each minigame develops specific core abilities."
+      subtitle="STAT DEVELOPMENT"
+      roomTag="GROWTH"
+      ambient="Select a stat to begin training. Each drill shapes how your byte develops — physically and behaviorally."
       sceneTint="rgba(52,26,60,0.2)"
       accent="#d893ff"
       statusLine={status}

@@ -85,13 +85,24 @@ function recordPlay(metrics) {
 }
 
 /**
- * Record a praise or scold interaction.
+ * Record a praise / scold / interact / tap interaction.
+ *
+ * Type semantics:
+ *  - 'praise' / 'scold' — explicit reward/punishment, increment counter.
+ *  - 'interact' — /interact route, gives Fun/Social/Mood. Reward path,
+ *                 only bumps tapFrequency (NOT nonRewardCheckins).
+ *  - 'tap' — /tap route, only emits a reaction via tapInteractionEngine
+ *            with no direct need reward. Counts as both tapFrequency and
+ *            nonRewardCheckins.
  */
 function recordInteraction(metrics, type) {
   const m = { ...metrics };
   if (type === 'praise') m.praiseCount = (m.praiseCount || 0) + 1;
   if (type === 'scold')  m.scoldCount  = (m.scoldCount  || 0) + 1;
   if (type === 'interact') {
+    m.tapFrequency = (m.tapFrequency || 0) + 1;
+  }
+  if (type === 'tap') {
     m.tapFrequency = (m.tapFrequency || 0) + 1;
     m.nonRewardCheckins = (m.nonRewardCheckins || 0) + 1;
   }

@@ -50,7 +50,13 @@ export interface UseByteRoamingResult {
 
 // --- Tunables ---------------------------------------------------------------
 // Min travel distance for a new target (fraction of halfSpread).
-const MIN_TRAVEL_FRACTION    = 0.45;
+// 2026-04-26: lowered from 0.45 to allow small step-overs alongside long crossings.
+// More variable destinations = less patrol-feel.
+const MIN_TRAVEL_FRACTION    = 0.15;
+// Probability that a non-bored byte skips travel and just chains another pause.
+// Breaks the patrol cadence so the byte spends most of its time idling, only
+// occasionally squish-walking somewhere.
+const SKIP_TRAVEL_CHANCE     = 0.5;
 // Chance to fire a glance during a rest pause (0..1).
 const GLANCE_CHANCE          = 0.4;
 // Glance hold window.
@@ -83,10 +89,14 @@ export function useByteRoaming(opts: UseByteRoamingOpts): UseByteRoamingResult {
     halfSpreadX,
     enabled,
     boredom = false,
-    travelDurationMin = 2800,
-    travelDurationMax = 4600,
-    pauseMin          = 1500,
-    pauseMax          = 3500,
+    // 2026-04-26: travel slowed dramatically so the squish-walk GIF frames
+    // drive the visual instead of the smooth translateX. Pauses extended so
+    // the byte spends most of its time just idling — feels like a pet, not
+    // a patrol routine.
+    travelDurationMin = 8000,
+    travelDurationMax = 13000,
+    pauseMin          = 6000,
+    pauseMax          = 12000,
   } = opts;
 
   const translateX = useRef(new Animated.Value(0)).current;
@@ -147,6 +157,19 @@ export function useByteRoaming(opts: UseByteRoamingOpts): UseByteRoamingResult {
       if (!active) return;
       const cfg    = cfgRef.current;
       const bored  = boredRef.current;
+
+      // 50% chance to skip travel and just chain another pause. Breaks the
+      // patrol cadence so the byte feels alive, not programmed. Bored byte
+      // still paces (the boredom pull is intentional behavior).
+      if (!bored && Math.random() < SKIP_TRAVEL_CHANCE) {
+        setFacing('idle');
+        setGlance(null);
+        setMotionState('resting');
+        const idleMs = cfg.pauseMin + Math.random() * Math.max(1, cfg.pauseMax - cfg.pauseMin);
+        addTimer(step, idleMs);
+        return;
+      }
+
       const nextX  = pickTarget();
       lastTargetX  = nextX;
 

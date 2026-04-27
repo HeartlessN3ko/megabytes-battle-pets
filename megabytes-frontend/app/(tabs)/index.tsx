@@ -529,10 +529,11 @@ export default function HomeScreen() {
     halfSpreadX: (width * motionProfile.home.roamSpreadX) / 2,
     enabled:     !isSleeping && !emotion,
     boredom:     (needs.Fun ?? 100) < 30 || (needs.Mood ?? 100) < 35,
-    // Speed stat tunes pace. Faster Speed = shorter travel + pause windows.
-    // mult = 1 + (Speed - 10) * 0.02, clamped to [0.7, 1.4] (v1 stat range).
-    travelDurationMin: 2800 / Math.max(0.7, Math.min(1.4, 1 + ((Number(byteData?.byte?.stats?.Speed ?? 10) - 10) * 0.02))),
-    travelDurationMax: 4600 / Math.max(0.7, Math.min(1.4, 1 + ((Number(byteData?.byte?.stats?.Speed ?? 10) - 10) * 0.02))),
+    // Speed stat tunes pace. Faster Speed = shorter travel windows.
+    // Base 8000-13000ms (2026-04-26: slowed so squish-walk GIF drives the
+    // visual). mult = 1 + (Speed - 10) * 0.02, clamped to [0.7, 1.4].
+    travelDurationMin: 8000  / Math.max(0.7, Math.min(1.4, 1 + ((Number(byteData?.byte?.stats?.Speed ?? 10) - 10) * 0.02))),
+    travelDurationMax: 13000 / Math.max(0.7, Math.min(1.4, 1 + ((Number(byteData?.byte?.stats?.Speed ?? 10) - 10) * 0.02))),
   });
 
   // Pick the most urgent unmet need to surface as a request emote above the byte.

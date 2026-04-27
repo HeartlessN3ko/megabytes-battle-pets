@@ -148,14 +148,12 @@ function AchievementCard({ achievement, unlocked }: { achievement: AchievementIt
       </View>
 
       <View style={styles.cardContent}>
-        <View style={styles.cardHeader}>
-          <Text style={[styles.cardName, { color: unlocked ? rarityColor : 'rgba(212,238,255,0.6)' }]}>
-            {achievement.name}
-          </Text>
-          <Text style={[styles.cardRarity, { color: rarityColor }]}>
-            {achievement.rarity.toUpperCase()}
-          </Text>
-        </View>
+        <Text style={[styles.cardName, { color: unlocked ? rarityColor : 'rgba(212,238,255,0.6)' }]}>
+          {achievement.name}
+        </Text>
+        <Text style={[styles.cardRarity, { color: rarityColor }]}>
+          {achievement.rarity.toUpperCase()}
+        </Text>
 
         <Text style={[styles.cardDesc, { color: unlocked ? 'rgba(212,238,255,0.8)' : 'rgba(212,238,255,0.5)' }]}>
           {achievement.description}
@@ -204,9 +202,8 @@ const styles = StyleSheet.create({
   cardIcon: { width: 48, height: 48, borderRadius: 8, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)' },
 
   cardContent: { flex: 1, justifyContent: 'center' },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  cardName: { fontSize: 13, fontWeight: '800', flex: 1 },
-  cardRarity: { fontSize: 9, fontWeight: '700', letterSpacing: 0.6 },
+  cardName: { fontSize: 13, fontWeight: '800', marginBottom: 2 },
+  cardRarity: { fontSize: 9, fontWeight: '700', letterSpacing: 0.6, marginBottom: 6 },
   cardDesc: { fontSize: 11, fontWeight: '500', lineHeight: 16, marginBottom: 6 },
 
   cardReward: { flexDirection: 'row', gap: 8 },

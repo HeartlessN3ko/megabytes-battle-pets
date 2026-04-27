@@ -13,7 +13,7 @@ const LEFT_TABS = [
 ];
 const RIGHT_TABS = [
   { key: 'achievements', label: 'ACHIEVE',  icon: 'trophy-outline',   route: '/(tabs)/achievements' },
-  { key: 'settings',     label: 'SETTINGS', icon: 'settings-outline', route: '/(tabs)/collection' },
+  { key: 'settings',     label: 'SETTINGS', icon: 'settings-outline', route: '/settings' },
 ];
 
 export default function HomeNavBar() {

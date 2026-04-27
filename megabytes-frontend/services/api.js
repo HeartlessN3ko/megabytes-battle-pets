@@ -41,7 +41,7 @@ async function warmServerIfNeeded() {
   }
 }
 
-async function request(method, path, body) {
+async function request(method, path, body, extraHeaders = null) {
   const url = `${BASE_URL}${path}`;
   const attempts = method === 'GET' ? 5 : 3;
   let lastError = null;
@@ -50,6 +50,7 @@ async function request(method, path, body) {
     try {
       const headers = {
         'Content-Type': 'application/json',
+        ...(extraHeaders || {}),
       };
 
       const controller = new AbortController();
@@ -145,15 +146,19 @@ export const getByteMoves = () => request('GET', `/api/byte/${activeIds().byteId
 export const updateByteLoadout = (payload) => request('PATCH', `/api/byte/${activeIds().byteId}/loadout`, payload);
 export const setByteLights = (lightsOn) => request('PATCH', `/api/byte/${activeIds().byteId}/lights`, { lightsOn: !!lightsOn });
 
-// Dev-only mutations (wire the in-app dev menu to backend admin routes)
+// Dev-only mutations (wire the in-app dev menu to backend admin routes).
+// Backend gates all 4 routes on x-dev-key matching DEV_MODE_KEY env. Frontend
+// reads EXPO_PUBLIC_DEV_KEY at build time; if unset, calls 403 cleanly.
+const DEV_KEY = process.env.EXPO_PUBLIC_DEV_KEY || '';
+const devHeaders = () => (DEV_KEY ? { 'x-dev-key': DEV_KEY } : {});
 export const devAdjustNeed = (need, delta) =>
-  request('POST', `/api/byte/${activeIds().byteId}/dev/need`, { need, delta });
+  request('POST', `/api/byte/${activeIds().byteId}/dev/need`, { need, delta }, devHeaders());
 export const devAdjustCorruption = (delta) =>
-  request('POST', `/api/byte/${activeIds().byteId}/dev/corruption`, { delta });
+  request('POST', `/api/byte/${activeIds().byteId}/dev/corruption`, { delta }, devHeaders());
 export const devResetByte = () =>
-  request('POST', `/api/byte/${activeIds().byteId}/dev/reset`);
+  request('POST', `/api/byte/${activeIds().byteId}/dev/reset`, undefined, devHeaders());
 export const devAdjustByteBits = (delta) =>
-  request('POST', `/api/player/${activeIds().playerId}/dev/bytebits`, { delta });
+  request('POST', `/api/player/${activeIds().playerId}/dev/bytebits`, { delta }, devHeaders());
 
 // Player
 export const getPlayer = () => request('GET', `/api/player/${activeIds().playerId}`);

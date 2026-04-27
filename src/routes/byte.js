@@ -11,6 +11,7 @@ const carePatternEngine    = require('../engine/carePatternEngine');
 const xpEngine             = require('../engine/xpEngine');
 const lifespanEngine       = require('../engine/lifespanEngine');
 const { calcTemperamentScore } = require('../engine/temperamentEngine');
+const { checkAndUnlockAchievements } = require('../services/achievementChecker');
 const needInterdependencyEngine = require('../engine/needInterdependencyEngine');
 const streakEngine         = require('../engine/streakEngine');
 const neglectEngine        = require('../engine/neglectEngine');
@@ -25,7 +26,7 @@ const dailyCareEngine      = require('../engine/dailyCareEngine');
 const { MOVE_CATALOG_MAP } = require('../data/moveCatalog');
 const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
 const { getActiveDecorEffects } = require('../data/decorCatalog');
-const { optionalAuth } = require('../middleware/auth');
+const { optionalAuth, requireDevMode } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(optionalAuth);
@@ -399,6 +400,18 @@ router.post('/:id/sync', async (req, res) => {
       lifespanEngine.applyLifespanTransition(byte, oldLevel);
     }
 
+    // Achievement auto-check — runs on every sync against current player +
+    // byte state. New unlocks credit byteBits + XP and surface in response.
+    let achievementUnlocks = [];
+    try {
+      const player = await Player.findById(byte.ownerId);
+      if (player) {
+        const result = await checkAndUnlockAchievements(player, byte);
+        achievementUnlocks = result.newlyUnlocked;
+        if (result.newlyUnlocked.length > 0) await player.save();
+      }
+    } catch (_e) { /* never block sync on achievement check */ }
+
     // /sync is idempotent over time — on VersionError, refresh __v and retry once.
     // Last write wins, because the next sync will recompute from lastNeedsUpdate anyway.
     try {
@@ -420,6 +433,7 @@ router.post('/:id/sync', async (req, res) => {
       affection: byte.affection,
       passiveXPGain: snapshot.passiveXPGain,
       ageDeathPending: lifespanEngine.shouldDieFromAge(byte.level) && !byte.isDevByte && byte.isAlive !== false,
+      achievementUnlocks,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1511,8 +1525,12 @@ router.post('/:id/daily-care/reset', async (req, res) => {
 
 const NEED_KEYS = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'];
 
+// ─── DEV-ONLY ROUTES (gated by requireDevMode middleware) ─────────────────
+// All 4 dev routes require DEV_MODE=1 env on server + x-dev-key header
+// matching DEV_MODE_KEY env. Public builds: leave DEV_MODE unset → 403.
+//
 // POST /:id/dev/need  body: { need, delta }   OR  { need, value }
-router.post('/:id/dev/need', async (req, res) => {
+router.post('/:id/dev/need', requireDevMode, async (req, res) => {
   try {
     const { need, delta, value } = req.body || {};
     if (!NEED_KEYS.includes(need)) {
@@ -1536,7 +1554,7 @@ router.post('/:id/dev/need', async (req, res) => {
 });
 
 // POST /:id/dev/corruption  body: { delta }  OR  { value }
-router.post('/:id/dev/corruption', async (req, res) => {
+router.post('/:id/dev/corruption', requireDevMode, async (req, res) => {
   try {
     const { delta, value } = req.body || {};
     const byte = await Byte.findById(req.params.id);
@@ -1554,7 +1572,7 @@ router.post('/:id/dev/corruption', async (req, res) => {
 });
 
 // POST /:id/dev/reset  — returns byte to fresh egg state (Stage 0)
-router.post('/:id/dev/reset', async (req, res) => {
+router.post('/:id/dev/reset', requireDevMode, async (req, res) => {
   try {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });

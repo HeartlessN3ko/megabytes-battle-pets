@@ -15,6 +15,12 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
+// Dev menu is gated by EXPO_PUBLIC_DEV_MENU env. Public builds leave this
+// unset → DEVELOPER card hidden. To enable in dev: set EXPO_PUBLIC_DEV_MENU=1
+// before `expo start`. Backend routes additionally require DEV_MODE_KEY
+// header (see middleware/auth.requireDevMode).
+const DEV_MENU_ENABLED = String(process.env.EXPO_PUBLIC_DEV_MENU || '') === '1';
+
 export default function SettingsScreen() {
   const router = useRouter();
 
@@ -38,15 +44,17 @@ export default function SettingsScreen() {
             <Text style={styles.placeholder}>No settings available yet.</Text>
           </View>
 
-          <View style={styles.card}>
-            <Text style={styles.section}>DEVELOPER</Text>
-            <TouchableOpacity
-              onPress={() => router.push('/dev-menu')}
-              style={styles.devBtn}
-            >
-              <Text style={styles.devBtnText}>DEV MENU</Text>
-            </TouchableOpacity>
-          </View>
+          {DEV_MENU_ENABLED && (
+            <View style={styles.card}>
+              <Text style={styles.section}>DEVELOPER</Text>
+              <TouchableOpacity
+                onPress={() => router.push('/dev-menu')}
+                style={styles.devBtn}
+              >
+                <Text style={styles.devBtnText}>DEV MENU</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </ScrollView>
       </SafeAreaView>
     </ImageBackground>

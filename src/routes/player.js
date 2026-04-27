@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
 const Player  = require('../models/Player');
-const { optionalAuth } = require('../middleware/auth');
+const { optionalAuth, requireDevMode } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -85,7 +85,7 @@ router.get('/:id/inventory', optionalAuth, async (req, res) => {
 
 // POST /api/player/:id/dev/bytebits  body: { delta }  OR  { value }
 // Bypasses daily income caps — writes straight to the doc.
-router.post('/:id/dev/bytebits', optionalAuth, async (req, res) => {
+router.post('/:id/dev/bytebits', requireDevMode, async (req, res) => {
   try {
     const { delta, value } = req.body || {};
     const player = await Player.findById(req.params.id);

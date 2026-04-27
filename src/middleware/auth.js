@@ -28,4 +28,26 @@ function optionalAuth(req, res, next) {
   }
 }
 
-module.exports = { optionalAuth };
+/**
+ * Gate for dev-only routes. Two layers:
+ *  1. Server must be started with `DEV_MODE=1` (process env).
+ *  2. Request must carry header `x-dev-key` matching `DEV_MODE_KEY` env.
+ *
+ * Either layer missing/wrong → 403. Public builds simply leave DEV_MODE unset,
+ * which kills every dev route regardless of header.
+ */
+function requireDevMode(req, res, next) {
+  const devModeOn = String(process.env.DEV_MODE || '').toLowerCase() === '1' ||
+                    String(process.env.DEV_MODE || '').toLowerCase() === 'true';
+  if (!devModeOn) return res.status(403).json({ error: 'Dev mode disabled' });
+
+  const expected = String(process.env.DEV_MODE_KEY || '');
+  if (!expected) return res.status(500).json({ error: 'DEV_MODE_KEY not configured' });
+
+  const provided = String(req.headers['x-dev-key'] || '');
+  if (provided !== expected) return res.status(403).json({ error: 'Invalid dev key' });
+
+  return next();
+}
+
+module.exports = { optionalAuth, requireDevMode };

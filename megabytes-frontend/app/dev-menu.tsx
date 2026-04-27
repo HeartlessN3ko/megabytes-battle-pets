@@ -36,10 +36,34 @@ import {
 
 const NEEDS = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'] as const;
 
+// Defense in depth — even if someone deeplinks to /dev-menu, this gate kills
+// the screen in public builds. Pair with backend requireDevMode middleware.
+const DEV_MENU_ENABLED = String(process.env.EXPO_PUBLIC_DEV_MENU || '') === '1';
+
 export default function DevMenuScreen() {
   const router = useRouter();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string>('Ready.');
+
+  // Gate AFTER hooks (Rules of Hooks). Public builds with EXPO_PUBLIC_DEV_MENU
+  // unset see only the disabled placeholder.
+  if (!DEV_MENU_ENABLED) {
+    return (
+      <ImageBackground source={require('../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
+        <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+          <View style={{ padding: 20, alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+            <Text style={{ color: '#9fe3ff', fontSize: 14, fontWeight: '800' }}>DEV MENU DISABLED</Text>
+            <Text style={{ color: 'rgba(220,240,255,0.6)', fontSize: 11, marginTop: 8, textAlign: 'center' }}>
+              Set EXPO_PUBLIC_DEV_MENU=1 to enable.
+            </Text>
+            <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8, backgroundColor: 'rgba(8,18,62,0.84)', borderWidth: 1, borderColor: 'rgba(159,227,255,0.4)' }}>
+              <Text style={{ color: '#9fe3ff', fontSize: 11, fontWeight: '800', letterSpacing: 1.1 }}>BACK</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </ImageBackground>
+    );
+  }
 
   const run = async (key: string, label: string, fn: () => Promise<any>) => {
     if (busyKey) return;

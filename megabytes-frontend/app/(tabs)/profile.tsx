@@ -14,12 +14,12 @@ export default function ProfileScreen() {
 
   const quickStats = useMemo(() => {
     const roomsOwned = Array.isArray(player?.unlockedRooms) ? player.unlockedRooms.length : 0;
-    const battlesPlayed = Number(player?.arenaRecord?.wins || 0) + Number(player?.arenaRecord?.losses || 0);
+    const achievementsUnlocked = Array.isArray(player?.achievements) ? player.achievements.length : 0;
     return [
-      { label: 'BATTLES PLAYED', value: battlesPlayed },
-      { label: 'BYTES TRAINED', value: Number(player?.totalGenerations || 0) },
-      { label: 'ROOMS OWNED', value: roomsOwned },
-      { label: 'ARENA RATING', value: Number(player?.battleRating || 1000) },
+      { label: 'BYTES RAISED',  value: Number(player?.totalGenerations || 0) },
+      { label: 'ACHIEVEMENTS',  value: achievementsUnlocked },
+      { label: 'ROOMS OWNED',   value: roomsOwned },
+      { label: 'DATABITS',      value: Number(player?.byteBits || 0) },
     ];
   }, [player]);
 

@@ -12,7 +12,6 @@ export default function TabLayout() {
       <Tabs.Screen name="story"        options={{ title: 'Story' }} />
       <Tabs.Screen name="arena"        options={{ title: 'Arena' }} />
       <Tabs.Screen name="achievements" options={{ title: 'Achievements' }} />
-      <Tabs.Screen name="collection"   options={{ title: 'Settings' }} />
 
       {/* Hidden screens — navigated to programmatically */}
       <Tabs.Screen name="achievements-sheet" options={{ href: null }} />

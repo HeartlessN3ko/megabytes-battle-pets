@@ -196,16 +196,9 @@ export const getShopRooms = () => request('GET', '/api/shop/rooms');
 export const buyItem = (itemId) => request('POST', '/api/shop/buy/item', { playerId: activeIds().playerId, itemId });
 export const consumeItem = (itemId) => request('POST', '/api/shop/use/item', { playerId: activeIds().playerId, byteId: activeIds().byteId, itemId });
 
-// Pageant
+// Pageant — v1 (care-first reframe). Single-call ceremony, no score/leaderboard.
 export const enterPageant = () => request('POST', '/api/pageant/enter', { byteId: activeIds().byteId });
-export const submitPageantScore = (placement, performanceResult = 'stable', scoring = {}) =>
-  request('POST', '/api/pageant/score', {
-    byteId: activeIds().byteId,
-    performanceResult,
-    placement,
-    ...scoring,
-  });
-export const getPageantLeaderboard = () => request('GET', '/api/pageant/leaderboard');
+export const getPageantEligibility = () => request('GET', `/api/pageant/eligibility/${activeIds().byteId}`);
 
 // Marketplace
 export const getMarketplaceListings = (status = 'open') =>

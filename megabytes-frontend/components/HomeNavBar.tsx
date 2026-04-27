@@ -7,9 +7,12 @@ import { playSfx } from '../services/sfx';
 
 const NAV_GATE_MS = 1500;
 
+// v1 nav: STORY (campaign) replaced with PAGEANT (care-first reveal).
+// ARENA slot is still showing — pending Skye's call on which v1 surface
+// fills it (candidates: SHOP, MARKETPLACE, INBOX, DAILY CARE, PROFILE).
 const LEFT_TABS = [
-  { key: 'story',  label: 'STORY', icon: 'map-outline',   route: '/(tabs)/story' },
-  { key: 'arena',  label: 'ARENA', icon: 'flash-outline',  route: '/(tabs)/arena' },
+  { key: 'pageant', label: 'PAGEANT', icon: 'ribbon-outline', route: '/(tabs)/pageant' },
+  { key: 'arena',   label: 'ARENA',   icon: 'flash-outline',  route: '/(tabs)/arena' },
 ];
 const RIGHT_TABS = [
   { key: 'achievements', label: 'ACHIEVE',  icon: 'trophy-outline',   route: '/(tabs)/achievements' },

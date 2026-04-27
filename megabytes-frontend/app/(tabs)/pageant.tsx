@@ -1,128 +1,242 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ImageBackground, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { enterPageant, getByte, getPageantLeaderboard, submitPageantScore } from '../../services/api';
-import { initSfx, playSfx } from '../../services/sfx';
+/**
+ * Pageant — v1 (care-first reframe).
+ *
+ * Slow-drip reveal of hidden state. One entry per lifespan stage, unlocks
+ * at the stage midway level. Pure ceremony — no minigame, no input. Pulls
+ * arbitrary stats (Cuteness/Talent/Charm/Discipline/Style), pet grade,
+ * player grade, and 3 random facts derived from current byte + player
+ * metrics.
+ */
 
-function grade(v: number) {
-  if (v >= 85) return 'S';
-  if (v >= 70) return 'A';
-  if (v >= 55) return 'B';
-  if (v >= 40) return 'C';
-  return 'D';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  ImageBackground,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { enterPageant, getPageantEligibility } from '../../services/api';
+import { playSfx } from '../../services/sfx';
+
+type Eligibility = {
+  ok: boolean;
+  reason?: string;
+  stage?: string;
+  midway?: number;
+  level?: number;
+  lifespanStage?: string;
+  pageantsEntered?: string[];
+};
+
+type CeremonyStats = {
+  cuteness: number;
+  talent: number;
+  charm: number;
+  discipline: number;
+  style: number;
+};
+
+type Ceremony = {
+  stage: string;
+  stats: CeremonyStats;
+  petGrade: string;
+  playerGrade: string;
+  facts: string[];
+  pageantsEntered: string[];
+  lifespanStage: string;
+};
+
+const PLAYER_GRADE_LABEL: Record<string, string> = {
+  perfect:    'PERFECT',
+  good:       'GOOD',
+  neutral:    'NEUTRAL',
+  poor:       'POOR',
+  neglectful: 'NEGLECTFUL',
+};
+
+const STAT_ORDER: Array<{ key: keyof CeremonyStats; label: string }> = [
+  { key: 'cuteness',   label: 'CUTENESS' },
+  { key: 'talent',     label: 'TALENT' },
+  { key: 'charm',      label: 'CHARM' },
+  { key: 'discipline', label: 'DISCIPLINE' },
+  { key: 'style',      label: 'STYLE' },
+];
+
+function statTier(v: number) {
+  if (v >= 85) return 'Platinum';
+  if (v >= 70) return 'Gold';
+  if (v >= 55) return 'Silver';
+  if (v >= 40) return 'Bronze';
+  return '—';
+}
+
+function statColor(v: number) {
+  if (v >= 85) return '#e8e0ff';
+  if (v >= 70) return '#ffd770';
+  if (v >= 55) return '#cfdcff';
+  if (v >= 40) return '#d39c70';
+  return 'rgba(255,255,255,0.4)';
 }
 
 export default function PageantScreen() {
-  const [byteData, setByteData] = useState<any>(null);
-  const [lastResult, setLastResult] = useState<any>(null);
-  const [leaderTop, setLeaderTop] = useState<string>('-');
-  const [review, setReview] = useState('Run a mock pageant review to evaluate your Byte profile.');
+  const router = useRouter();
+  const [eligibility, setEligibility] = useState<Eligibility | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [entering, setEntering] = useState(false);
+  const [ceremony, setCeremony] = useState<Ceremony | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const runReview = useCallback(() => {
-    playSfx('menu', 0.55);
-    const stats = byteData?.byte?.stats || {};
-    const needs = byteData?.byte?.needs || {};
-
-    const styleScore = Math.round(((stats.Special || 0) + (needs.Mood || 0)) / 2);
-    const presenceScore = Math.round(((stats.Accuracy || 0) + (stats.Speed || 0)) / 2);
-    const stabilityScore = Math.round(((needs.Hygiene || 0) + (needs.Bandwidth || 0)) / 2);
-
-    const top = [
-      { key: 'Style', val: styleScore },
-      { key: 'Presence', val: presenceScore },
-      { key: 'Stability', val: stabilityScore },
-    ].sort((a, b) => b.val - a.val)[0];
-
-    const avg = Math.round((styleScore + presenceScore + stabilityScore) / 3);
-    const placement = avg >= 85 ? 'first' : avg >= 70 ? 'second' : avg >= 55 ? 'third' : 'participation';
-    const perfectHits = Math.max(1, Math.round(avg / 18));
-    const goodHits = Math.max(2, Math.round(avg / 12));
-    const maxCombo = Math.max(2, Math.round((styleScore + presenceScore) / 30));
-
-    const baseReview =
-      `${byteData?.byte?.name || 'Your Byte'} received a ${grade(avg)} review. ` +
-      `Best category: ${top.key} (${top.val}). Keep mood high and hygiene stable before the next showcase.`;
-
-    setReview(baseReview);
-
-    (async () => {
-      try {
-        await enterPageant();
-        const result = await submitPageantScore(placement, top.key.toLowerCase(), {
-          perfectHits,
-          goodHits,
-          maxCombo,
-          pageantStat: styleScore,
-        });
-        setLastResult(result);
-        const score = Number(result?.scoring?.cutenessScore || 0);
-        setReview(`${baseReview} Placement: ${placement.toUpperCase()} (Score: ${score}, +${result?.earned || 0} BB, +${result?.xpGain || 0} XP).`);
-        playSfx('notify', 0.62);
-      } catch {
-        // Keep local mock review when backend is unavailable.
-        playSfx('tap', 0.5);
-      }
-    })();
-  }, [byteData]);
-
-  useEffect(() => {
-    initSfx().catch(() => {});
-    (async () => {
-      try {
-        const data = await getByte();
-        setByteData(data);
-
-        const board = await getPageantLeaderboard();
-        if (Array.isArray(board) && board.length > 0) {
-          setLeaderTop(`${board[0]?.name || 'Unknown'} Lv.${board[0]?.level || 1}`);
-        }
-      } catch (err: any) {
-        const msg = err?.message || '';
-        setReview(msg.toLowerCase().includes('waking up') ? 'Server is waking up... pageant sync will resume shortly.' : 'Could not sync Byte stats. Pageant is in local demo mode.');
-      }
-    })();
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await getPageantEligibility();
+      setEligibility(data);
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to load pageant info.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const summary = useMemo(() => {
-    const stats = byteData?.byte?.stats || {};
-    return [
-      { label: 'Special', val: stats.Special || 0 },
-      { label: 'Accuracy', val: stats.Accuracy || 0 },
-      { label: 'Speed', val: stats.Speed || 0 },
-      { label: 'Stamina', val: stats.Stamina || 0 },
-    ];
-  }, [byteData]);
+  useEffect(() => { refresh().catch(() => {}); }, [refresh]);
+
+  const handleEnter = useCallback(async () => {
+    if (entering) return;
+    setEntering(true);
+    setError(null);
+    try {
+      playSfx('menu', 0.7);
+      const data = await enterPageant();
+      setCeremony(data);
+      // Refresh eligibility so the locked state shows immediately.
+      const after = await getPageantEligibility();
+      setEligibility(after);
+    } catch (err: any) {
+      setError(err?.message || 'Pageant could not start.');
+    } finally {
+      setEntering(false);
+    }
+  }, [entering]);
+
+  const stageLabel = useMemo(
+    () => String(eligibility?.lifespanStage || 'baby').toUpperCase(),
+    [eligibility?.lifespanStage]
+  );
 
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <View style={styles.header}>
-          <Text style={styles.title}>PAGEANT</Text>
-          <Text style={styles.sub}>Mock judge mode</Text>
-        </View>
+        <ScrollView contentContainerStyle={styles.content}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+              <Text style={styles.backText}>‹ BACK</Text>
+            </TouchableOpacity>
+            <Text style={styles.title}>PAGEANT</Text>
+            <View style={{ width: 60 }} />
+          </View>
 
-        <View style={styles.statsCard}>
-          {summary.map((s) => (
-            <View key={s.label} style={styles.statRow}>
-              <Text style={styles.statLabel}>{s.label.toUpperCase()}</Text>
-              <Text style={styles.statVal}>{s.val}</Text>
+          <Text style={styles.subtitle}>
+            Once per life stage, your byte stands under the lights. Reveals what it has become.
+          </Text>
+
+          {loading && !ceremony ? (
+            <View style={styles.center}>
+              <ActivityIndicator color="#9fe3ff" />
             </View>
-          ))}
-        </View>
+          ) : null}
 
-        <View style={styles.reviewCard}>
-          <Text style={styles.reviewText}>{review}</Text>
-          {lastResult ? <Text style={styles.resultText}>Last reward: +{lastResult.earned} BB, +{lastResult.xpGain} XP</Text> : null}
-        </View>
+          {error ? (
+            <View style={styles.errorCard}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
 
-        <View style={styles.leaderCard}>
-          <Text style={styles.leaderTitle}>LEADERBOARD TOP</Text>
-          <Text style={styles.leaderValue}>{leaderTop}</Text>
-        </View>
+          {/* CEREMONY RESULTS */}
+          {ceremony ? (
+            <View style={styles.card}>
+              <Text style={styles.section}>{String(ceremony.stage).toUpperCase()} PAGEANT — RESULTS</Text>
 
-        <TouchableOpacity style={styles.btn} onPress={runReview} activeOpacity={0.85}>
-          <Text style={styles.btnText}>RUN PAGEANT REVIEW</Text>
-        </TouchableOpacity>
+              <View style={styles.gradeRow}>
+                <View style={styles.gradeBlock}>
+                  <Text style={styles.gradeLabel}>PET</Text>
+                  <Text style={styles.gradeValue}>{ceremony.petGrade}</Text>
+                </View>
+                <View style={styles.gradeBlock}>
+                  <Text style={styles.gradeLabel}>PLAYER</Text>
+                  <Text style={styles.gradeValue}>
+                    {PLAYER_GRADE_LABEL[ceremony.playerGrade] || ceremony.playerGrade}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={{ height: 14 }} />
+
+              {STAT_ORDER.map(({ key, label }) => {
+                const v = ceremony.stats[key];
+                return (
+                  <View key={key} style={styles.statRow}>
+                    <Text style={styles.statLabel}>{label}</Text>
+                    <View style={styles.statTrack}>
+                      <View style={[styles.statFill, { width: `${v}%`, backgroundColor: statColor(v) }]} />
+                    </View>
+                    <Text style={[styles.statTier, { color: statColor(v) }]}>{statTier(v)}</Text>
+                    <Text style={styles.statValue}>{v}</Text>
+                  </View>
+                );
+              })}
+
+              <View style={{ height: 14 }} />
+
+              <Text style={styles.factsHeader}>CARE NOTES</Text>
+              {ceremony.facts.map((f, i) => (
+                <Text key={i} style={styles.factLine}>• {f}</Text>
+              ))}
+
+              <View style={{ height: 14 }} />
+
+              <Text style={styles.note}>
+                Stages entered: {(ceremony.pageantsEntered || []).join(', ') || '—'}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* ELIGIBILITY / ENTRY */}
+          {eligibility && !ceremony ? (
+            <View style={styles.card}>
+              <Text style={styles.section}>{stageLabel} STAGE</Text>
+
+              {eligibility.ok ? (
+                <>
+                  <Text style={styles.bodyText}>
+                    Your byte is ready to enter the pageant for the {stageLabel.toLowerCase()} stage.
+                    This is the only entry you get for this stage.
+                  </Text>
+                  <View style={{ height: 12 }} />
+                  <TouchableOpacity
+                    onPress={handleEnter}
+                    style={[styles.enterBtn, entering && styles.enterBtnDisabled]}
+                    disabled={entering}
+                  >
+                    <Text style={styles.enterBtnText}>{entering ? 'ENTERING…' : 'ENTER PAGEANT'}</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <Text style={styles.bodyText}>{eligibility.reason || 'Pageant not available right now.'}</Text>
+              )}
+
+              <View style={{ height: 14 }} />
+              <Text style={styles.note}>
+                Stages entered: {(eligibility.pageantsEntered || []).join(', ') || '—'}
+              </Text>
+            </View>
+          ) : null}
+        </ScrollView>
       </SafeAreaView>
     </ImageBackground>
   );
@@ -130,56 +244,40 @@ export default function PageantScreen() {
 
 const styles = StyleSheet.create({
   bg: { flex: 1 },
-  safe: { flex: 1, paddingHorizontal: 14 },
-  header: { paddingTop: 10, gap: 4 },
-  title: { color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: 2 },
-  sub: { color: 'rgba(200,228,255,0.66)', fontSize: 11 },
-  statsCard: {
-    marginTop: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.3)',
-    backgroundColor: 'rgba(8,18,62,0.84)',
-    padding: 12,
-    gap: 6,
-  },
-  statRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  statLabel: { color: 'rgba(208,232,255,0.72)', fontSize: 11, letterSpacing: 1 },
-  statVal: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  reviewCard: {
-    marginTop: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.3)',
-    backgroundColor: 'rgba(8,18,62,0.84)',
-    padding: 12,
-    minHeight: 110,
-    justifyContent: 'center',
-  },
-  reviewText: { color: '#d8efff', fontSize: 12, lineHeight: 18 },
-  resultText: { color: '#9bffbf', fontSize: 11, marginTop: 10, fontWeight: '700' },
-  leaderCard: {
-    marginTop: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.3)',
-    backgroundColor: 'rgba(8,18,62,0.84)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  leaderTitle: { color: 'rgba(208,232,255,0.72)', fontSize: 10.5, letterSpacing: 1 },
-  leaderValue: { color: '#fff', fontSize: 11.5, fontWeight: '800' },
-  btn: {
-    marginTop: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(255,214,114,0.5)',
-    backgroundColor: 'rgba(78,58,18,0.7)',
-    alignItems: 'center',
-    paddingVertical: 11,
-  },
-  btnText: { color: '#ffe38a', fontSize: 11, fontWeight: '900', letterSpacing: 1.4 },
+  safe: { flex: 1 },
+  content: { padding: 14, gap: 12, paddingBottom: 26 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
+  backBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(159,227,255,0.4)', backgroundColor: 'rgba(8,18,62,0.84)' },
+  backText: { color: '#9fe3ff', fontSize: 11, fontWeight: '800', letterSpacing: 1.1 },
+  title: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 1.8 },
+  subtitle: { color: 'rgba(220,240,255,0.7)', fontSize: 12, fontStyle: 'italic', marginBottom: 4, paddingHorizontal: 4 },
+  center: { paddingVertical: 30, alignItems: 'center' },
+  card: { borderRadius: 12, borderWidth: 1, borderColor: 'rgba(120,195,255,0.28)', backgroundColor: 'rgba(8,18,62,0.84)', paddingHorizontal: 14, paddingVertical: 14, gap: 4 },
+  section: { color: '#9fe3ff', fontSize: 11, fontWeight: '800', letterSpacing: 1.2, marginBottom: 6 },
+
+  bodyText: { color: 'rgba(220,240,255,0.84)', fontSize: 12, lineHeight: 17 },
+
+  gradeRow: { flexDirection: 'row', justifyContent: 'space-around', gap: 8 },
+  gradeBlock: { alignItems: 'center', flex: 1, paddingVertical: 8, borderRadius: 8, backgroundColor: 'rgba(4,10,28,0.6)', borderWidth: 1, borderColor: 'rgba(120,195,255,0.18)' },
+  gradeLabel: { color: 'rgba(220,240,255,0.55)', fontSize: 9, fontWeight: '700', letterSpacing: 1 },
+  gradeValue: { color: '#fff', fontSize: 22, fontWeight: '900', letterSpacing: 0.8 },
+
+  statRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4, gap: 8 },
+  statLabel: { color: 'rgba(220,240,255,0.85)', fontSize: 10, fontWeight: '800', letterSpacing: 0.8, width: 78 },
+  statTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
+  statFill: { height: '100%' },
+  statTier: { fontSize: 10, fontWeight: '700', width: 60, textAlign: 'right' },
+  statValue: { color: 'rgba(255,255,255,0.7)', fontSize: 10, fontWeight: '700', width: 26, textAlign: 'right' },
+
+  factsHeader: { color: '#9fe3ff', fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 4 },
+  factLine: { color: 'rgba(220,240,255,0.85)', fontSize: 12, lineHeight: 18, paddingLeft: 4 },
+
+  note: { color: 'rgba(220,240,255,0.5)', fontSize: 10, fontStyle: 'italic' },
+
+  enterBtn: { paddingHorizontal: 18, paddingVertical: 12, borderRadius: 10, backgroundColor: 'rgba(126,200,255,0.22)', borderWidth: 1, borderColor: 'rgba(126,200,255,0.6)', alignItems: 'center' },
+  enterBtnDisabled: { opacity: 0.5 },
+  enterBtnText: { color: '#dff0ff', fontSize: 13, fontWeight: '900', letterSpacing: 1.4 },
+
+  errorCard: { borderRadius: 8, borderWidth: 1, borderColor: 'rgba(255,140,140,0.4)', backgroundColor: 'rgba(40,8,8,0.6)', paddingHorizontal: 12, paddingVertical: 10 },
+  errorText: { color: '#ffb0b0', fontSize: 12 },
 });

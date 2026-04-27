@@ -69,6 +69,10 @@ const ByteSchema = new mongoose.Schema({
   // Source of truth for stage-gated UI, sprite scale, decay multipliers.
   lifespanStage: { type: String, enum: ['baby','child','teen','adult','elder'], default: 'baby' },
 
+  // Pageants entered this byte's life — one per lifespan stage. Frontend
+  // checks (stage NOT in this array) to surface the "enter" button.
+  pageantsEntered: { type: [String], default: [] },
+
   // Stats
   stats: { type: StatsSchema, default: () => ({ Power: 10, Speed: 10, Defense: 10, Stamina: 10, Special: 10, Accuracy: 10 }) },
 

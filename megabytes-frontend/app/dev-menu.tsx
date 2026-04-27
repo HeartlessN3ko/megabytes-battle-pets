@@ -38,8 +38,10 @@ import {
 const NEEDS = ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'] as const;
 
 // Defense in depth — even if someone deeplinks to /dev-menu, this gate kills
-// the screen in public builds. Pair with backend requireDevMode middleware.
-const DEV_MENU_ENABLED = String(process.env.EXPO_PUBLIC_DEV_MENU || '') === '1';
+// the screen in public builds. Open in dev builds (__DEV__) automatically;
+// production builds require EXPO_PUBLIC_DEV_MENU=1. Backend requireDevMode
+// middleware is the second layer (DEV_MODE + x-dev-key).
+const DEV_MENU_ENABLED = __DEV__ || String(process.env.EXPO_PUBLIC_DEV_MENU || '') === '1';
 
 export default function DevMenuScreen() {
   const router = useRouter();

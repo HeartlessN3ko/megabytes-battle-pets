@@ -1580,6 +1580,34 @@ router.post('/:id/dev/corruption', requireDevMode, async (req, res) => {
   }
 });
 
+// POST /:id/dev/lifespan-stage  body: { stage: 'baby'|'child'|'teen'|'adult'|'elder' }
+// Sets byte.lifespanStage AND syncs byte.level to the midpoint of that stage so
+// the next applyLifespanTransition doesn't snap it back. Used for sprite-set
+// preview in the dev menu.
+router.post('/:id/dev/lifespan-stage', requireDevMode, async (req, res) => {
+  try {
+    const { stage } = req.body || {};
+    const VALID = ['baby', 'child', 'teen', 'adult', 'elder'];
+    if (!VALID.includes(stage)) {
+      return res.status(400).json({ error: `stage must be one of ${VALID.join(', ')}` });
+    }
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    // Midpoint of each stage's level range — keeps lifespanEngine in sync.
+    const STAGE_MIDPOINT = { baby: 3, child: 10, teen: 20, adult: 33, elder: 45 };
+    byte.level = STAGE_MIDPOINT[stage];
+    byte.xp = 0;
+    byte.lifespanStage = stage;
+    byte.isEgg = false;  // can't be in egg state if forcing a stage
+    await byte.save();
+
+    res.json({ lifespanStage: byte.lifespanStage, level: byte.level });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /:id/dev/reset  — returns byte to fresh egg state (Stage 0)
 router.post('/:id/dev/reset', requireDevMode, async (req, res) => {
   try {

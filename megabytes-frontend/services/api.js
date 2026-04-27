@@ -157,6 +157,8 @@ export const devAdjustCorruption = (delta) =>
   request('POST', `/api/byte/${activeIds().byteId}/dev/corruption`, { delta }, devHeaders());
 export const devResetByte = () =>
   request('POST', `/api/byte/${activeIds().byteId}/dev/reset`, undefined, devHeaders());
+export const devSetLifespanStage = (stage) =>
+  request('POST', `/api/byte/${activeIds().byteId}/dev/lifespan-stage`, { stage }, devHeaders());
 export const devAdjustByteBits = (delta) =>
   request('POST', `/api/player/${activeIds().playerId}/dev/bytebits`, { delta }, devHeaders());
 

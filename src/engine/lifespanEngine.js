@@ -45,12 +45,14 @@ const STAGE_CARE_AVAILABILITY = {
 };
 
 // Per-stage base render scale. Frontend final scale = STAGE_BASE_SCALE * statScale(Strength).
-// Steep progression per Skye 2026-04-26 — babies tiny and vulnerable, real growth.
-// Child shares baby art (sized up). Elder shares adult art (same scale, no shrink).
+// Per Skye 2026-04-26: all stages render at native sprite size — visual size
+// differentiation comes from the sprite art itself (baby art is drawn small,
+// adult art is drawn full-size, etc.). Elder is the only stage that may want
+// a non-1.0 modifier — currently 1.00 pending Skye's call on wither effect.
 const STAGE_BASE_SCALE = {
-  baby:  0.15,
-  child: 0.35,
-  teen:  0.75,
+  baby:  1.00,
+  child: 1.00,
+  teen:  1.00,
   adult: 1.00,
   elder: 1.00,
 };

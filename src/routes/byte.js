@@ -442,6 +442,7 @@ router.post('/:id/sync', async (req, res) => {
       passiveXPGain: snapshot.passiveXPGain,
       ageDeathPending: lifespanEngine.shouldDieFromAge(byte.level) && !byte.isDevByte && byte.isAlive !== false,
       achievementUnlocks,
+      sessionGapHours: lastLogin > 0 ? Math.max(0, gapHours) : 0,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

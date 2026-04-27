@@ -34,9 +34,11 @@ const CHOMP_LAUNCHER_PAD_SIZE_PX = 56; // pad ring around launcher
 // Emoji placeholders until PixelLab food + Byte chomp sprites ship.
 const CHOMP_GOOD_FOOD = ['🍎', '🥦', '🍖'];
 const CHOMP_BAD_FOOD = ['🧪', '☠️'];
-// Byte reaction sprites — reuse existing Circle rig until dedicated chomp frames ship.
+// Byte reaction sprites for CHOMP (feed-upload, the long-form meal minigame).
+// bigbite is the dedicated meal sprite per Skye 2026-04-26 (munch is reserved
+// for the small/quick feed action).
 const CHOMP_SPRITE_IDLE = require('../../assets/bytes/Circle/Circle-idle.gif');
-const CHOMP_SPRITE_CHOMP_GOOD = require('../../assets/bytes/Circle/Circle-happyblush.gif');
+const CHOMP_SPRITE_CHOMP_GOOD = require('../../assets/bytes/Circle/Circle-bigbite.gif');
 const CHOMP_SPRITE_CHOMP_BAD = require('../../assets/bytes/Circle/Circle-x-eyes.gif');
 const CHOMP_SPRITE_MISS = require('../../assets/bytes/Circle/Circle-looklowerleft-right.gif');
 const NEED_RESULT_ORDER = ['Hunger', 'Bandwidth', 'Hygiene', 'Fun', 'Social', 'Mood'];
@@ -213,7 +215,8 @@ const SCRUB_CLUSTER_RADIUS_PX = 48;
 const SCRUB_BURST_TTL_MS = 480;
 const SCRUB_BYTE_REACTION_MS = 420;
 const SCRUB_SPRITE_IDLE = require('../../assets/bytes/Circle/Circle-idle.gif');
-const SCRUB_SPRITE_HAPPY = require('../../assets/bytes/Circle/Circle-happyblush.gif');
+// 2026-04-26: clean is the dedicated bath/scrub reaction (Deep Clean minigame).
+const SCRUB_SPRITE_HAPPY = require('../../assets/bytes/Circle/Circle-clean.gif');
 
 type GrimeNode = { id: number; x: number; y: number; size: number };
 type ScrubBurst = { id: number; x: number; y: number; born: number };

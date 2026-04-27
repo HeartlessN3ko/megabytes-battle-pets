@@ -18,7 +18,9 @@ export type SpriteKey =
   | 'eyeroll' | 'wink' | 'squish' | 'upsidedown'
   | 'lookLeft' | 'lookRight' | 'lookDown' | 'lookUp'
   | 'looklowerLeft' | 'looklowerRight' | 'looklowerLeftRight'
-  | 'walkLeft' | 'walkRight';
+  | 'walkLeft' | 'walkRight'
+  // 2026-04-26 additions
+  | 'bored' | 'wave' | 'hi' | 'clean' | 'bigbite' | 'munch';
 
 // Adult / flat Circle library — current shipped sprite set.
 const ADULT: Record<SpriteKey, any> = {
@@ -46,13 +48,19 @@ const ADULT: Record<SpriteKey, any> = {
   lookLeft:           require('../assets/bytes/Circle/Circle-look-left.gif'),
   lookRight:          require('../assets/bytes/Circle/Circle-look-right.gif'),
   lookDown:           require('../assets/bytes/Circle/Circle-lookdown.gif'),
-  // No Circle-look-up.gif yet; falls back to blinkBounce until shipped.
-  lookUp:             require('../assets/bytes/Circle/Circle-blink-bounce.gif'),
+  lookUp:             require('../assets/bytes/Circle/Circle-lookup.gif'),
   looklowerLeft:      require('../assets/bytes/Circle/Circle-looklowerleft1.gif'),
   looklowerRight:     require('../assets/bytes/Circle/Circle-looklowerright.gif'),
   looklowerLeftRight: require('../assets/bytes/Circle/Circle-looklowerleft-right.gif'),
   walkLeft:           require('../assets/bytes/Circle/Circle-leftmove.gif'),
   walkRight:          require('../assets/bytes/Circle/Circle-rightmove.gif'),
+  // 2026-04-26 additions
+  bored:              require('../assets/bytes/Circle/Circle-bored.gif'),
+  wave:               require('../assets/bytes/Circle/Circle-wave.gif'),
+  hi:                 require('../assets/bytes/Circle/Circle-hi.gif'),
+  clean:              require('../assets/bytes/Circle/Circle-clean.gif'),
+  bigbite:            require('../assets/bytes/Circle/Circle-bigbite.gif'),
+  munch:              require('../assets/bytes/Circle/Circle-munch.gif'),
 };
 
 // Per-stage overrides. Empty objects fall through to ADULT.

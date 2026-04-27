@@ -79,6 +79,8 @@ const IDLE_VARIANT_TO_SPRITE_KEY: Record<string, import('../../services/byteSpri
   wink:         'wink',
   smile:        'smile',
   blush:        'blush',
+  // wave: rare appearance, Skye is testing whether the arms read well
+  wave:         'wave',
 };
 const IDLE_VARIANT_KEYS = Object.keys(IDLE_VARIANT_TO_SPRITE_KEY);
 const IDLE_VARIANT_MIN_DELAY_MS = 8000;
@@ -493,6 +495,11 @@ export default function HomeScreen() {
   const [actionBursts,  setActionBursts]  = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
   const [levelUpBanners, setLevelUpBanners] = useState<{ id: string }[]>([]);
   const [emotion,       setEmotion]       = useState<'praise' | 'scold' | null>(null);
+  // Greeting state: shows the `hi` sprite + "Hi!" speech bubble after a long
+  // session gap (> 2h). Cleared after GREETING_HOLD_MS.
+  const [greeting,      setGreeting]      = useState<boolean>(false);
+  const greetingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const greetingFiredRef = useRef<boolean>(false);  // fire once per mount
   const [idleVariant,   setIdleVariant]   = useState<string | null>(null);
   // moveFacing / motionState removed 2026-04-23 — driven by useByteRoaming.
   const [isSleeping,    setIsSleeping]    = useState(false);
@@ -671,6 +678,8 @@ export default function HomeScreen() {
     petSprite = getStageSprite(lifespanStage, 'cry');
   } else if (isSleeping || (needs.Bandwidth ?? 100) < 12) {
     petSprite = getStageSprite(lifespanStage, 'sleeping');
+  } else if (greeting) {
+    petSprite = getStageSprite(lifespanStage, 'hi');
   } else if (allNeedsCritical) {
     petSprite = getStageSprite(lifespanStage, 'sick');
   } else if ((needs.Bandwidth ?? 100) < 20) {
@@ -681,6 +690,9 @@ export default function HomeScreen() {
     petSprite = getStageSprite(lifespanStage, 'angry');
   } else if ((needs.Mood ?? 100) < 35) {
     petSprite = getStageSprite(lifespanStage, 'confused');
+  } else if ((needs.Fun ?? 100) < 30) {
+    // Boredom: Fun is the dedicated stimulation need, distinct from Mood.
+    petSprite = getStageSprite(lifespanStage, 'bored');
   } else if (moveFacing === 'left') {
     petSprite = getStageSprite(lifespanStage, 'walkLeft');
   } else if (moveFacing === 'right') {
@@ -741,6 +753,18 @@ export default function HomeScreen() {
       setPlayerData(p);
       setIsSleeping(b?.byte?.isSleeping || false);
       setSleepUntil(b?.byte?.sleepUntil ? new Date(b.byte.sleepUntil) : null);
+
+      // Greeting cue: if this is the first sync of the session AND the gap
+      // since last login was > 2h, fire the "Hi!" sprite + bubble for ~3s.
+      if (!greetingFiredRef.current) {
+        greetingFiredRef.current = true;
+        const gapHours = Number(b?.sessionGapHours || 0);
+        if (gapHours > 2) {
+          setGreeting(true);
+          if (greetingTimerRef.current) clearTimeout(greetingTimerRef.current);
+          greetingTimerRef.current = setTimeout(() => setGreeting(false), 3000);
+        }
+      }
     } catch (err: any) {
       const msg = err?.message || '';
       setStatusText(msg.toLowerCase().includes('waking up')
@@ -801,6 +825,7 @@ export default function HomeScreen() {
       if (statusResetTimerRef.current)  clearTimeout(statusResetTimerRef.current);
       if (emotionTimerRef.current)      clearTimeout(emotionTimerRef.current);
       if (idleVariantTimerRef.current)  clearTimeout(idleVariantTimerRef.current);
+      if (greetingTimerRef.current)     clearTimeout(greetingTimerRef.current);
     };
   }, []);
 
@@ -1310,6 +1335,11 @@ export default function HomeScreen() {
             <CorruptionAura corruption={corruptionValue} size={byteFootprint * 0.5} containerSize={byteFootprint} />
             <SleepZsOverlay visible={isSleeping} />
             <NeedRequestBubble need={requestedNeed} />
+            {greeting ? (
+              <View style={[styles.greetingBubble, { bottom: byteFootprint * 0.95 }]} pointerEvents="none">
+                <Text style={styles.greetingText}>Hi!</Text>
+              </View>
+            ) : null}
           </Animated.View>
 
           {/* Byte name / level / status — floats above the sprite */}
@@ -1622,6 +1652,31 @@ const styles = StyleSheet.create({
   clutterEmoji:      { textAlign: 'center' },
   byteStage:         { position: 'absolute', bottom: '20%', zIndex: 3, pointerEvents: 'box-none' },
   byteSprite:        { width: width * 0.3, height: width * 0.3 },
+
+  greetingBubble: {
+    position: 'absolute',
+    alignSelf: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(126,200,255,0.7)',
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
+    minWidth: 56,
+    alignItems: 'center',
+  },
+  greetingText: {
+    color: '#0a1840',
+    fontSize: 16,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+  },
+
 
   // Lights-off dim. Two layers approximate a soft vignette: an outer darker
   // wash plus an inset slightly-lighter pane so the center feels less crushed.

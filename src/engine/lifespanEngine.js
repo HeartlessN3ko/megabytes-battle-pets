@@ -45,10 +45,12 @@ const STAGE_CARE_AVAILABILITY = {
 };
 
 // Per-stage base render scale. Frontend final scale = STAGE_BASE_SCALE * statScale(Strength).
+// Steep progression per Skye 2026-04-26 — babies tiny and vulnerable, real growth.
+// Child shares baby art (sized up). Elder shares adult art (same scale, no shrink).
 const STAGE_BASE_SCALE = {
-  baby:  0.70,
-  child: 0.85,
-  teen:  0.95,
+  baby:  0.15,
+  child: 0.35,
+  teen:  0.75,
   adult: 1.00,
   elder: 1.00,
 };

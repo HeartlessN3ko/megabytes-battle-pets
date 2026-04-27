@@ -63,14 +63,15 @@ const ADULT: Record<SpriteKey, any> = {
   munch:              require('../assets/bytes/Circle/Circle-munch.gif'),
 };
 
-// Per-stage overrides. Empty objects fall through to ADULT.
-// Add entries here when stage-specific GIFs ship to assets/bytes/Circle/{stage}/.
+// Per-stage overrides. Empty objects fall through via STAGE_INHERITS chain
+// to ADULT. Add entries here when stage-specific GIFs ship to
+// assets/bytes/Circle/{stage}/.
 // Example once baby art lands:
 //   baby: {
 //     idle: require('../assets/bytes/Circle/baby/Circle-idle.gif'),
-//     sleeping: require('../assets/bytes/Circle/baby/Circle-sleeping.gif'),
 //     ...
 //   }
+// Child automatically picks up baby art at a larger scale via STAGE_INHERITS.
 const STAGE_OVERRIDES: Record<LifespanStage, Partial<Record<SpriteKey, any>>> = {
   baby:  {},
   child: {},
@@ -79,13 +80,28 @@ const STAGE_OVERRIDES: Record<LifespanStage, Partial<Record<SpriteKey, any>>> = 
   elder: {},
 };
 
+// Stage sprite inheritance chain (per Skye 2026-04-26):
+//   - child inherits baby's overrides (same art, sized up via STAGE_BASE_SCALE)
+//   - teen / elder fall through to adult (no override needed)
+// To resolve a sprite: stage's own overrides → inherited stage's overrides → ADULT.
+const STAGE_INHERITS: Partial<Record<LifespanStage, LifespanStage>> = {
+  child: 'baby',
+};
+
 /**
  * Get the sprite for a given lifespan stage + key.
- * Falls back to adult/flat sprite if stage doesn't override.
+ * Resolution order: stage own → inherited stage → ADULT.
  */
 export function getStageSprite(stage: LifespanStage | string | null | undefined, key: SpriteKey) {
   const s = (stage as LifespanStage) || 'adult';
-  return STAGE_OVERRIDES[s]?.[key] ?? ADULT[key];
+  const own = STAGE_OVERRIDES[s]?.[key];
+  if (own) return own;
+  const parent = STAGE_INHERITS[s];
+  if (parent) {
+    const inherited = STAGE_OVERRIDES[parent]?.[key];
+    if (inherited) return inherited;
+  }
+  return ADULT[key];
 }
 
 // ─────────────────────────────────────────────────────────────────

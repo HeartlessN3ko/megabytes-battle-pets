@@ -665,8 +665,9 @@ export default function HomeScreen() {
 
   // Stat-driven render scale: stage base × Strength modifier. Mirror of
   // backend lifespanEngine.STAGE_BASE_SCALE. v1 stat cap is 25 → max 1.225x.
+  // Steep progression per Skye 2026-04-26 — babies tiny, real growth across life.
   const STAGE_BASE_SCALE: Record<LifespanStage, number> = {
-    baby: 0.70, child: 0.85, teen: 0.95, adult: 1.00, elder: 1.00,
+    baby: 0.15, child: 0.35, teen: 0.75, adult: 1.00, elder: 1.00,
   };
   const strengthStat = Number(byteData?.byte?.stats?.Power ?? byteData?.byte?.stats?.Strength ?? 10);
   const strengthMult = Math.max(0.7, Math.min(1.4, 1 + (strengthStat - 10) * 0.015));

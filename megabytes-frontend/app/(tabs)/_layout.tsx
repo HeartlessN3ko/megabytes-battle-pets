@@ -10,15 +10,15 @@ export default function TabLayout() {
       {/* Visible tab screens — icons/titles handled by HomeNavBar, not the tab bar */}
       <Tabs.Screen name="index"        options={{ title: 'Home' }} />
       <Tabs.Screen name="pageant"      options={{ title: 'Pageant' }} />
-      <Tabs.Screen name="arena"        options={{ title: 'Arena' }} />
+      <Tabs.Screen name="marketplace"  options={{ title: 'Market' }} />
       <Tabs.Screen name="achievements" options={{ title: 'Achievements' }} />
 
       {/* Hidden screens — navigated to programmatically */}
       <Tabs.Screen name="achievements-sheet" options={{ href: null }} />
       <Tabs.Screen name="story"        options={{ href: null }} />
+      <Tabs.Screen name="arena"        options={{ href: null }} />
       <Tabs.Screen name="cash-shop"    options={{ href: null }} />
       <Tabs.Screen name="leaderboards" options={{ href: null }} />
-      <Tabs.Screen name="marketplace"  options={{ href: null }} />
       <Tabs.Screen name="inbox"        options={{ href: null }} />
       <Tabs.Screen name="profile"      options={{ href: null }} />
       <Tabs.Screen name="events"       options={{ href: null }} />

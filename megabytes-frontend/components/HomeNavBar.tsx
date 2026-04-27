@@ -7,12 +7,11 @@ import { playSfx } from '../services/sfx';
 
 const NAV_GATE_MS = 1500;
 
-// v1 nav: STORY (campaign) replaced with PAGEANT (care-first reveal).
-// ARENA slot is still showing — pending Skye's call on which v1 surface
-// fills it (candidates: SHOP, MARKETPLACE, INBOX, DAILY CARE, PROFILE).
+// v1 nav: STORY (campaign) → PAGEANT, ARENA (PvP) → MARKETPLACE. Both
+// Expansion 1 tabs swapped out 2026-04-26.
 const LEFT_TABS = [
-  { key: 'pageant', label: 'PAGEANT', icon: 'ribbon-outline', route: '/(tabs)/pageant' },
-  { key: 'arena',   label: 'ARENA',   icon: 'flash-outline',  route: '/(tabs)/arena' },
+  { key: 'pageant',     label: 'PAGEANT', icon: 'ribbon-outline',     route: '/(tabs)/pageant' },
+  { key: 'marketplace', label: 'MARKET',  icon: 'storefront-outline', route: '/(tabs)/marketplace' },
 ];
 const RIGHT_TABS = [
   { key: 'achievements', label: 'ACHIEVE',  icon: 'trophy-outline',   route: '/(tabs)/achievements' },

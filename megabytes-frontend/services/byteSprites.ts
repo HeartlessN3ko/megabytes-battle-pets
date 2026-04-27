@@ -63,17 +63,14 @@ const ADULT: Record<SpriteKey, any> = {
   munch:              require('../assets/bytes/Circle/Circle-munch.gif'),
 };
 
-// Per-stage overrides. Empty objects fall through via STAGE_INHERITS chain
-// to ADULT. Add entries here when stage-specific GIFs ship to
-// assets/bytes/Circle/{stage}/.
-// Example once baby art lands:
-//   baby: {
-//     idle: require('../assets/bytes/Circle/baby/Circle-idle.gif'),
-//     ...
-//   }
-// Child automatically picks up baby art at a larger scale via STAGE_INHERITS.
+// Per-stage overrides. Empty entries fall through via STAGE_INHERITS chain
+// to ADULT. Path/filename shape is whatever Skye ships — the require points
+// at the actual file. Current convention: `circle-baby/Circlebaby-{action}.gif`.
+// Child automatically picks up baby art via STAGE_INHERITS.
 const STAGE_OVERRIDES: Record<LifespanStage, Partial<Record<SpriteKey, any>>> = {
-  baby:  {},
+  baby: {
+    idle: require('../assets/bytes/Circle/circle-baby/Circlebaby-idle.gif'),
+  },
   child: {},
   teen:  {},
   adult: {},

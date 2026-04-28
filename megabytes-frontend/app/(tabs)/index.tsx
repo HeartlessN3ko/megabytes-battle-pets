@@ -49,10 +49,11 @@ import { generateByteThought, generateSleepDream } from '../../services/byteThou
 import { getByteMotionProfile } from '../../services/byteMotion';
 import { getStageSprite, type LifespanStage } from '../../services/byteSprites';
 import {
+  TUNABLES,
   clutterSpawnProbability,
   clutterSpawnProbabilityDirty,
   poopDigestMs,
-} from '../../config/gameBalance';
+} from '../../config/tunables';
 import HomeRoomStage from '../../components/HomeRoomStage';
 import RPSGame from '../../components/RPSGame';
 import SleepZsOverlay from '../../components/SleepZsOverlay';
@@ -68,7 +69,7 @@ const CORRUPTION_TIER_COLOR: Record<string, string> = {
 };
 
 // Idle flavor pool — random one-shots during default rest state.
-// Fires every 8–15s, plays for IDLE_VARIANT_HOLD_MS, returns to blink-bounce.
+// Fires every 8–15s, plays for TUNABLES.home.IDLE_VARIANT_HOLD_MS, returns to blink-bounce.
 // Map points at SpriteKeys in byteSprites; resolved per-stage at render time.
 const IDLE_VARIANT_TO_SPRITE_KEY: Record<string, import('../../services/byteSprites').SpriteKey> = {
   squish:       'squish',
@@ -83,26 +84,11 @@ const IDLE_VARIANT_TO_SPRITE_KEY: Record<string, import('../../services/byteSpri
   wave:         'wave',
 };
 const IDLE_VARIANT_KEYS = Object.keys(IDLE_VARIANT_TO_SPRITE_KEY);
-const IDLE_VARIANT_MIN_DELAY_MS = 8000;
-const IDLE_VARIANT_MAX_DELAY_MS = 15000;
 
-// Tap-to-wake tuning. Reduced from 10 → 3 (2026-04-27) so a sleeping byte
-// responds to player attention quickly. A swipe counts as 2 taps toward
-// wake (it's a more deliberate gesture than a single poke).
-const WAKE_TAP_THRESHOLD = 3;
-// Total finger movement (px) below this counts as a tap, above is a swipe.
-// Tuned for finger fat enough to make small accidental moves on a real tap.
-const SWIPE_MOVEMENT_THRESHOLD_PX = 14;
-
-// Clutter interaction (Phase 9A, 2026-04-27). When the byte's misbehaviorChance
-// is high AND clutter is on the floor, it occasionally stops to fiddle with
-// one. Visual only in 9A — no clutter mutation. 9B can add multiply / destroy
-// / drop outcomes if the feel lands.
-const CLUTTER_INTERACTION_POLL_MS = 75_000;        // dice roll cadence
-const CLUTTER_INTERACTION_DURATION_MS = 6500;      // how long byte plays with it
-const CLUTTER_INTERACTION_THRESHOLD = 0.4;         // misbehaviorChance gate
-const CLUTTER_INTERACTION_BASE_CHANCE = 0.35;      // per-tick base, scaled by mis
-const IDLE_VARIANT_HOLD_MS      = 2500;
+// All numeric tunables that used to live here have moved to
+// `config/tunables.ts` per Skye's 2026-04-27 consolidation. Reference
+// values via TUNABLES.<group>.<KEY> below. require() paths and
+// structural lookups (sprite keys, room menus) stay inline.
 
 // Glance lookup — maps useByteRoaming's glance state to a SpriteKey, resolved
 // per-stage at render time. `lookUp` currently falls back to blinkBounce inside
@@ -126,9 +112,6 @@ const POOP_SPRITES: Record<number, any> = {
   1: require('../../assets/images/poop2.gif'),
   2: require('../../assets/images/poop3.gif'),
 };
-// Cute flavor lines for the final poop-cleaned popup. Random pick on each clean.
-const POOP_CLEAN_LINES = ['All clean!', 'Sparkly!', 'Spotless.', 'Tidy.', 'Looks better!', 'So fresh.'];
-
 // Clutter sprites — 10 variants (2 originals + 8 new dropped 2026-04-27)
 // pulled randomly when a clutter node spawns. Files live in assets/clutter/.
 // Pure visual variety — no behavioral hooks per sprite type yet.
@@ -143,15 +126,6 @@ const CLUTTER_SPRITES = [
   require('../../assets/clutter/clutter_notifications.png'),
   require('../../assets/clutter/clutter_spinner_broken.png'),
   require('../../assets/clutter/clutter_usb.png'),
-];
-
-// bottomMin/Max are % of the field height, matching the byte's `bottom: '20%'`
-// floor plane. Keeping a tight band so clutter sits on the same line as the byte.
-const CLUTTER_ZONES = [
-  { leftMin: 10, leftMax: 22, bottomMin: 19, bottomMax: 21, frontChance: 0.65 },
-  { leftMin: 24, leftMax: 36, bottomMin: 19, bottomMax: 21, frontChance: 1.0 },
-  { leftMin: 64, leftMax: 76, bottomMin: 19, bottomMax: 21, frontChance: 1.0 },
-  { leftMin: 78, leftMax: 90, bottomMin: 19, bottomMax: 21, frontChance: 0.65 },
 ];
 
 const UTILITY_BAR = [
@@ -172,15 +146,14 @@ const ROOM_MENU = [
 
 // Mirrors backend xpEngine.xpRequiredForLevel — XP to clear THIS level.
 // `byte.xp` from the API is XP-into-current-level (resets on level-up), not cumulative.
-const LEVEL_CAP = 50;
 function xpRequired(level: number) {
   return Math.round(450 * Math.sqrt(Math.max(1, level)));
 }
 
 // Mirrors backend evolutionEngine.getLevelForStage — gate to enter the NEXT stage.
-const EVOLUTION_GATES = [5, 10, 20, 35, 50, 75];
 function levelGateForNextStage(currentStage: number) {
-  return EVOLUTION_GATES[Math.max(0, Math.min(EVOLUTION_GATES.length - 1, currentStage))] || 5;
+  const gates = TUNABLES.lifespan.EVOLUTION_GATES;
+  return gates[Math.max(0, Math.min(gates.length - 1, currentStage))] || 5;
 }
 
 function formatAge(ms: number) {
@@ -364,7 +337,7 @@ function StatsModal({ visible, onClose, byteData, playerData, onEvolved }: {
     (Number(needs.Hunger || 0) + Number(needs.Bandwidth || 0) + Number(needs.Hygiene || 0) +
      Number(needs.Social  || 0) + Number(needs.Fun     || 0) + Number(needs.Mood     || 0)) / 6
   );
-  const atCap = currentStage >= 5 || byteLevel >= LEVEL_CAP;
+  const atCap = currentStage >= 5 || byteLevel >= TUNABLES.lifespan.LEVEL_CAP;
   const levelReady = byteLevel >= gateLevel;
   const careReady  = avgNeed >= 65;
   const evolutionReadiness = atCap ? 'MAX' : levelReady && careReady ? 'READY' : levelReady ? 'PARTIAL' : 'NOT READY';
@@ -603,7 +576,10 @@ export default function HomeScreen() {
     // bytes (independent + calm) keep their needs to themselves longer.
     // Base 30, range ~15-45 at the engine's 0.5-1.5 multiplier band.
     const demandMult = Number(byteData?.personalityModifiers?.demand ?? 1);
-    const REQUEST_THRESHOLD = Math.max(10, Math.min(60, 30 * demandMult));
+    const REQUEST_THRESHOLD = Math.max(
+      TUNABLES.needRequest.THRESHOLD_MIN,
+      Math.min(TUNABLES.needRequest.THRESHOLD_MAX, TUNABLES.needRequest.THRESHOLD_BASE * demandMult),
+    );
     const candidates: { key: NeedRequest; value: number; priority: number }[] = [
       { key: 'hunger',    value: Number(needs.Hunger    ?? 100), priority: 4 },
       { key: 'hygiene',   value: Number(needs.Hygiene   ?? 100), priority: 3 },
@@ -732,15 +708,20 @@ export default function HomeScreen() {
   const lifespanStage: LifespanStage = (byteData?.byte?.lifespanStage as LifespanStage) || 'adult';
 
   // Stat-driven render scale: stage base × Strength modifier. Mirror of
-  // backend lifespanEngine.STAGE_BASE_SCALE.
-  // Per Skye 2026-04-26: native sprite size for all except elder, which
-  // gets a 0.95 wither for the wind-down read.
-  const STAGE_BASE_SCALE: Record<LifespanStage, number> = {
-    baby: 1.00, child: 1.00, teen: 1.00, adult: 1.00, elder: 0.95,
-  };
+  // backend lifespanEngine.STAGE_BASE_SCALE — values now live in
+  // TUNABLES.byteRender (per-stage scale + Strength curve).
   const strengthStat = Number(byteData?.byte?.stats?.Power ?? byteData?.byte?.stats?.Strength ?? 10);
-  const strengthMult = Math.max(0.7, Math.min(1.4, 1 + (strengthStat - 10) * 0.015));
-  const byteFootprint = width * 0.3 * STAGE_BASE_SCALE[lifespanStage] * strengthMult;
+  const strengthMult = Math.max(
+    TUNABLES.byteRender.STRENGTH_MULT_MIN,
+    Math.min(
+      TUNABLES.byteRender.STRENGTH_MULT_MAX,
+      1 + (strengthStat - 10) * TUNABLES.byteRender.STRENGTH_MULT_PER_POINT,
+    ),
+  );
+  const byteFootprint = width
+    * TUNABLES.byteRender.FOOTPRINT_WIDTH_FRACTION
+    * TUNABLES.byteRender.STAGE_BASE_SCALE[lifespanStage]
+    * strengthMult;
   let petSprite: any;
   if (emotion === 'praise') {
     petSprite = getStageSprite(lifespanStage, 'happyblush');
@@ -799,7 +780,7 @@ export default function HomeScreen() {
   // ─── Clutter nodes ───────────────────────────────────────────────────────────
 
   const createClutterNode = useCallback((index: number, kind: 'trash' | 'poop' = 'trash') => {
-    const zone    = CLUTTER_ZONES[Math.floor(Math.random() * CLUTTER_ZONES.length)];
+    const zone    = TUNABLES.clutterZones[Math.floor(Math.random() * TUNABLES.clutterZones.length)];
     // Poop reads cleaner a touch smaller; trash scales as before.
     const size    = kind === 'poop' ? 40 + Math.random() * 16 : 88 + Math.random() * 56;
     const leftPct = zone.leftMin + Math.random() * (zone.leftMax - zone.leftMin);
@@ -935,8 +916,8 @@ export default function HomeScreen() {
     }
     let cancelled = false;
     const schedule = () => {
-      const delay = IDLE_VARIANT_MIN_DELAY_MS +
-        Math.random() * (IDLE_VARIANT_MAX_DELAY_MS - IDLE_VARIANT_MIN_DELAY_MS);
+      const delay = TUNABLES.home.IDLE_VARIANT_MIN_DELAY_MS +
+        Math.random() * (TUNABLES.home.IDLE_VARIANT_MAX_DELAY_MS - TUNABLES.home.IDLE_VARIANT_MIN_DELAY_MS);
       idleVariantTimerRef.current = setTimeout(() => {
         if (cancelled) return;
         const pick = IDLE_VARIANT_KEYS[Math.floor(Math.random() * IDLE_VARIANT_KEYS.length)];
@@ -945,7 +926,7 @@ export default function HomeScreen() {
           if (cancelled) return;
           setIdleVariant(null);
           schedule();
-        }, IDLE_VARIANT_HOLD_MS);
+        }, TUNABLES.home.IDLE_VARIANT_HOLD_MS);
       }, delay);
     };
     schedule();
@@ -982,35 +963,35 @@ export default function HomeScreen() {
         setStatusText(randomThought());
         setIdleThoughtTicks((prev) => prev + 1);
       }
-    }, 30000);
+    }, TUNABLES.home.IDLE_THOUGHT_CYCLE_MS);
     return () => clearInterval(t);
   }, [randomThought]);
 
-  // Periodic background sync — persists level/corruption/needs every 60s
+  // Periodic background sync — persists level/corruption/needs.
   useEffect(() => {
     const t = setInterval(() => {
       refreshData().catch(() => {});
-    }, 60_000);
+    }, TUNABLES.home.BACKGROUND_SYNC_MS);
     return () => clearInterval(t);
   }, [refreshData]);
 
   useEffect(() => {
-    const POLL_SECONDS = 30;
+    const pollSeconds = TUNABLES.clutter.POLL_SECONDS;
     const t = setInterval(() => {
-      const hygieneLow = (needs.Hygiene || 0) < 40;
+      const hygieneLow = (needs.Hygiene || 0) < TUNABLES.clutter.DIRTY_HYGIENE_BELOW;
       const p = hygieneLow
-        ? clutterSpawnProbabilityDirty(POLL_SECONDS)
-        : clutterSpawnProbability(POLL_SECONDS);
+        ? clutterSpawnProbabilityDirty(pollSeconds)
+        : clutterSpawnProbability(pollSeconds);
       let spawned = Math.random() < p;
       // Personality misbehavior — high impulse + high curiosity + low obedience
-      // bytes occasionally make a mess of their own. Caps at 5%/30s tick when
-      // misbehaviorChance == 1, so worst case ~1 extra clutter per 10 min.
+      // bytes occasionally make a mess of their own. CHANCE_FACTOR caps the
+      // per-tick rate at misbehaviorChance × factor.
       if (!spawned) {
         const mis = Number(byteData?.personalityModifiers?.misbehaviorChance ?? 0);
-        if (mis > 0 && Math.random() < mis * 0.05) spawned = true;
+        if (mis > 0 && Math.random() < mis * TUNABLES.extraClutter.CHANCE_FACTOR) spawned = true;
       }
-      if (spawned) setClutter((prev) => Math.min(8, prev + 1));
-    }, POLL_SECONDS * 1000);
+      if (spawned) setClutter((prev) => Math.min(TUNABLES.clutter.MAX_CLUTTER, prev + 1));
+    }, pollSeconds * 1000);
     return () => clearInterval(t);
   }, [needs.Hygiene, byteData?.personalityModifiers?.misbehaviorChance]);
 
@@ -1022,7 +1003,7 @@ export default function HomeScreen() {
     const cadenceMs = Number(byteData?.behaviorState?.fidgetCadenceMs ?? 0);
     const fidgetKey = byteData?.behaviorState?.fidget;
     if (!cadenceMs || !fidgetKey) return;
-    const HOLD_MS = 2500;
+    const HOLD_MS = TUNABLES.fidget.HOLD_MS;
     // Resolver returns abstract fidget keys; map to concrete SpriteKey-ish
     // strings the sprite resolver knows. Missing animations fall back to the
     // closest existing one until commissioned art ships.
@@ -1060,28 +1041,27 @@ export default function HomeScreen() {
   // roll passes, pick a random need and surface it for ~6s. Player learns
   // their byte sometimes "lies." Doesn't fire while sleeping.
   useEffect(() => {
-    const POLL_MS = 45_000;
-    const HOLD_MS = 6_000;
     const FAKE_NEEDS: NeedRequest[] = ['hunger', 'hygiene', 'bandwidth', 'fun'];
     const t = setInterval(() => {
       if (isSleeping) return;
       const mis = Number(byteData?.personalityModifiers?.misbehaviorChance ?? 0);
       if (mis <= 0) return;
       // Don't fake-signal if a real need is already low — would just feel doubled-up.
+      const realLowGate = TUNABLES.fakeNeed.REAL_NEED_OVERRIDE_BELOW;
       const anyRealLow =
-        Number(needs.Hunger ?? 100) < 40 ||
-        Number(needs.Hygiene ?? 100) < 40 ||
-        Number(needs.Bandwidth ?? 100) < 40 ||
-        Math.min(Number(needs.Fun ?? 100), Number(needs.Social ?? 100)) < 40;
+        Number(needs.Hunger ?? 100) < realLowGate ||
+        Number(needs.Hygiene ?? 100) < realLowGate ||
+        Number(needs.Bandwidth ?? 100) < realLowGate ||
+        Math.min(Number(needs.Fun ?? 100), Number(needs.Social ?? 100)) < realLowGate;
       if (anyRealLow) return;
-      // Roll: at mis=1.0, ~15% chance per 45s tick → ~1 fake every ~5min
-      if (Math.random() >= mis * 0.15) return;
+      // Roll: chance scales with misbehaviorChance × CHANCE_FACTOR.
+      if (Math.random() >= mis * TUNABLES.fakeNeed.CHANCE_FACTOR) return;
       const pick = FAKE_NEEDS[Math.floor(Math.random() * FAKE_NEEDS.length)];
       setFakeNeed(pick);
-      const clearT = setTimeout(() => setFakeNeed(null), HOLD_MS);
+      const clearT = setTimeout(() => setFakeNeed(null), TUNABLES.fakeNeed.HOLD_MS);
       // No need to track clearT — interval won't double-fire within HOLD_MS at our rates.
       return () => clearTimeout(clearT);
-    }, POLL_MS);
+    }, TUNABLES.fakeNeed.POLL_MS);
     return () => clearInterval(t);
   }, [byteData?.personalityModifiers?.misbehaviorChance, isSleeping, needs.Hunger, needs.Hygiene, needs.Bandwidth, needs.Fun, needs.Social]);
 
@@ -1094,41 +1074,41 @@ export default function HomeScreen() {
       if (clutterInteractionId) return;     // already busy
       if (isSleeping || emotion || greeting) return;
       const mis = Number(byteData?.personalityModifiers?.misbehaviorChance ?? 0);
-      if (mis < CLUTTER_INTERACTION_THRESHOLD) return;
+      if (mis < TUNABLES.clutterInteraction.TRIGGER_THRESHOLD) return;
       if (clutterNodes.length === 0) return;
       // Roll: chance scales with how high above threshold misbehaviorChance is.
-      const surplus = mis - CLUTTER_INTERACTION_THRESHOLD;
-      const roll = CLUTTER_INTERACTION_BASE_CHANCE * (1 + surplus);
+      const surplus = mis - TUNABLES.clutterInteraction.TRIGGER_THRESHOLD;
+      const roll = TUNABLES.clutterInteraction.BASE_CHANCE * (1 + surplus);
       if (Math.random() >= roll) return;
       const target = clutterNodes[Math.floor(Math.random() * clutterNodes.length)];
       if (!target) return;
       setClutterInteractionId(target.id);
       // Wiggle loop on the target node for the duration.
       clutterWiggleAnim.setValue(0);
+      const halfPeriod = TUNABLES.clutterInteraction.WIGGLE_HALF_PERIOD_MS;
       const wiggle = Animated.loop(
         Animated.sequence([
-          Animated.timing(clutterWiggleAnim, { toValue:  1, duration: 180, useNativeDriver: true }),
-          Animated.timing(clutterWiggleAnim, { toValue: -1, duration: 180, useNativeDriver: true }),
+          Animated.timing(clutterWiggleAnim, { toValue:  1, duration: halfPeriod, useNativeDriver: true }),
+          Animated.timing(clutterWiggleAnim, { toValue: -1, duration: halfPeriod, useNativeDriver: true }),
         ]),
-        { iterations: Math.ceil(CLUTTER_INTERACTION_DURATION_MS / 360) },
+        { iterations: Math.ceil(TUNABLES.clutterInteraction.DURATION_MS / (halfPeriod * 2)) },
       );
       wiggle.start();
       setTimeout(() => {
-        // Phase 9B — outcome roll. 50% inert, 25% drop, 15% multiply, 10% destroy.
-        // Probabilities tuned so most interactions are visual-only (low friction
-        // baseline) and the more disruptive outcomes are rare moments.
+        // Phase 9B — outcome roll. Cumulative thresholds in TUNABLES.clutterInteraction.
+        // Default: 10% destroy, 15% multiply, 25% drop, 50% inert.
         const outcomeRoll = Math.random();
-        if (outcomeRoll < 0.10) {
+        if (outcomeRoll < TUNABLES.clutterInteraction.OUTCOME_DESTROY_BELOW) {
           // Destroy — byte ate it / kicked it under the couch.
           setClutterNodes((prev) => prev.filter((n) => n.id !== target.id));
           setClutter((prev) => Math.max(0, prev - 1));
-        } else if (outcomeRoll < 0.25) {
+        } else if (outcomeRoll < TUNABLES.clutterInteraction.OUTCOME_MULTIPLY_BELOW) {
           // Multiply — byte broke it open. setClutter increment triggers the
           // existing spawn useEffect to add a fresh node.
-          setClutter((prev) => Math.min(8, prev + 1));
-        } else if (outcomeRoll < 0.50) {
+          setClutter((prev) => Math.min(TUNABLES.clutter.MAX_CLUTTER, prev + 1));
+        } else if (outcomeRoll < TUNABLES.clutterInteraction.OUTCOME_DROP_BELOW) {
           // Drop — byte moved it to a new floor position.
-          const zone = CLUTTER_ZONES[Math.floor(Math.random() * CLUTTER_ZONES.length)];
+          const zone = TUNABLES.clutterZones[Math.floor(Math.random() * TUNABLES.clutterZones.length)];
           const newLeftPct = zone.leftMin + Math.random() * (zone.leftMax - zone.leftMin);
           const newLeft = ((width - target.size) * newLeftPct) / 100;
           const newBottom = `${zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin)}%`;
@@ -1139,8 +1119,8 @@ export default function HomeScreen() {
         setClutterInteractionId(null);
         clutterWiggleAnim.stopAnimation();
         clutterWiggleAnim.setValue(0);
-      }, CLUTTER_INTERACTION_DURATION_MS);
-    }, CLUTTER_INTERACTION_POLL_MS);
+      }, TUNABLES.clutterInteraction.DURATION_MS);
+    }, TUNABLES.clutterInteraction.POLL_MS);
     return () => clearInterval(t);
   }, [byteData?.personalityModifiers?.misbehaviorChance, clutterInteractionId, clutterNodes, clutterWiggleAnim, isSleeping, emotion, greeting]);
 
@@ -1150,7 +1130,7 @@ export default function HomeScreen() {
   // screen unmount (e.g., a feed minigame in the kitchen triggering a poop
   // after the player returns home).
   useEffect(() => {
-    const FEED_DETECT_MIN = 10;
+    const FEED_DETECT_MIN = TUNABLES.poop.FEED_DETECT_MIN;
     const DIGEST_DELAY_MS = poopDigestMs();
     const current = Number(needs.Hunger ?? 0);
     const prev    = prevHungerRef.current;
@@ -1305,7 +1285,10 @@ export default function HomeScreen() {
     // Sensitive bytes hold the emote longer — clamp [1500ms, 3200ms] so the
     // amplitude never trips up the rest of the timing chain.
     const ampPraise = Number(byteData?.behaviorState?.reactionAmplitude ?? 1);
-    const emotePraiseMs = Math.max(1500, Math.min(3200, Math.round(2000 * ampPraise)));
+    const emotePraiseMs = Math.max(
+      TUNABLES.emote.CLAMP_MIN_MS,
+      Math.min(TUNABLES.emote.CLAMP_MAX_MS, Math.round(TUNABLES.emote.BASE_MS * ampPraise)),
+    );
     emotionTimerRef.current = setTimeout(() => setEmotion(null), emotePraiseMs);
     setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'praise' }]);
     const wasSleeping = isSleeping;
@@ -1337,7 +1320,10 @@ export default function HomeScreen() {
     // Sensitive bytes hold the scold emote longer (the cry sticks). Same
     // clamp as praise so the timing remains predictable.
     const ampScold = Number(byteData?.behaviorState?.reactionAmplitude ?? 1);
-    const emoteScoldMs = Math.max(1500, Math.min(3200, Math.round(2000 * ampScold)));
+    const emoteScoldMs = Math.max(
+      TUNABLES.emote.CLAMP_MIN_MS,
+      Math.min(TUNABLES.emote.CLAMP_MAX_MS, Math.round(TUNABLES.emote.BASE_MS * ampScold)),
+    );
     emotionTimerRef.current = setTimeout(() => setEmotion(null), emoteScoldMs);
     setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'scold' }]);
     const wasSleeping = isSleeping;
@@ -1387,9 +1373,12 @@ export default function HomeScreen() {
     playSfx('tap', 0.45);
 
     const isPoopClean = tappedNode.kind === 'poop';
-    const award = isPoopClean ? 6 : (2 + Math.floor(Math.random() * 4));
+    const trashRange = TUNABLES.clutter.CLEAN_BB_RANGE_MAX - TUNABLES.clutter.CLEAN_BB_RANGE_MIN + 1;
+    const award = isPoopClean
+      ? TUNABLES.clutter.POOP_CLEAN_BB_AWARD
+      : (TUNABLES.clutter.CLEAN_BB_RANGE_MIN + Math.floor(Math.random() * trashRange));
     const popupText = isPoopClean
-      ? POOP_CLEAN_LINES[Math.floor(Math.random() * POOP_CLEAN_LINES.length)]
+      ? TUNABLES.poop.CLEAN_LINES[Math.floor(Math.random() * TUNABLES.poop.CLEAN_LINES.length)]
       : `+${award} BB`;
 
     setRewardPopups((prev) => [...prev, {
@@ -1430,8 +1419,8 @@ export default function HomeScreen() {
       const nextTaps = wakeUpTaps + 1;
       setWakeUpTaps(nextTaps);
       playSfx('tap', 0.5);
-      setTransientStatus(`Tapping BYTE to wake it... (${nextTaps}/${WAKE_TAP_THRESHOLD})`, 1500);
-      if (nextTaps >= WAKE_TAP_THRESHOLD) {
+      setTransientStatus(`Tapping BYTE to wake it... (${nextTaps}/${TUNABLES.home.WAKE_TAP_THRESHOLD})`, 1500);
+      if (nextTaps >= TUNABLES.home.WAKE_TAP_THRESHOLD) {
         try {
           playSfx('byte_wake', 0.9);
           await wakeUpByte(); setIsSleeping(false); setSleepUntil(null); setWakeUpTaps(0);
@@ -1517,7 +1506,7 @@ export default function HomeScreen() {
       reactionBounce, reactionShake, reactionShrink, reactionRotate,
       reactionHeartOpacity, reactionBlinkOpacity]);
 
-  // Swipe handler — fires when a finger moves more than SWIPE_MOVEMENT_THRESHOLD_PX
+  // Swipe handler — fires when a finger moves more than TUNABLES.home.SWIPE_MOVEMENT_THRESHOLD_PX
   // across the byte sprite. Treated as petting/scratching: gentler than a poke.
   // No /tap API call — annoyance accumulator stays untouched. Sleeping bytes
   // wake faster from swipes (counts as 2 taps) since it's a more deliberate gesture.
@@ -1528,11 +1517,11 @@ export default function HomeScreen() {
     ]).start();
 
     if (isSleeping) {
-      const nextTaps = Math.min(WAKE_TAP_THRESHOLD, wakeUpTaps + 2);
+      const nextTaps = Math.min(TUNABLES.home.WAKE_TAP_THRESHOLD, wakeUpTaps + 2);
       setWakeUpTaps(nextTaps);
       playSfx('tap', 0.4);
-      setTransientStatus(`Stroking BYTE... (${nextTaps}/${WAKE_TAP_THRESHOLD})`, 1500);
-      if (nextTaps >= WAKE_TAP_THRESHOLD) {
+      setTransientStatus(`Stroking BYTE... (${nextTaps}/${TUNABLES.home.WAKE_TAP_THRESHOLD})`, 1500);
+      if (nextTaps >= TUNABLES.home.WAKE_TAP_THRESHOLD) {
         try {
           playSfx('byte_wake', 0.9);
           await wakeUpByte(); setIsSleeping(false); setSleepUntil(null); setWakeUpTaps(0);
@@ -1565,7 +1554,7 @@ export default function HomeScreen() {
       onMoveShouldSetPanResponder: () => true,
       onPanResponderRelease: (_, g) => {
         const distance = Math.sqrt(g.dx * g.dx + g.dy * g.dy);
-        if (distance > SWIPE_MOVEMENT_THRESHOLD_PX) {
+        if (distance > TUNABLES.home.SWIPE_MOVEMENT_THRESHOLD_PX) {
           handleByteSwipe();
         } else {
           handleByteTap();
@@ -1628,7 +1617,7 @@ export default function HomeScreen() {
               const wiggleStyle = isFiddling ? {
                 transform: [{ rotate: clutterWiggleAnim.interpolate({
                   inputRange: [-1, 0, 1],
-                  outputRange: ['-12deg', '0deg', '12deg'],
+                  outputRange: [`-${TUNABLES.clutterInteraction.WIGGLE_AMPLITUDE_DEG}deg`, '0deg', `${TUNABLES.clutterInteraction.WIGGLE_AMPLITUDE_DEG}deg`],
                 }) }],
               } : undefined;
               return (
@@ -1698,7 +1687,7 @@ export default function HomeScreen() {
               const wiggleStyle = isFiddling ? {
                 transform: [{ rotate: clutterWiggleAnim.interpolate({
                   inputRange: [-1, 0, 1],
-                  outputRange: ['-12deg', '0deg', '12deg'],
+                  outputRange: [`-${TUNABLES.clutterInteraction.WIGGLE_AMPLITUDE_DEG}deg`, '0deg', `${TUNABLES.clutterInteraction.WIGGLE_AMPLITUDE_DEG}deg`],
                 }) }],
               } : undefined;
               return (

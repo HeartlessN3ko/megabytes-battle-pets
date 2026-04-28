@@ -22,6 +22,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Animated } from 'react-native';
+import { TUNABLES } from '../config/tunables';
 
 export type RoamFacing = 'left' | 'right' | 'idle';
 export type RoamGlance = 'look-left' | 'look-right' | 'look-up' | 'look-down' | null;
@@ -55,28 +56,15 @@ export interface UseByteRoamingResult {
   motionState: 'walking' | 'resting';
 }
 
-// --- Tunables ---------------------------------------------------------------
-// Min travel distance for a new target (fraction of halfSpread).
-// 2026-04-26: lowered from 0.45 to allow small step-overs alongside long crossings.
-// More variable destinations = less patrol-feel.
-const MIN_TRAVEL_FRACTION    = 0.15;
-// Probability that a non-bored byte skips travel and just chains another pause.
-// Breaks the patrol cadence so the byte spends most of its time idling, only
-// occasionally squish-walking somewhere.
-const SKIP_TRAVEL_CHANCE     = 0.5;
-// Chance to fire a glance during a rest pause (0..1).
-const GLANCE_CHANCE          = 0.4;
-// Glance hold window.
-const GLANCE_HOLD_MIN_MS     = 1200;
-const GLANCE_HOLD_MAX_MS     = 2000;
-// Glance direction weights (must sum to 1.0). `look-up` is deliberately light
-// so it reads as a deliberate peek rather than constant staring at the ceiling.
-const GLANCE_WEIGHTS: Array<[Exclude<RoamGlance, null>, number]> = [
-  ['look-left',  0.30],
-  ['look-right', 0.30],
-  ['look-down',  0.25],
-  ['look-up',    0.15],
-];
+// All tunables sourced from `config/tunables.ts` (TUNABLES.byteRoaming).
+// Local aliases keep the loop body below readable. Edit values in tunables.ts;
+// these aliases pick them up on next reload.
+const MIN_TRAVEL_FRACTION = TUNABLES.byteRoaming.MIN_TRAVEL_FRACTION;
+const SKIP_TRAVEL_CHANCE  = TUNABLES.byteRoaming.SKIP_TRAVEL_CHANCE;
+const GLANCE_CHANCE       = TUNABLES.byteRoaming.GLANCE_CHANCE;
+const GLANCE_HOLD_MIN_MS  = TUNABLES.byteRoaming.GLANCE_HOLD_MIN_MS;
+const GLANCE_HOLD_MAX_MS  = TUNABLES.byteRoaming.GLANCE_HOLD_MAX_MS;
+const GLANCE_WEIGHTS      = TUNABLES.byteRoaming.GLANCE_WEIGHTS;
 
 function pickGlance(bored: boolean): RoamGlance {
   // Bored bytes lock onto the camera — no glance flips.
@@ -100,23 +88,36 @@ export function useByteRoaming(opts: UseByteRoamingOpts): UseByteRoamingResult {
     // drive the visual instead of the smooth translateX. Pauses extended so
     // the byte spends most of its time just idling — feels like a pet, not
     // a patrol routine.
-    travelDurationMin = 8000,
-    travelDurationMax = 13000,
-    pauseMin          = 6000,
-    pauseMax          = 12000,
+    travelDurationMin = TUNABLES.byteRoaming.TRAVEL_MIN_MS,
+    travelDurationMax = TUNABLES.byteRoaming.TRAVEL_MAX_MS,
+    pauseMin          = TUNABLES.byteRoaming.PAUSE_MIN_MS,
+    pauseMax          = TUNABLES.byteRoaming.PAUSE_MAX_MS,
     movementMultiplier = 1,
   } = opts;
 
   // Clamp to the personality engine's known range so a bad value can't freeze
   // the byte (movement=0) or send it pin-balling (movement=10).
-  const mm = Math.max(0.5, Math.min(1.5, Number.isFinite(movementMultiplier) ? movementMultiplier : 1));
+  const mm = Math.max(
+    TUNABLES.byteRoaming.MOVEMENT_MULT_MIN,
+    Math.min(
+      TUNABLES.byteRoaming.MOVEMENT_MULT_MAX,
+      Number.isFinite(movementMultiplier) ? movementMultiplier : 1,
+    ),
+  );
   const scaledTravelMin = travelDurationMin / mm;
   const scaledTravelMax = travelDurationMax / mm;
   const scaledPauseMin  = pauseMin / mm;
   const scaledPauseMax  = pauseMax / mm;
-  // Skip chance flexes within ±20% of the base 0.5: high-impulse bytes
-  // (mm > 1) skip less often, low-impulse bytes (mm < 1) skip more.
-  const skipTravelChance = Math.max(0.15, Math.min(0.85, SKIP_TRAVEL_CHANCE - (mm - 1) * 0.4));
+  // Skip chance flexes around the base by SKIP_TRAVEL_PERSONALITY_FACTOR per
+  // unit of mm offset from 1: high-impulse bytes (mm > 1) skip less often,
+  // low-impulse bytes (mm < 1) skip more. Clamped within MIN/MAX.
+  const skipTravelChance = Math.max(
+    TUNABLES.byteRoaming.SKIP_TRAVEL_MIN,
+    Math.min(
+      TUNABLES.byteRoaming.SKIP_TRAVEL_MAX,
+      SKIP_TRAVEL_CHANCE - (mm - 1) * TUNABLES.byteRoaming.SKIP_TRAVEL_PERSONALITY_FACTOR,
+    ),
+  );
 
   const translateX = useRef(new Animated.Value(0)).current;
   const [facing,      setFacing]      = useState<RoamFacing>('idle');
@@ -208,7 +209,7 @@ export function useByteRoaming(opts: UseByteRoamingOpts): UseByteRoamingResult {
 
       const currentX = (translateX as any)._value ?? 0;
       const dx       = nextX - currentX;
-      const THRESH   = 6;
+      const THRESH   = TUNABLES.byteRoaming.FACING_DETECT_PX;
       const nextFacing: RoamFacing =
         dx >  THRESH ? 'right' :
         dx < -THRESH ? 'left'  :
@@ -231,8 +232,9 @@ export function useByteRoaming(opts: UseByteRoamingOpts): UseByteRoamingResult {
         setFacing('idle');
         setMotionState('resting');
 
+        const boredSpan = TUNABLES.byteRoaming.BORED_PAUSE_MAX_MS - TUNABLES.byteRoaming.BORED_PAUSE_MIN_MS;
         const pauseMs = bored
-          ? (3000 + Math.random() * 2000)
+          ? (TUNABLES.byteRoaming.BORED_PAUSE_MIN_MS + Math.random() * Math.max(1, boredSpan))
           : (cfg.pauseMin + Math.random() * Math.max(1, cfg.pauseMax - cfg.pauseMin));
 
         const glancePick = pickGlance(bored);

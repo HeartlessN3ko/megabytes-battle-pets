@@ -516,6 +516,27 @@ export default function HomeScreen() {
   // or null. Drives the sprite override + the per-node wiggle animation.
   const [clutterInteractionId, setClutterInteractionId] = useState<string | null>(null);
   const clutterWiggleAnim = useRef(new Animated.Value(0)).current;
+  // Wake-reaction sprite override (Skye 2026-04-28). When the byte wakes up
+  // from any source, a brief sprite override plays so the wake is visibly
+  // distinct from "snap to idle." Pool + weights live in TUNABLES.wakeReaction.
+  const [wakeReactionSprite, setWakeReactionSprite] = useState<string | null>(null);
+  const wakeReactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerWakeReaction = useCallback((source: 'tap' | 'praise' | 'scold' | 'natural') => {
+    const pool = TUNABLES.wakeReaction.POOLS[source];
+    const roll = Math.random();
+    let acc = 0;
+    let pick: string = pool[0][0];
+    for (const [key, w] of pool) {
+      acc += w;
+      if (roll <= acc) { pick = key; break; }
+    }
+    setWakeReactionSprite(pick);
+    if (wakeReactionTimerRef.current) clearTimeout(wakeReactionTimerRef.current);
+    wakeReactionTimerRef.current = setTimeout(() => {
+      setWakeReactionSprite(null);
+      wakeReactionTimerRef.current = null;
+    }, TUNABLES.wakeReaction.HOLD_MS);
+  }, []);
   const [rewardPopups,  setRewardPopups]  = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
   const [actionBursts,  setActionBursts]  = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
   const [levelUpBanners, setLevelUpBanners] = useState<{ id: string }[]>([]);
@@ -723,7 +744,14 @@ export default function HomeScreen() {
     * TUNABLES.byteRender.STAGE_BASE_SCALE[lifespanStage]
     * strengthMult;
   let petSprite: any;
-  if (emotion === 'praise') {
+  // Wake reaction sprite (Skye 2026-04-28). When the byte wakes from any
+  // source (tap / praise / scold / natural), a weighted-random sprite
+  // override plays for ~2.5s so wake feels visibly different and not
+  // formulaic. Sits above the regular emotion sprites so a praise-from-sleep
+  // doesn't always read as the same happyblush.
+  if (wakeReactionSprite) {
+    petSprite = getStageSprite(lifespanStage, wakeReactionSprite as any);
+  } else if (emotion === 'praise') {
     petSprite = getStageSprite(lifespanStage, 'happyblush');
   } else if (emotion === 'scold') {
     petSprite = getStageSprite(lifespanStage, 'cry');
@@ -1173,6 +1201,7 @@ export default function HomeScreen() {
         setIsSleeping(false);
         setSleepUntil(null);
         setWakeUpTaps(0);
+        triggerWakeReaction('natural');
         setTransientStatus('BYTE woke up naturally.', 2000);
         refreshData().catch(() => {});
       } catch {
@@ -1189,7 +1218,7 @@ export default function HomeScreen() {
       const t = setTimeout(performNaturalWake, sleepEndTime - Date.now());
       return () => clearTimeout(t);
     }
-  }, [isSleeping, sleepUntil, refreshData, setTransientStatus]);
+  }, [isSleeping, sleepUntil, refreshData, setTransientStatus, triggerWakeReaction]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -1305,13 +1334,14 @@ export default function HomeScreen() {
         setIsSleeping(false);
         setSleepUntil(null);
         setWakeUpTaps(0);
+        triggerWakeReaction('praise');
         setTransientStatus(`Woke BYTE with praise. Mood -${res.moodPenalty ?? 5}, then praised.`, 2800);
       }
     } catch {
       setTransientStatus('Praise failed — try again.', 2000);
     }
     refreshData().catch(() => {});
-  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude]);
+  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude, triggerWakeReaction]);
 
   const handleScold = useCallback(async () => {
     playSfx('scold', 0.8);
@@ -1340,13 +1370,14 @@ export default function HomeScreen() {
         setIsSleeping(false);
         setSleepUntil(null);
         setWakeUpTaps(0);
+        triggerWakeReaction('scold');
         setTransientStatus(`Scolded BYTE awake. Mood -${(res.moodPenalty ?? 10) + 10}.`, 2800);
       }
     } catch {
       setTransientStatus('Scold failed — try again.', 2000);
     }
     refreshData().catch(() => {});
-  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude]);
+  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude, triggerWakeReaction]);
 
   const handlePlay = useCallback(() => {
     playSfx('menu', 0.75);
@@ -1424,6 +1455,7 @@ export default function HomeScreen() {
         try {
           playSfx('byte_wake', 0.9);
           await wakeUpByte(); setIsSleeping(false); setSleepUntil(null); setWakeUpTaps(0);
+          triggerWakeReaction('tap');
           setTransientStatus('BYTE woke up!', 2000);
           await refreshData();
         } catch {
@@ -1502,7 +1534,7 @@ export default function HomeScreen() {
       }
       setIdleThoughtTicks(0);
     } catch { playSfx('chirp1', 0.5); }
-  }, [isSleeping, wakeUpTaps, setTransientStatus, tapScale, refreshData,
+  }, [isSleeping, wakeUpTaps, setTransientStatus, tapScale, refreshData, triggerWakeReaction,
       reactionBounce, reactionShake, reactionShrink, reactionRotate,
       reactionHeartOpacity, reactionBlinkOpacity]);
 
@@ -1525,6 +1557,7 @@ export default function HomeScreen() {
         try {
           playSfx('byte_wake', 0.9);
           await wakeUpByte(); setIsSleeping(false); setSleepUntil(null); setWakeUpTaps(0);
+          triggerWakeReaction('tap');
           setTransientStatus('BYTE woke up!', 2000);
           await refreshData();
         } catch {
@@ -1543,7 +1576,7 @@ export default function HomeScreen() {
       Animated.delay(600),
       Animated.timing(reactionHeartOpacity, { toValue: 0, duration: 280, useNativeDriver: true }),
     ]).start();
-  }, [isSleeping, wakeUpTaps, setTransientStatus, tapScale, refreshData, reactionHeartOpacity]);
+  }, [isSleeping, wakeUpTaps, setTransientStatus, tapScale, refreshData, reactionHeartOpacity, triggerWakeReaction]);
 
   // PanResponder distinguishes tap from swipe by total finger travel. Both
   // gestures stay within this responder so the byte sprite never loses focus
@@ -1652,7 +1685,11 @@ export default function HomeScreen() {
               { scale: reactionShrink },
             ],
           }]}>
-            <View {...byteGestureResponder.panHandlers}>
+            <View
+              {...byteGestureResponder.panHandlers}
+              style={{ width: byteFootprint, height: byteFootprint }}
+              collapsable={false}
+            >
               <Image source={petSprite} style={[styles.byteSprite, { width: byteFootprint, height: byteFootprint }]} resizeMode="contain" />
             </View>
             <CorruptionAura corruption={corruptionValue} size={byteFootprint * 0.5} containerSize={byteFootprint} />

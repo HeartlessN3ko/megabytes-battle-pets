@@ -229,6 +229,54 @@ const fidget = {
   HOLD_MS: 2_500,
 } as const;
 
+// ─── Wake reactions (tap / praise / scold / natural) ────────────────────────
+// When the byte wakes up, a brief sprite override plays so waking is
+// visibly different from "byte snaps to idle." Each source has a weighted
+// pool so two consecutive scold-wakes don't always look the same. Skye
+// 2026-04-28: "should not be so A and B."
+const wakeReaction = {
+  /** How long the wake-reaction sprite holds on screen before the priority
+   *  chain returns to normal. */
+  HOLD_MS: 2_500,
+
+  /** Sprite weights per wake source. Sum should be ~1.0 per row. Format:
+   *  Array<[spriteKey, weight]>. Weighted random pick on each wake event. */
+  POOLS: {
+    /** Tap-wake — drowsy / groggy reads. The byte was just poked awake. */
+    tap: [
+      ['tired',      0.35],
+      ['sleepy',     0.30],
+      ['confused',   0.15],
+      ['blinkBounce', 0.10],
+      ['lookUp',     0.10],
+    ],
+    /** Praise-wake — mostly happy, but sometimes annoyed at being disturbed. */
+    praise: [
+      ['happyblush', 0.30],
+      ['smile',      0.25],
+      ['blush',      0.15],
+      ['idleHappy',  0.15],
+      ['confused',   0.10],
+      ['angry',      0.05],
+    ],
+    /** Scold-wake — mostly hurt / startled, occasionally still groggy. */
+    scold: [
+      ['cry',        0.30],
+      ['angry',      0.30],
+      ['xEyes',      0.15],
+      ['confused',   0.15],
+      ['sleepy',     0.10],
+    ],
+    /** Natural wake (sync-driven, no explicit player action) — rested feel. */
+    natural: [
+      ['wink',       0.35],
+      ['smile',      0.25],
+      ['blinkBounce', 0.20],
+      ['lookUp',     0.20],
+    ],
+  } as Readonly<Record<'tap' | 'praise' | 'scold' | 'natural', ReadonlyArray<readonly [string, number]>>>,
+} as const;
+
 // ─── Lifespan / level ──────────────────────────────────────────────────────
 const lifespan = {
   /** Hard level cap. Death gate per backend. */
@@ -253,6 +301,7 @@ export const TUNABLES = {
   needRequest,
   emote,
   fidget,
+  wakeReaction,
   lifespan,
 } as const;
 

@@ -93,6 +93,15 @@ const WAKE_TAP_THRESHOLD = 3;
 // Total finger movement (px) below this counts as a tap, above is a swipe.
 // Tuned for finger fat enough to make small accidental moves on a real tap.
 const SWIPE_MOVEMENT_THRESHOLD_PX = 14;
+
+// Clutter interaction (Phase 9A, 2026-04-27). When the byte's misbehaviorChance
+// is high AND clutter is on the floor, it occasionally stops to fiddle with
+// one. Visual only in 9A — no clutter mutation. 9B can add multiply / destroy
+// / drop outcomes if the feel lands.
+const CLUTTER_INTERACTION_POLL_MS = 75_000;        // dice roll cadence
+const CLUTTER_INTERACTION_DURATION_MS = 6500;      // how long byte plays with it
+const CLUTTER_INTERACTION_THRESHOLD = 0.4;         // misbehaviorChance gate
+const CLUTTER_INTERACTION_BASE_CHANCE = 0.35;      // per-tick base, scaled by mis
 const IDLE_VARIANT_HOLD_MS      = 2500;
 
 // Glance lookup — maps useByteRoaming's glance state to a SpriteKey, resolved
@@ -518,6 +527,10 @@ export default function HomeScreen() {
   // backend resolver. The byte does a yawn / wink / look-around / etc when
   // it's resting, so it never feels frozen even when nothing's happening.
   const [activeFidget, setActiveFidget] = useState<string | null>(null);
+  // Phase 9A — id of the clutter node the byte is currently fiddling with,
+  // or null. Drives the sprite override + the per-node wiggle animation.
+  const [clutterInteractionId, setClutterInteractionId] = useState<string | null>(null);
+  const clutterWiggleAnim = useRef(new Animated.Value(0)).current;
   const [rewardPopups,  setRewardPopups]  = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
   const [actionBursts,  setActionBursts]  = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
   const [levelUpBanners, setLevelUpBanners] = useState<{ id: string }[]>([]);
@@ -555,7 +568,7 @@ export default function HomeScreen() {
     motionState: roamMotionState,
   } = useByteRoaming({
     halfSpreadX: (width * motionProfile.home.roamSpreadX) / 2,
-    enabled:     !isSleeping && !emotion,
+    enabled:     !isSleeping && !emotion && !clutterInteractionId,
     boredom:     (needs.Fun ?? 100) < 30 || (needs.Mood ?? 100) < 35,
     // Speed stat tunes pace. Faster Speed = shorter travel windows.
     // Base 8000-13000ms (2026-04-26: slowed so squish-walk GIF drives the
@@ -735,6 +748,10 @@ export default function HomeScreen() {
     petSprite = getStageSprite(lifespanStage, 'angry');
   } else if ((needs.Mood ?? 100) < 35) {
     petSprite = getStageSprite(lifespanStage, 'confused');
+  } else if (clutterInteractionId) {
+    // Phase 9A — byte is fiddling with a clutter item. munch is the closest
+    // existing sprite; once Circle-fiddle / Circle-pokes ships, swap here.
+    petSprite = getStageSprite(lifespanStage, 'munch');
   } else if (byteData?.behaviorState?.state === 'sulky') {
     // 30 min after a scold — eyes drift down, no recovery yet.
     petSprite = getStageSprite(lifespanStage, 'lookDown');
@@ -1054,6 +1071,43 @@ export default function HomeScreen() {
     }, POLL_MS);
     return () => clearInterval(t);
   }, [byteData?.personalityModifiers?.misbehaviorChance, isSleeping, needs.Hunger, needs.Hygiene, needs.Bandwidth, needs.Fun, needs.Social]);
+
+  // Phase 9A — Byte interacts with clutter. When misbehaviorChance is over
+  // the threshold AND clutter exists AND the byte isn't already busy, picks
+  // a random clutter node and starts a 6.5s "fiddling" interaction. Visual
+  // only — sprite swap + wiggle on the targeted clutter. No mutation yet.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (clutterInteractionId) return;     // already busy
+      if (isSleeping || emotion || greeting) return;
+      const mis = Number(byteData?.personalityModifiers?.misbehaviorChance ?? 0);
+      if (mis < CLUTTER_INTERACTION_THRESHOLD) return;
+      if (clutterNodes.length === 0) return;
+      // Roll: chance scales with how high above threshold misbehaviorChance is.
+      const surplus = mis - CLUTTER_INTERACTION_THRESHOLD;
+      const roll = CLUTTER_INTERACTION_BASE_CHANCE * (1 + surplus);
+      if (Math.random() >= roll) return;
+      const target = clutterNodes[Math.floor(Math.random() * clutterNodes.length)];
+      if (!target) return;
+      setClutterInteractionId(target.id);
+      // Wiggle loop on the target node for the duration.
+      clutterWiggleAnim.setValue(0);
+      const wiggle = Animated.loop(
+        Animated.sequence([
+          Animated.timing(clutterWiggleAnim, { toValue:  1, duration: 180, useNativeDriver: true }),
+          Animated.timing(clutterWiggleAnim, { toValue: -1, duration: 180, useNativeDriver: true }),
+        ]),
+        { iterations: Math.ceil(CLUTTER_INTERACTION_DURATION_MS / 360) },
+      );
+      wiggle.start();
+      setTimeout(() => {
+        setClutterInteractionId(null);
+        clutterWiggleAnim.stopAnimation();
+        clutterWiggleAnim.setValue(0);
+      }, CLUTTER_INTERACTION_DURATION_MS);
+    }, CLUTTER_INTERACTION_POLL_MS);
+    return () => clearInterval(t);
+  }, [byteData?.personalityModifiers?.misbehaviorChance, clutterInteractionId, clutterNodes, clutterWiggleAnim, isSleeping, emotion, greeting]);
 
   // Feed → digestion → poop pipeline.
   // Detects a feed by watching Hunger for an upward jump (≥ FEED_DETECT_MIN).
@@ -1515,18 +1569,29 @@ export default function HomeScreen() {
 
           {/* Back clutter */}
           <View style={styles.clutterLayer}>
-            {backClutterNodes.map((node) => (
-              <TouchableOpacity key={node.id}
-                style={[styles.clutterTouch, { left: node.left, bottom: node.bottom, width: node.size, height: node.size }]}
-                onPress={() => handleClutterTap(node.id)} activeOpacity={0.8}
-              >
-                {node.kind === 'poop' ? (
-                  <Text style={[styles.clutterEmoji, { fontSize: node.size * 0.7 }]}>💩</Text>
-                ) : (
-                  <Image source={node.sprite} style={styles.clutterImg} resizeMode="contain" />
-                )}
-              </TouchableOpacity>
-            ))}
+            {backClutterNodes.map((node) => {
+              const isFiddling = node.id === clutterInteractionId;
+              const wiggleStyle = isFiddling ? {
+                transform: [{ rotate: clutterWiggleAnim.interpolate({
+                  inputRange: [-1, 0, 1],
+                  outputRange: ['-12deg', '0deg', '12deg'],
+                }) }],
+              } : undefined;
+              return (
+                <TouchableOpacity key={node.id}
+                  style={[styles.clutterTouch, { left: node.left, bottom: node.bottom, width: node.size, height: node.size }]}
+                  onPress={() => handleClutterTap(node.id)} activeOpacity={0.8}
+                >
+                  <Animated.View style={wiggleStyle}>
+                    {node.kind === 'poop' ? (
+                      <Text style={[styles.clutterEmoji, { fontSize: node.size * 0.7 }]}>💩</Text>
+                    ) : (
+                      <Image source={node.sprite} style={styles.clutterImg} resizeMode="contain" />
+                    )}
+                  </Animated.View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Byte sprite — floor-anchored (Y=0). All roaming comes from useByteRoaming. */}
@@ -1570,18 +1635,29 @@ export default function HomeScreen() {
 
           {/* Front clutter */}
           <View style={styles.clutterLayerFront}>
-            {frontClutterNodes.map((node) => (
-              <TouchableOpacity key={node.id}
-                style={[styles.clutterTouch, { left: node.left, bottom: node.bottom, width: node.size, height: node.size }]}
-                onPress={() => handleClutterTap(node.id)} activeOpacity={0.8}
-              >
-                {node.kind === 'poop' ? (
-                  <Text style={[styles.clutterEmoji, { fontSize: node.size * 0.7 }]}>💩</Text>
-                ) : (
-                  <Image source={node.sprite} style={styles.clutterImgFront} resizeMode="contain" />
-                )}
-              </TouchableOpacity>
-            ))}
+            {frontClutterNodes.map((node) => {
+              const isFiddling = node.id === clutterInteractionId;
+              const wiggleStyle = isFiddling ? {
+                transform: [{ rotate: clutterWiggleAnim.interpolate({
+                  inputRange: [-1, 0, 1],
+                  outputRange: ['-12deg', '0deg', '12deg'],
+                }) }],
+              } : undefined;
+              return (
+                <TouchableOpacity key={node.id}
+                  style={[styles.clutterTouch, { left: node.left, bottom: node.bottom, width: node.size, height: node.size }]}
+                  onPress={() => handleClutterTap(node.id)} activeOpacity={0.8}
+                >
+                  <Animated.View style={wiggleStyle}>
+                    {node.kind === 'poop' ? (
+                      <Text style={[styles.clutterEmoji, { fontSize: node.size * 0.7 }]}>💩</Text>
+                    ) : (
+                      <Image source={node.sprite} style={styles.clutterImgFront} resizeMode="contain" />
+                    )}
+                  </Animated.View>
+                </TouchableOpacity>
+              );
+            })}
           </View>
 
           {/* Floating reward popups */}

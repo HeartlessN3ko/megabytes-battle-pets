@@ -721,6 +721,28 @@ router.patch('/:id/care', async (req, res) => {
       byte.quickFeedCount = (byte.quickFeedCount || 0) + 1;
     }
 
+    // Personality nudges — context-gated on the pre-care need values so we
+    // only credit "feed when actually hungry," "clean when actually dirty," etc.
+    // Pure care actions (calm, pet) and partial-success actions still earn play
+    // credit so the engine sees player engagement, just not the contextual bonus.
+    try {
+      const failed = grade === 'fail';
+      if (!failed) {
+        if ((action === 'feed' || action === 'meal') && (decayed.needs.Hunger ?? 100) < 30) {
+          personalityEngine.applyEvent(byte, 'feed_high_hunger');
+        }
+        if ((action === 'clean' || action === 'perfect-clean') && (decayed.needs.Hygiene ?? 100) < 30) {
+          personalityEngine.applyEvent(byte, 'clean_low_hygiene');
+        }
+        if ((action === 'rest' || action === 'deep_rest') && (decayed.needs.Bandwidth ?? 100) < 30) {
+          personalityEngine.applyEvent(byte, 'rest_low_bandwidth');
+        }
+        if (action === 'play' || action === 'deep_play') {
+          personalityEngine.applyEvent(byte, 'successful_play');
+        }
+      }
+    } catch (_e) { /* never block care on personality nudge */ }
+
     await byte.save();
     await player.save();
     res.json({
@@ -820,6 +842,13 @@ router.patch('/:id/train', async (req, res) => {
     byte.needs.Mood      = clampNeed(Number(byte.needs.Mood      || 0) - 4);
 
     byte.behaviorMetrics = behaviorTracker.recordTraining(metrics, { stat, bandwidthAtStart: bwAtStart });
+
+    // Personality nudge — successful training (not 'fail' grade and not overtrained refusal).
+    try {
+      if (result !== 'fail') {
+        personalityEngine.applyEvent(byte, 'successful_train');
+      }
+    } catch (_e) { /* never block training on personality nudge */ }
 
     await byte.save();
     res.json({
@@ -1093,6 +1122,10 @@ router.post('/:id/praise', async (req, res) => {
 
     const metrics = behaviorTracker.recordInteraction(byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics, 'praise');
     byte.behaviorMetrics = metrics;
+
+    // Personality nudge — praise pushes attachment + light obedience.
+    try { personalityEngine.applyEvent(byte, 'praise'); } catch (_e) { /* never block praise on personality nudge */ }
+
     await byte.save();
     res.json({
       praiseCount: byte.behaviorMetrics.praiseCount,
@@ -1126,6 +1159,10 @@ router.post('/:id/scold', async (req, res) => {
 
     const metrics = behaviorTracker.recordInteraction(byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics, 'scold');
     byte.behaviorMetrics = metrics;
+
+    // Personality nudge — scold pushes obedience up, attachment down.
+    try { personalityEngine.applyEvent(byte, 'scold'); } catch (_e) { /* never block scold on personality nudge */ }
+
     await byte.save();
     res.json({
       scoldCount: byte.behaviorMetrics.scoldCount,
@@ -1197,6 +1234,18 @@ router.post('/:id/tap', async (req, res) => {
       'tap'
     );
     byte.behaviorMetrics = metrics;
+
+    // Personality nudges:
+    // - tap_spam fires once the byte hits the annoyed/withdrawn ladder
+    // - withdraw fires on the dedicated withdraw transition (annoyance 3)
+    try {
+      if (reaction.annoyanceStage >= 2) {
+        personalityEngine.applyEvent(byte, 'tap_spam');
+      }
+      if (reaction.annoyanceStage === 3) {
+        personalityEngine.applyEvent(byte, 'withdraw');
+      }
+    } catch (_e) { /* never block tap on personality nudge */ }
 
     await byte.save();
 

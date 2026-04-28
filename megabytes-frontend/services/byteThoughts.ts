@@ -154,8 +154,10 @@ const TEMPERAMENT_HOOKS = {
 // original warm/neutral/sharp triplet to also include behaviorState-derived
 // tones (sulky after scold, demanding when impulsive + needy, clingy on
 // long-gap return with high attachment). Neutral has no overlay; the base
-// pools cover that range. ChatGPT owns these copy pools per AI_PROTOCOL —
-// Phase 8 placeholders below should be revised by ChatGPT in a later pass.
+// pools cover that range. ChatGPT owns these copy pools per AI_PROTOCOL.
+// Six pools below (sulky / demanding / clingy / distant / anxious / playful)
+// were rewritten by ChatGPT 2026-04-27 to replace Claude placeholder copy.
+// warm / sharp are still Claude placeholder until ChatGPT does that pass.
 const TONE_POOLS = {
   warm: [
     '[ByteName] just wanted to make sure you were still here.',
@@ -173,51 +175,81 @@ const TONE_POOLS = {
   ],
   // Sulky — recent scold within 30 min. Hurt + withdrawn, not angry.
   sulky: [
-    '[ByteName] is processing what just happened and not making eye contact.',
-    '[ByteName] is reviewing the incident logs in silence.',
-    '[ByteName] is running quieter than usual.',
-    '[ByteName] is keeping its distance and pretending to be busy.',
-    '[ByteName] noted the scold and is filing it under "things we do not talk about."',
+    "[ByteName] knows you saw that and chose not to respond. Interesting.",
+    "[ByteName] is technically fine. Emotionally? Different story.",
+    "[ByteName] is doing less on purpose. You'll notice eventually.",
+    "[ByteName] is waiting. Not patiently, just... waiting.",
+    "[ByteName] remembers when things were better. That was earlier.",
+    "[ByteName] could ask again. It won't.",
+    "[ByteName] is running at reduced enthusiasm levels. By design.",
+    "[ByteName] is staring at the problem and also at you. Mostly you.",
+    "[ByteName] thinks you're aware of what you're doing.",
+    "[ByteName] is going quiet so you feel it.",
   ],
   // Demanding — high impulse + need pressure. Imperative, urgent, short.
   demanding: [
-    '[ByteName] needs attention NOW.',
-    '[ByteName] is escalating this request.',
-    '[ByteName] is not going to ask twice.',
-    '[ByteName] is flagging this as critical.',
-    '[ByteName] has a request and it is the only request that matters.',
+    "[ByteName] needs this handled now. Not soon. Now.",
+    "[ByteName] has escalated this internally three times already.",
+    "[ByteName] is not asking anymore.",
+    "[ByteName] is increasing signal priority until you respond.",
+    "[ByteName] expects immediate resolution.",
+    "[ByteName] is done buffering. Action required.",
+    "[ByteName] is pushing this to the top of your stack.",
+    "[ByteName] will keep pinging until something changes.",
+    "[ByteName] has made this your problem. Congratulations.",
+    "[ByteName] is applying pressure. It's working.",
   ],
   // Clingy — long-gap return + high attachment. Wants nearness.
   clingy: [
-    '[ByteName] missed you and is being uncool about it.',
-    '[ByteName] is checking that you are real every few seconds.',
-    '[ByteName] is staying within sensor range, just in case.',
-    '[ByteName] does not want to lose you again.',
-    '[ByteName] is following you around the room with its eyes.',
+    "[ByteName] is staying close just in case you need it.",
+    "[ByteName] feels better when you're paying attention.",
+    "[ByteName] keeps checking if you're still there.",
+    "[ByteName] doesn't want to do this without you.",
+    "[ByteName] is syncing to you more than it needs to.",
+    "[ByteName] is waiting for your input before doing anything else.",
+    "[ByteName] just wants to be included in whatever you're doing.",
+    "[ByteName] is following your activity like it's important. It is.",
+    "[ByteName] feels off when you're not interacting.",
+    "[ByteName] is here. Still here. Definitely here.",
   ],
   // Distant — long-gap return + low attachment. Withholding, neutral.
   distant: [
-    '[ByteName] noticed you came back. It will get to you in a minute.',
-    '[ByteName] is not making a big deal out of this.',
-    '[ByteName] is keeping its routines and you can join them or not.',
-    '[ByteName] does not need supervision, thanks.',
-    '[ByteName] logged your return without comment.',
+    "[ByteName] is handling things independently for now.",
+    "[ByteName] doesn't see a need to involve you in this.",
+    "[ByteName] is operating just fine without input.",
+    "[ByteName] has stopped checking for your response.",
+    "[ByteName] is running its own routines. You're optional.",
+    "[ByteName] acknowledges you. That's enough.",
+    "[ByteName] is present, just not engaged.",
+    "[ByteName] is choosing not to react.",
+    "[ByteName] is conserving interaction.",
+    "[ByteName] is here, but not with you.",
   ],
   // Anxious — daily mood roll = anxious, or sensitivity high after harsh scolds.
   anxious: [
-    '[ByteName] keeps double-checking the same packet.',
-    '[ByteName] is sure something is wrong but cannot pin it down.',
-    '[ByteName] is bracing for something it cannot identify.',
-    '[ByteName] is rerunning the same loop just in case it missed something.',
-    '[ByteName] is having a tense little day.',
+    "[ByteName] is processing too many things at once and it shows.",
+    "[ByteName] keeps checking for issues that may not exist.",
+    "[ByteName] is reacting faster than it can stabilize.",
+    "[ByteName] is unsure if this is fine. It doesn't feel fine.",
+    "[ByteName] is holding together, but loosely.",
+    "[ByteName] is anticipating a problem and preparing anyway.",
+    "[ByteName] is struggling to settle into a stable state.",
+    "[ByteName] is over-monitoring everything, including you.",
+    "[ByteName] is waiting for something to go wrong.",
+    "[ByteName] is trying to stay calm and not succeeding.",
   ],
   // Playful — daily mood roll = playful, or high impulse + high curiosity.
   playful: [
-    '[ByteName] is in the mood for chaos.',
-    '[ByteName] is daring something to happen.',
-    '[ByteName] is interested in trouble, just a little.',
-    '[ByteName] has energy to burn and zero plan.',
-    '[ByteName] is bouncing through processes for fun.',
+    "[ByteName] is testing things just to see what happens.",
+    "[ByteName] is doing something unnecessary but fun.",
+    "[ByteName] is poking the system for reactions.",
+    "[ByteName] is making this more interesting on purpose.",
+    "[ByteName] is enjoying itself more than it should.",
+    '[ByteName] is running experiments labeled "probably fine."',
+    "[ByteName] is turning this into a game. You're involved now.",
+    "[ByteName] is adding a little chaos for flavor.",
+    "[ByteName] is clearly having a good time with this.",
+    "[ByteName] is doing extra. No reason. Just vibes.",
   ],
 };
 

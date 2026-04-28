@@ -530,9 +530,10 @@ export default function HomeScreen() {
   const [clutterInteractionId, setClutterInteractionId] = useState<string | null>(null);
   const clutterWiggleAnim = useRef(new Animated.Value(0)).current;
   // Sleep-block popup state (Skye 2026-04-28). When player taps a room
-  // while byte sleeps, a Modal surfaces with a varied message instead of
-  // a quiet status-bar line they might miss. Null when no popup active.
-  const [sleepBlockMessage, setSleepBlockMessage] = useState<string | null>(null);
+  // while byte sleeps, a Modal surfaces with a varied message + a "Wake
+  // byte" button that force-wakes (Mood + affection penalty) and routes
+  // into the room. Null when no popup active.
+  const [sleepBlock, setSleepBlock] = useState<{ message: string; route: string } | null>(null);
   // Wake-reaction sprite override (Skye 2026-04-28). When the byte wakes up
   // from any source, a brief sprite override plays so the wake is visibly
   // distinct from "snap to idle." Pool + weights live in TUNABLES.wakeReaction.
@@ -1310,10 +1311,11 @@ export default function HomeScreen() {
     if (transitionBusy) return;
     if (isSleeping) {
       // Sleep-block popup (Skye 2026-04-28) — surface a Modal with a varied
-      // message instead of the old quiet status-bar transient that was easy
-      // to miss. Pulls a random line each block for tone variety.
+      // message + a "Wake byte" button. Pulls a random line each block for
+      // tone variety. The route is captured so the popup's wake button can
+      // route into the room after the force-wake completes.
       const msg = SLEEP_BLOCK_MESSAGES[Math.floor(Math.random() * SLEEP_BLOCK_MESSAGES.length)];
-      setSleepBlockMessage(msg);
+      setSleepBlock({ message: msg, route });
       playSfx('chirp1', 0.35);
       return;
     }
@@ -1322,6 +1324,35 @@ export default function HomeScreen() {
     setTransientStatus('Loading room interface...', 1200);
     setTimeout(() => { router.push(route as any); setTransitionBusy(false); }, 220);
   }, [closeDrawer, isSleeping, router, setTransientStatus, transitionBusy]);
+
+  // Sleep-block popup "Wake byte" handler. Force-wakes via wakeUpByte(true)
+  // which applies the backend Mood + affection penalty, plays the cranky
+  // wake-reaction sprite, then routes into the room after a short beat so
+  // the player sees the byte register being disturbed.
+  const handleForceWakeForRoom = useCallback(async () => {
+    const block = sleepBlock;
+    if (!block) return;
+    setSleepBlock(null);
+    setTransitionBusy(true);
+    try {
+      playSfx('byte_wake', 0.85);
+      await wakeUpByte(true);
+      setIsSleeping(false);
+      setSleepUntil(null);
+      setWakeUpTaps(0);
+      triggerWakeReaction('tap');
+      setTransientStatus('BYTE woke up. Heading in...', 1500);
+      // Brief visual beat so the wake reaction sprite reads before nav.
+      setTimeout(() => {
+        router.push(block.route as any);
+        setTransitionBusy(false);
+      }, 700);
+      refreshData().catch(() => {});
+    } catch {
+      setTransientStatus('Could not wake BYTE. Try a tap or praise/scold.', 2400);
+      setTransitionBusy(false);
+    }
+  }, [sleepBlock, refreshData, router, setTransientStatus, triggerWakeReaction]);
 
   const handleTreat = useCallback(() => {
     if (treatCount <= 0) {
@@ -1915,22 +1946,32 @@ export default function HomeScreen() {
 
       {/* ── Sleep-block popup ── shown when player taps a room while byte sleeps */}
       <Modal
-        visible={!!sleepBlockMessage}
+        visible={!!sleepBlock}
         transparent
         animationType="fade"
-        onRequestClose={() => setSleepBlockMessage(null)}
+        onRequestClose={() => setSleepBlock(null)}
       >
         <View style={styles.sleepBlockOverlay}>
           <View style={styles.sleepBlockCard}>
             <Text style={styles.sleepBlockZ}>Z z z</Text>
-            <Text style={styles.sleepBlockMessage}>{sleepBlockMessage || ''}</Text>
-            <TouchableOpacity
-              style={styles.sleepBlockButton}
-              activeOpacity={0.8}
-              onPress={() => setSleepBlockMessage(null)}
-            >
-              <Text style={styles.sleepBlockButtonText}>OK</Text>
-            </TouchableOpacity>
+            <Text style={styles.sleepBlockMessage}>{sleepBlock?.message || ''}</Text>
+            <View style={styles.sleepBlockButtonRow}>
+              <TouchableOpacity
+                style={[styles.sleepBlockButton, styles.sleepBlockButtonSecondary]}
+                activeOpacity={0.8}
+                onPress={() => setSleepBlock(null)}
+              >
+                <Text style={[styles.sleepBlockButtonText, styles.sleepBlockButtonSecondaryText]}>LET IT REST</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sleepBlockButton, styles.sleepBlockButtonPrimary]}
+                activeOpacity={0.8}
+                onPress={handleForceWakeForRoom}
+              >
+                <Text style={[styles.sleepBlockButtonText, styles.sleepBlockButtonPrimaryText]}>WAKE BYTE</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.sleepBlockHint}>Force-waking costs Mood and affection.</Text>
           </View>
         </View>
       </Modal>
@@ -2398,20 +2439,41 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 18,
   },
+  sleepBlockButtonRow: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+    justifyContent: 'center',
+  },
   sleepBlockButton: {
+    flex: 1,
     minWidth: 120,
     paddingVertical: 11,
-    paddingHorizontal: 22,
+    paddingHorizontal: 14,
     borderRadius: 10,
-    backgroundColor: 'rgba(120, 175, 230, 0.22)',
     borderWidth: 1,
-    borderColor: 'rgba(120, 175, 230, 0.5)',
     alignItems: 'center',
   },
+  sleepBlockButtonSecondary: {
+    backgroundColor: 'rgba(120, 175, 230, 0.18)',
+    borderColor: 'rgba(120, 175, 230, 0.4)',
+  },
+  sleepBlockButtonPrimary: {
+    backgroundColor: 'rgba(255, 138, 138, 0.22)',
+    borderColor: 'rgba(255, 138, 138, 0.55)',
+  },
   sleepBlockButtonText: {
-    color: '#cfe8ff',
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
-    letterSpacing: 2,
+    letterSpacing: 1.5,
+  },
+  sleepBlockButtonSecondaryText: { color: '#cfe8ff' },
+  sleepBlockButtonPrimaryText:   { color: '#ffd4d4' },
+  sleepBlockHint: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 10.5,
+    letterSpacing: 0.6,
+    marginTop: 12,
+    textAlign: 'center',
   },
 });

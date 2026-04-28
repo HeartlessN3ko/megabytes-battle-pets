@@ -2,7 +2,7 @@
   "expo": {
     "name": "megabytes-frontend",
     "slug": "megabytes-frontend",
-    "version": "3.9.2",
+    "version": "3.9.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "megabytesfrontend",

@@ -1696,9 +1696,14 @@ router.post('/:id/wake-up', async (req, res) => {
       endEnergy,
     });
 
-    // Apply rest interrupt affection penalty if woken early.
+    // Apply rest interrupt penalties if woken early.
+    // Affection always drops (existing behavior). Mood also dips so the byte
+    // visibly registers being disturbed (Skye 2026-04-28: "annoyed" feel
+    // when the player force-wakes via the sleep-block popup).
     if (wasForced) {
       affectionEngine.applyRestInterruptPenalty(byte);
+      const FORCE_WAKE_MOOD_PENALTY = 5;
+      byte.needs.Mood = clampNeed(Number(byte.needs.Mood || 0) - FORCE_WAKE_MOOD_PENALTY);
     }
 
     if (restResult.xpAwarded > 0) {

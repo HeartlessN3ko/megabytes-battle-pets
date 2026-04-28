@@ -33,6 +33,37 @@ const { optionalAuth, requireDevMode } = require('../middleware/auth');
 const router = express.Router();
 router.use(optionalAuth);
 
+// --- Behavior-metric derivations (Phase 8) ---------------------------------
+// Both helpers tolerate Mongoose Maps and plain objects since the schema is a
+// Map but reads can come back either way depending on `.toObject()` shape.
+
+function deriveFavoriteRoom(byte) {
+  const dist = byte?.behaviorMetrics?.roomTimeDistribution;
+  if (!dist) return null;
+  let entries;
+  if (typeof dist?.entries === 'function') entries = Array.from(dist.entries());
+  else entries = Object.entries(dist);
+  if (!entries || entries.length === 0) return null;
+  entries.sort((a, b) => Number(b[1]) - Number(a[1]));
+  const [room, count] = entries[0];
+  // Need a minimum signal — under 5 visits, "favorite" is statistical noise.
+  if (Number(count) < 5) return null;
+  return String(room);
+}
+
+function derivePeakHour(byte) {
+  const tod = byte?.behaviorMetrics?.timeOfDayPattern;
+  if (!tod) return null;
+  let entries;
+  if (typeof tod?.entries === 'function') entries = Array.from(tod.entries());
+  else entries = Object.entries(tod);
+  if (!entries || entries.length === 0) return null;
+  entries.sort((a, b) => Number(b[1]) - Number(a[1]));
+  const [hour, count] = entries[0];
+  if (Number(count) < 5) return null;
+  return Number(hour);
+}
+
 function clampNeed(value) {
   return Math.max(0, Math.min(100, value));
 }
@@ -267,6 +298,8 @@ router.get('/:id', async (req, res) => {
       affectionTier: affectionEngine.getAffectionTier(byte.affection || 50),
       personalityModifiers: personalityEngine.getModifiers(byte),
       behaviorState: personalityResolver.resolveBehaviorState(byte, snapshot.needs || byte.needs, {}),
+      favoriteRoom: deriveFavoriteRoom(byte),
+      peakHour: derivePeakHour(byte),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -431,6 +464,49 @@ router.post('/:id/sync', async (req, res) => {
       personalityResolver.tickPersonalityState(byte);
     } catch (_e) { /* never block sync on personality state tick */ }
 
+    // Personality: ignored_critical — fires when any need is <25 AND we
+    // haven't fired in the last 30 min. Throttled by personality.lastIgnoredFireAt
+    // so the axes don't spike on every poll while a need sits unattended.
+    try {
+      const minNeed = Math.min(
+        Number(byte.needs?.Hunger    ?? 100),
+        Number(byte.needs?.Bandwidth ?? 100),
+        Number(byte.needs?.Hygiene   ?? 100),
+        Number(byte.needs?.Fun       ?? 100),
+        Number(byte.needs?.Social    ?? 100),
+        Number(byte.needs?.Mood      ?? 100),
+      );
+      if (minNeed < 25) {
+        const lastFire = byte.personality?.lastIgnoredFireAt
+          ? new Date(byte.personality.lastIgnoredFireAt).getTime()
+          : 0;
+        const FIRE_COOLDOWN_MS = 30 * 60 * 1000;
+        if (Date.now() - lastFire > FIRE_COOLDOWN_MS) {
+          personalityEngine.applyEvent(byte, 'ignored_critical');
+          if (!byte.personality) byte.personality = {};
+          byte.personality.lastIgnoredFireAt = new Date();
+        }
+      }
+    } catch (_e) { /* never block sync on ignored_critical fire */ }
+
+    // Time-of-day pattern: bump the histogram for the user's current localHour
+    // on every sync. Frontend sends localHour in the body. Drives the
+    // peakHour exposure used by greetings + future state-bias logic.
+    try {
+      const localHour = Number(req.body?.localHour);
+      if (Number.isInteger(localHour) && localHour >= 0 && localHour <= 23) {
+        if (!byte.behaviorMetrics) byte.behaviorMetrics = {};
+        const tod = byte.behaviorMetrics.timeOfDayPattern;
+        if (tod && typeof tod.set === 'function') {
+          // Mongoose Map
+          tod.set(String(localHour), Number(tod.get(String(localHour)) || 0) + 1);
+        } else if (tod && typeof tod === 'object') {
+          tod[localHour] = Number(tod[localHour] || 0) + 1;
+        }
+        byte.markModified('behaviorMetrics.timeOfDayPattern');
+      }
+    } catch (_e) { /* never block sync on TOD bump */ }
+
     // Passive XP (time-based, from computeLiveByteSnapshot)
     if (snapshot.passiveXPGain > 0) {
       const oldLevel = byte.level;
@@ -482,6 +558,8 @@ router.post('/:id/sync', async (req, res) => {
       sessionGapHours: sessionGapHoursOut,
       personalityModifiers: personalityEngine.getModifiers(byte),
       behaviorState,
+      favoriteRoom: deriveFavoriteRoom(byte),
+      peakHour: derivePeakHour(byte),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

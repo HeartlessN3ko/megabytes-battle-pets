@@ -50,6 +50,11 @@ const PersonalitySchema = new mongoose.Schema({
     kind:  { type: String, default: null },
     day:   { type: String, default: null }, // "YYYY-MM-DD" (local)
   },
+
+  // Cooldown timestamp for the `ignored_critical` event. /sync fires the event
+  // when any need is below 25, throttled to at most once per 30 min so the
+  // axes don't spike on every poll while a need sits unattended.
+  lastIgnoredFireAt: { type: Date, default: null },
 }, { _id: false });
 
 const BehaviorMetricsSchema = new mongoose.Schema({

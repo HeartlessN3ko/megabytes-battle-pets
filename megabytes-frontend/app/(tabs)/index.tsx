@@ -841,10 +841,11 @@ export default function HomeScreen() {
       trainingSessionsToday: Number(byteData?.byte?.trainingSessionsToday || 0),
       idleTicks: idleThoughtTicks,
       tone: byteData?.personalityModifiers?.tone || 'neutral',
+      behaviorState: byteData?.behaviorState || null,
     });
     if (clutter >= 3) return `${thought} Home is ${clutterLabel.toLowerCase()}.`;
     return thought;
-  }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.byte?.trainingSessionsToday, byteData?.personalityModifiers?.tone, clutter, clutterLabel, idleThoughtTicks, isSleeping, needs]);
+  }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.byte?.trainingSessionsToday, byteData?.personalityModifiers?.tone, byteData?.behaviorState, clutter, clutterLabel, idleThoughtTicks, isSleeping, needs]);
 
   useEffect(() => { thoughtRef.current = randomThought; }, [randomThought]);
 

@@ -150,9 +150,12 @@ const TEMPERAMENT_HOOKS = {
 };
 
 // Tone overlays — pulled in by generateByteThought when personality modifiers
-// resolve to a non-neutral tone. Warm = high attachment + obedient (clingy /
-// affectionate). Sharp = low attachment OR low obedience (aloof / curt).
-// Neutral has no overlay; the base pools cover that range.
+// resolve to a non-neutral tone. Phase 8 expanded the universe beyond the
+// original warm/neutral/sharp triplet to also include behaviorState-derived
+// tones (sulky after scold, demanding when impulsive + needy, clingy on
+// long-gap return with high attachment). Neutral has no overlay; the base
+// pools cover that range. ChatGPT owns these copy pools per AI_PROTOCOL —
+// Phase 8 placeholders below should be revised by ChatGPT in a later pass.
 const TONE_POOLS = {
   warm: [
     '[ByteName] just wanted to make sure you were still here.',
@@ -168,7 +171,66 @@ const TONE_POOLS = {
     '[ByteName] logged that you took your time getting back.',
     '[ByteName] is doing its own thing and not waiting for instructions.',
   ],
+  // Sulky — recent scold within 30 min. Hurt + withdrawn, not angry.
+  sulky: [
+    '[ByteName] is processing what just happened and not making eye contact.',
+    '[ByteName] is reviewing the incident logs in silence.',
+    '[ByteName] is running quieter than usual.',
+    '[ByteName] is keeping its distance and pretending to be busy.',
+    '[ByteName] noted the scold and is filing it under "things we do not talk about."',
+  ],
+  // Demanding — high impulse + need pressure. Imperative, urgent, short.
+  demanding: [
+    '[ByteName] needs attention NOW.',
+    '[ByteName] is escalating this request.',
+    '[ByteName] is not going to ask twice.',
+    '[ByteName] is flagging this as critical.',
+    '[ByteName] has a request and it is the only request that matters.',
+  ],
+  // Clingy — long-gap return + high attachment. Wants nearness.
+  clingy: [
+    '[ByteName] missed you and is being uncool about it.',
+    '[ByteName] is checking that you are real every few seconds.',
+    '[ByteName] is staying within sensor range, just in case.',
+    '[ByteName] does not want to lose you again.',
+    '[ByteName] is following you around the room with its eyes.',
+  ],
+  // Distant — long-gap return + low attachment. Withholding, neutral.
+  distant: [
+    '[ByteName] noticed you came back. It will get to you in a minute.',
+    '[ByteName] is not making a big deal out of this.',
+    '[ByteName] is keeping its routines and you can join them or not.',
+    '[ByteName] does not need supervision, thanks.',
+    '[ByteName] logged your return without comment.',
+  ],
+  // Anxious — daily mood roll = anxious, or sensitivity high after harsh scolds.
+  anxious: [
+    '[ByteName] keeps double-checking the same packet.',
+    '[ByteName] is sure something is wrong but cannot pin it down.',
+    '[ByteName] is bracing for something it cannot identify.',
+    '[ByteName] is rerunning the same loop just in case it missed something.',
+    '[ByteName] is having a tense little day.',
+  ],
+  // Playful — daily mood roll = playful, or high impulse + high curiosity.
+  playful: [
+    '[ByteName] is in the mood for chaos.',
+    '[ByteName] is daring something to happen.',
+    '[ByteName] is interested in trouble, just a little.',
+    '[ByteName] has energy to burn and zero plan.',
+    '[ByteName] is bouncing through processes for fun.',
+  ],
 };
+
+// Tone selection priority. Resolver-driven tones outrank the base
+// warm/neutral/sharp because they reflect specific recent events.
+const RESOLVER_TONE_PRIORITY: Array<'sulky' | 'demanding' | 'clingy' | 'distant' | 'anxious' | 'playful'> = [
+  'sulky',
+  'demanding',
+  'clingy',
+  'distant',
+  'anxious',
+  'playful',
+];
 
 function pick(list) {
   if (!Array.isArray(list) || list.length === 0) return null;
@@ -204,7 +266,19 @@ export function generateByteThought({
   trainingSessionsToday = 0,
   idleTicks = 0,
   tone = 'neutral',
-}) {
+  behaviorState = null,
+}: {
+  byteName?: string;
+  needs?: any;
+  temperament?: string | null;
+  trainingSessionsToday?: number;
+  idleTicks?: number;
+  tone?: string;
+  // Optional behaviorState payload from /sync. When provided, resolver-driven
+  // tones (sulky / demanding / clingy / distant / anxious / playful) take
+  // priority over the base warm/neutral/sharp. Null falls back to plain tone.
+  behaviorState?: { state?: string; recentMood?: string | null; dailyMood?: string | null } | null;
+} = {}) {
   const name = byteName || 'BYTE';
   const crit = criticalNeeds(needs);
 
@@ -223,11 +297,26 @@ export function generateByteThought({
   const temperamentPool = TEMPERAMENT_HOOKS[String(temperament || '')];
   if (temperamentPool) pools.push(temperamentPool);
 
-  // Personality tone overlay — push the tone pool twice when set so it has
-  // ~2× the selection weight of any single base pool. Neutral skips this.
-  if (tone === 'warm' || tone === 'sharp') {
-    pools.push(TONE_POOLS[tone]);
-    pools.push(TONE_POOLS[tone]);
+  // Phase 8 — pick a single resolver-driven tone if behaviorState resolves to
+  // one. Priority order: state.recentMood > state.state > dailyMood. Whichever
+  // hits first becomes the dominant tone overlay (~2× weight). Falls through
+  // to the base warm/neutral/sharp tone if nothing resolves.
+  let resolvedTone: string | null = null;
+  if (behaviorState) {
+    if (behaviorState.recentMood === 'sulky') resolvedTone = 'sulky';
+    else if (behaviorState.recentMood === 'warm') resolvedTone = 'warm';
+    else if (behaviorState.state === 'demanding') resolvedTone = 'demanding';
+    else if (behaviorState.state === 'clingy') resolvedTone = 'clingy';
+    else if (behaviorState.state === 'withdrawn') resolvedTone = 'distant';
+    else if (behaviorState.dailyMood === 'anxious') resolvedTone = 'anxious';
+    else if (behaviorState.dailyMood === 'playful') resolvedTone = 'playful';
+  }
+  const finalTone = resolvedTone || tone;
+
+  if (finalTone && TONE_POOLS[finalTone as keyof typeof TONE_POOLS]) {
+    const pool = TONE_POOLS[finalTone as keyof typeof TONE_POOLS];
+    pools.push(pool);
+    pools.push(pool);
   }
 
   pools.push(THOUGHTS.system, THOUGHTS.general);

@@ -24,6 +24,7 @@ const tapInteractionEngine = require('../engine/tapInteractionEngine');
 const affectionEngine      = require('../engine/affectionEngine');
 const dailyCareEngine      = require('../engine/dailyCareEngine');
 const personalityEngine    = require('../engine/personalityEngine');
+const personalityResolver  = require('../engine/personalityResolver');
 const { MOVE_CATALOG_MAP } = require('../data/moveCatalog');
 const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
 const { getActiveDecorEffects } = require('../data/decorCatalog');
@@ -265,6 +266,7 @@ router.get('/:id', async (req, res) => {
       passiveXPGain: snapshot.passiveXPGain,
       affectionTier: affectionEngine.getAffectionTier(byte.affection || 50),
       personalityModifiers: personalityEngine.getModifiers(byte),
+      behaviorState: personalityResolver.resolveBehaviorState(byte, snapshot.needs || byte.needs, {}),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -417,11 +419,17 @@ router.post('/:id/sync', async (req, res) => {
       if (temperament) byte.temperament = temperament;
     } catch (_e) { /* never block sync on temperament calc */ }
 
-    // Personality drift — slow tug of the 3 axes toward the temperament
+    // Personality drift — slow tug of the 5 axes toward the temperament
     // baseline. Throttled internally so spam-syncs don't spike movement.
     try {
       personalityEngine.applyDrift(byte);
     } catch (_e) { /* never block sync on personality drift */ }
+
+    // Personality state tick — TTL recentMood, roll dailyMood on new day.
+    // Mutates byte.personality. Cheap (idempotent within a day).
+    try {
+      personalityResolver.tickPersonalityState(byte);
+    } catch (_e) { /* never block sync on personality state tick */ }
 
     // Passive XP (time-based, from computeLiveByteSnapshot)
     if (snapshot.passiveXPGain > 0) {
@@ -458,6 +466,11 @@ router.post('/:id/sync', async (req, res) => {
       }
     }
 
+    const sessionGapHoursOut = lastLogin > 0 ? Math.max(0, gapHours) : 0;
+    const behaviorState = personalityResolver.resolveBehaviorState(byte, byte.needs, {
+      sessionGapHours: sessionGapHoursOut,
+    });
+
     res.json({
       byte,
       computedStats: snapshot.computedStats,
@@ -466,8 +479,9 @@ router.post('/:id/sync', async (req, res) => {
       passiveXPGain: snapshot.passiveXPGain,
       ageDeathPending: lifespanEngine.shouldDieFromAge(byte.level) && !byte.isDevByte && byte.isAlive !== false,
       achievementUnlocks,
-      sessionGapHours: lastLogin > 0 ? Math.max(0, gapHours) : 0,
+      sessionGapHours: sessionGapHoursOut,
       personalityModifiers: personalityEngine.getModifiers(byte),
+      behaviorState,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1128,8 +1142,13 @@ router.post('/:id/praise', async (req, res) => {
     const metrics = behaviorTracker.recordInteraction(byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics, 'praise');
     byte.behaviorMetrics = metrics;
 
-    // Personality nudge — praise pushes attachment + light obedience.
-    try { personalityEngine.applyEvent(byte, 'praise'); } catch (_e) { /* never block praise on personality nudge */ }
+    // Personality nudge — praise pushes attachment + light obedience. Also
+    // stamps a 30min "warm" recentMood so the resolver routes the byte into
+    // the warm-glow state until the timer expires.
+    try {
+      personalityEngine.applyEvent(byte, 'praise');
+      personalityResolver.setRecentMood(byte, 'warm');
+    } catch (_e) { /* never block praise on personality nudge */ }
 
     await byte.save();
     res.json({
@@ -1167,13 +1186,15 @@ router.post('/:id/scold', async (req, res) => {
 
     // Personality nudge — scold pushes obedience up, attachment down. Every
     // third scold also fires scold_harsh which ratchets sensitivity up + pushes
-    // impulse down further (Skye spec: "spam scold = anxious, reactive byte").
+    // impulse down further. Also stamps a 30min "sulky" recentMood so the
+    // resolver routes the byte into the sulky state until the timer expires.
     try {
       personalityEngine.applyEvent(byte, 'scold');
       const totalScolds = Number(byte.behaviorMetrics?.scoldCount || 0);
       if (totalScolds > 0 && totalScolds % 3 === 0) {
         personalityEngine.applyEvent(byte, 'scold_harsh');
       }
+      personalityResolver.setRecentMood(byte, 'sulky');
     } catch (_e) { /* never block scold on personality nudge */ }
 
     await byte.save();

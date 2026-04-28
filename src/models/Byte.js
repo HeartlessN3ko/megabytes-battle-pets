@@ -32,6 +32,24 @@ const PersonalitySchema = new mongoose.Schema({
   curiosity:    { type: Number, default: 50, min: 0, max: 100 },
   sensitivity:  { type: Number, default: 50, min: 0, max: 100 },
   lastDriftAt:  { type: Date, default: Date.now },
+
+  // Short-term emotional memory. Set by big events (scold/praise/big mood
+  // crash). The personalityResolver reads it to bend behavior for the next
+  // ~30 minutes. Cleared by TTL on read. kind ∈ { sulky | warm | shaken | null }.
+  recentMood: {
+    _id:   false,
+    kind:  { type: String, default: null },
+    until: { type: Date,   default: null },
+  },
+
+  // Daily mood roll. Refreshed on first /sync of a new local day (per
+  // localHour-derived day key). Lives 8-12 hours. Biased by temperament.
+  // kind ∈ { lazy | playful | anxious | restless | content | quiet | null }.
+  dailyMood: {
+    _id:   false,
+    kind:  { type: String, default: null },
+    day:   { type: String, default: null }, // "YYYY-MM-DD" (local)
+  },
 }, { _id: false });
 
 const BehaviorMetricsSchema = new mongoose.Schema({
@@ -127,7 +145,12 @@ const ByteSchema = new mongoose.Schema({
   behaviorMetrics: { type: BehaviorMetricsSchema, default: () => ({}) },
 
   // Personality axes (modulation layer — see personalityEngine.js).
-  personality: { type: PersonalitySchema, default: () => ({ obedience: 50, impulse: 50, attachment: 50, curiosity: 50, sensitivity: 50, lastDriftAt: new Date() }) },
+  personality: { type: PersonalitySchema, default: () => ({
+    obedience: 50, impulse: 50, attachment: 50, curiosity: 50, sensitivity: 50,
+    lastDriftAt: new Date(),
+    recentMood: { kind: null, until: null },
+    dailyMood:  { kind: null, day: null },
+  }) },
 
   // Training tracking
   trainingSessionsToday: { type: Number, default: 0 },

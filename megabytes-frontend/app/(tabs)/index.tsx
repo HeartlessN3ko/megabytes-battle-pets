@@ -495,6 +495,10 @@ export default function HomeScreen() {
   // surface a need-emote bubble for a need that isn't actually low. Sets a
   // need key for ~6s, clears, repeats on the misbehavior tick below.
   const [fakeNeed, setFakeNeed] = useState<NeedRequest>(null);
+  // Personality ambient fidget — short sprite swap fired on a cadence by the
+  // backend resolver. The byte does a yawn / wink / look-around / etc when
+  // it's resting, so it never feels frozen even when nothing's happening.
+  const [activeFidget, setActiveFidget] = useState<string | null>(null);
   const [rewardPopups,  setRewardPopups]  = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
   const [actionBursts,  setActionBursts]  = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
   const [levelUpBanners, setLevelUpBanners] = useState<{ id: string }[]>([]);
@@ -529,6 +533,7 @@ export default function HomeScreen() {
     translateX: roamX,
     facing:     moveFacing,
     glance:     roamGlance,
+    motionState: roamMotionState,
   } = useByteRoaming({
     halfSpreadX: (width * motionProfile.home.roamSpreadX) / 2,
     enabled:     !isSleeping && !emotion,
@@ -711,6 +716,18 @@ export default function HomeScreen() {
     petSprite = getStageSprite(lifespanStage, 'angry');
   } else if ((needs.Mood ?? 100) < 35) {
     petSprite = getStageSprite(lifespanStage, 'confused');
+  } else if (byteData?.behaviorState?.state === 'sulky') {
+    // 30 min after a scold — eyes drift down, no recovery yet.
+    petSprite = getStageSprite(lifespanStage, 'lookDown');
+  } else if (byteData?.behaviorState?.state === 'warm') {
+    // 30 min after a praise — soft post-affection glow.
+    petSprite = getStageSprite(lifespanStage, 'happyblush');
+  } else if (byteData?.behaviorState?.state === 'clingy') {
+    // First minutes back after a long absence + high attachment.
+    petSprite = getStageSprite(lifespanStage, 'lookUp');
+  } else if (byteData?.behaviorState?.state === 'withdrawn') {
+    // First minutes back, low attachment — eyes off-camera.
+    petSprite = getStageSprite(lifespanStage, 'lookLeft');
   } else if ((needs.Fun ?? 100) < 30) {
     // Boredom: Fun is the dedicated stimulation need, distinct from Mood.
     petSprite = getStageSprite(lifespanStage, 'bored');
@@ -718,6 +735,9 @@ export default function HomeScreen() {
     petSprite = getStageSprite(lifespanStage, 'walkLeft');
   } else if (moveFacing === 'right') {
     petSprite = getStageSprite(lifespanStage, 'walkRight');
+  } else if (activeFidget) {
+    // Resolver-driven ambient fidget — intentional, beats random glance.
+    petSprite = getStageSprite(lifespanStage, activeFidget as any);
   } else if (roamGlance && GLANCE_TO_SPRITE_KEY[roamGlance]) {
     petSprite = getStageSprite(lifespanStage, GLANCE_TO_SPRITE_KEY[roamGlance]);
   } else if (idleVariant && IDLE_VARIANT_TO_SPRITE_KEY[idleVariant]) {
@@ -941,6 +961,47 @@ export default function HomeScreen() {
     return () => clearInterval(t);
   }, [needs.Hygiene, byteData?.personalityModifiers?.misbehaviorChance]);
 
+  // Personality ambient fidget — fires the resolver-suggested fidget on its
+  // cadence so the byte does small subtle things (yawn, look around, wink,
+  // etc.) while resting. Pauses while walking / sleeping / emoting so it
+  // never overrides a real reaction.
+  useEffect(() => {
+    const cadenceMs = Number(byteData?.behaviorState?.fidgetCadenceMs ?? 0);
+    const fidgetKey = byteData?.behaviorState?.fidget;
+    if (!cadenceMs || !fidgetKey) return;
+    const HOLD_MS = 2500;
+    // Resolver returns abstract fidget keys; map to concrete SpriteKey-ish
+    // strings the sprite resolver knows. Missing animations fall back to the
+    // closest existing one until commissioned art ships.
+    const resolveFidget = (key: string): string | null => {
+      if (key === 'lookAround') {
+        const opts = ['lookLeft', 'lookRight', 'lookUp', 'lookDown'];
+        return opts[Math.floor(Math.random() * opts.length)];
+      }
+      if (key === 'lookAway') return Math.random() < 0.5 ? 'lookLeft' : 'lookRight';
+      if (key === 'yawn') return 'tired';      // fallback until Circle-yawn ships
+      if (key === 'think') return 'confused';  // fallback until Circle-thoughtful ships
+      return key;
+    };
+    let cleared: ReturnType<typeof setTimeout> | null = null;
+    const interval = setInterval(() => {
+      // Don't fidget while doing something already.
+      if (isSleeping) return;
+      if (emotion) return;
+      if (greeting) return;
+      if (roamMotionState === 'walking') return;
+      const resolved = resolveFidget(fidgetKey);
+      if (!resolved) return;
+      setActiveFidget(resolved);
+      if (cleared) clearTimeout(cleared);
+      cleared = setTimeout(() => setActiveFidget(null), HOLD_MS);
+    }, cadenceMs);
+    return () => {
+      clearInterval(interval);
+      if (cleared) clearTimeout(cleared);
+    };
+  }, [byteData?.behaviorState?.fidgetCadenceMs, byteData?.behaviorState?.fidget, isSleeping, emotion, greeting, roamMotionState]);
+
   // Personality misbehavior — fake need signal. Every 45s, roll dice scaled
   // by misbehaviorChance. If no real need is in the request range and the
   // roll passes, pick a random need and surface it for ~6s. Player learns
@@ -1129,7 +1190,11 @@ export default function HomeScreen() {
     playSfx('praise', 0.8);
     setEmotion('praise');
     if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
-    emotionTimerRef.current = setTimeout(() => setEmotion(null), 2000);
+    // Sensitive bytes hold the emote longer — clamp [1500ms, 3200ms] so the
+    // amplitude never trips up the rest of the timing chain.
+    const ampPraise = Number(byteData?.behaviorState?.reactionAmplitude ?? 1);
+    const emotePraiseMs = Math.max(1500, Math.min(3200, Math.round(2000 * ampPraise)));
+    emotionTimerRef.current = setTimeout(() => setEmotion(null), emotePraiseMs);
     setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'praise' }]);
     const wasSleeping = isSleeping;
     setTransientStatus(
@@ -1151,13 +1216,17 @@ export default function HomeScreen() {
       setTransientStatus('Praise failed — try again.', 2000);
     }
     refreshData().catch(() => {});
-  }, [isSleeping, refreshData, setTransientStatus]);
+  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude]);
 
   const handleScold = useCallback(async () => {
     playSfx('scold', 0.8);
     setEmotion('scold');
     if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
-    emotionTimerRef.current = setTimeout(() => setEmotion(null), 2000);
+    // Sensitive bytes hold the scold emote longer (the cry sticks). Same
+    // clamp as praise so the timing remains predictable.
+    const ampScold = Number(byteData?.behaviorState?.reactionAmplitude ?? 1);
+    const emoteScoldMs = Math.max(1500, Math.min(3200, Math.round(2000 * ampScold)));
+    emotionTimerRef.current = setTimeout(() => setEmotion(null), emoteScoldMs);
     setActionBursts((prev) => [...prev, { id: `burst-${Date.now()}-${Math.random()}`, type: 'scold' }]);
     const wasSleeping = isSleeping;
     setTransientStatus(
@@ -1179,7 +1248,7 @@ export default function HomeScreen() {
       setTransientStatus('Scold failed — try again.', 2000);
     }
     refreshData().catch(() => {});
-  }, [isSleeping, refreshData, setTransientStatus]);
+  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude]);
 
   const handlePlay = useCallback(() => {
     playSfx('menu', 0.75);

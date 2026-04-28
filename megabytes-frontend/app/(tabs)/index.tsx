@@ -854,11 +854,15 @@ export default function HomeScreen() {
       setSleepUntil(b?.byte?.sleepUntil ? new Date(b.byte.sleepUntil) : null);
 
       // Greeting cue: if this is the first sync of the session AND the gap
-      // since last login was > 2h, fire the "Hi!" sprite + bubble for ~3s.
+      // since last login was > 2h AND the byte is awake, fire the "Hi!"
+      // sprite + bubble for ~3s. Sleeping bytes don't greet — wake them
+      // first (they get the wake-reaction sprite instead, which is the
+      // appropriate beat for "I just noticed you came back").
       if (!greetingFiredRef.current) {
         greetingFiredRef.current = true;
         const gapHours = Number(b?.sessionGapHours || 0);
-        if (gapHours > 2) {
+        const sleepingNow = !!b?.byte?.isSleeping;
+        if (gapHours > 2 && !sleepingNow) {
           setGreeting(true);
           if (greetingTimerRef.current) clearTimeout(greetingTimerRef.current);
           greetingTimerRef.current = setTimeout(() => setGreeting(false), 3000);

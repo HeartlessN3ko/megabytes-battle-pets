@@ -1644,7 +1644,7 @@ export default function HomeScreen() {
           <HomeRoomStage />
 
           {/* Back clutter */}
-          <View style={styles.clutterLayer}>
+          <View style={styles.clutterLayer} pointerEvents="box-none">
             {backClutterNodes.map((node) => {
               const isFiddling = node.id === clutterInteractionId;
               const wiggleStyle = isFiddling ? {
@@ -1684,7 +1684,9 @@ export default function HomeScreen() {
               { scale: tapScale },
               { scale: reactionShrink },
             ],
-          }]}>
+          }]}
+          pointerEvents="box-none"
+          >
             <View
               {...byteGestureResponder.panHandlers}
               style={{ width: byteFootprint, height: byteFootprint }}
@@ -1718,7 +1720,7 @@ export default function HomeScreen() {
           </Animated.View>
 
           {/* Front clutter */}
-          <View style={styles.clutterLayerFront}>
+          <View style={styles.clutterLayerFront} pointerEvents="box-none">
             {frontClutterNodes.map((node) => {
               const isFiddling = node.id === clutterInteractionId;
               const wiggleStyle = isFiddling ? {

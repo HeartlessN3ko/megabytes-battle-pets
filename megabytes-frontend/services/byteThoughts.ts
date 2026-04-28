@@ -275,6 +275,77 @@ const TONE_POOLS = {
     "[ByteName] is clearly having a good time with this.",
     "[ByteName] is doing extra. No reason. Just vibes.",
   ],
+
+  // ─── Phase 11 satisfaction tones (positive, 5 min TTL) ────────────────────
+  // Stamped by the backend after a need-satisfying care action. Placeholder
+  // copy — ChatGPT polish pending. Same priority placement as warm/sulky.
+  fed: [
+    "[ByteName] feels much better. That hit the spot.",
+    "[ByteName] just got fed and is processing the relief.",
+    "[ByteName] is full and finally calm.",
+    "[ByteName] checked the meal off and is good for now.",
+    "[ByteName] is grateful for the timing on that.",
+  ],
+  cleaned: [
+    "[ByteName] feels lighter after that wash.",
+    "[ByteName] is fresh and back to baseline.",
+    "[ByteName] just got cleaned and won't admit how much it needed it.",
+    "[ByteName] is running cleaner now. Noticeable difference.",
+    "[ByteName] appreciates the rinse.",
+  ],
+  rested: [
+    "[ByteName] is back to full bandwidth and feels it.",
+    "[ByteName] just recharged and is glad you noticed.",
+    "[ByteName] feels stable again.",
+    "[ByteName] is humming along now that the energy is back.",
+    "[ByteName] is rested and ready.",
+  ],
+  played: [
+    "[ByteName] is still buzzing from that.",
+    "[ByteName] had fun and isn't done thinking about it.",
+    "[ByteName] is in a noticeably better mood now.",
+    "[ByteName] appreciated the play break.",
+    "[ByteName] feels seen.",
+  ],
+  attended: [
+    "[ByteName] noticed you noticing and is into it.",
+    "[ByteName] is glad you tapped in.",
+    "[ByteName] feels acknowledged.",
+    "[ByteName] is keeping that little check-in in mind.",
+    "[ByteName] appreciated that.",
+  ],
+
+  // ─── Phase 11 neglect tones (negative, 5 min TTL) ─────────────────────────
+  // Stamped by /sync when ignored_critical fires (need < 25 unhandled for
+  // 30+ minutes). Picks the most critical need's matching tone.
+  'hungry-too-long': [
+    "[ByteName] has been waiting on food for a while now.",
+    "[ByteName] is logging the time since the last meal. It's a lot.",
+    "[ByteName] is past asking and into noticing.",
+    "[ByteName] is hungry and you're aware of that, right?",
+    "[ByteName] is keeping count.",
+  ],
+  'dirty-too-long': [
+    "[ByteName] has been sitting in this for a while.",
+    "[ByteName] is monitoring its own grime levels with concern.",
+    "[ByteName] is dirtier than it's comfortable being.",
+    "[ByteName] would like a clean. Has been waiting.",
+    "[ByteName] is starting to feel the residue.",
+  ],
+  'restless-too-long': [
+    "[ByteName] is running on fumes and you'd know if you checked.",
+    "[ByteName] is past tired and into something worse.",
+    "[ByteName] needs rest and is making it known.",
+    "[ByteName] has been pinging this for a while now.",
+    "[ByteName] is dragging.",
+  ],
+  'lonely-too-long': [
+    "[ByteName] has been waiting around. Would like company.",
+    "[ByteName] is bored and quietly tracking your absence.",
+    "[ByteName] is keeping itself busy. Not by choice.",
+    "[ByteName] would like some interaction. Has been waiting.",
+    "[ByteName] is logging the silence.",
+  ],
 };
 
 // Tone selection priority. Resolver-driven tones outrank the base
@@ -384,15 +455,33 @@ export function generateByteThought({
   const temperamentPool = TEMPERAMENT_HOOKS[String(temperament || '')];
   if (temperamentPool) pools.push(temperamentPool);
 
-  // Phase 8 — pick a single resolver-driven tone if behaviorState resolves to
-  // one. Priority order: recentMood > state-driven (sulky/tired/etc) > dailyMood.
-  // Whichever hits first becomes the dominant tone overlay (~2× weight). Falls
-  // through to the base warm/neutral/sharp tone if nothing resolves.
+  // Phase 8 → Phase 11 — pick a single resolver-driven tone. Priority:
+  //   1. recentMood satisfaction (5 min, just got need met)
+  //   2. recentMood neglect (5 min, ignored_critical fired)
+  //   3. recentMood praise/scold (30 min, post-direct-interaction)
+  //   4. state-driven (demanding / sleepy / clingy / withdrawn)
+  //   5. dailyMood (anxious / playful)
+  // Whichever hits first becomes the dominant tone overlay (~2× weight).
+  // Falls through to the base warm/neutral/sharp tone if nothing resolves.
+  const RECENT_MOOD_TONE_MAP: Record<string, string> = {
+    fed: 'fed',
+    cleaned: 'cleaned',
+    rested: 'rested',
+    played: 'played',
+    attended: 'attended',
+    'hungry-too-long': 'hungry-too-long',
+    'dirty-too-long': 'dirty-too-long',
+    'restless-too-long': 'restless-too-long',
+    'lonely-too-long': 'lonely-too-long',
+    sulky: 'sulky',
+    warm: 'warm',
+  };
   let resolvedTone: string | null = null;
   if (behaviorState) {
-    if (behaviorState.recentMood === 'sulky') resolvedTone = 'sulky';
-    else if (behaviorState.recentMood === 'warm') resolvedTone = 'warm';
-    else if (behaviorState.state === 'demanding') resolvedTone = 'demanding';
+    const recentKey = behaviorState.recentMood || '';
+    if (recentKey && RECENT_MOOD_TONE_MAP[recentKey]) {
+      resolvedTone = RECENT_MOOD_TONE_MAP[recentKey];
+    } else if (behaviorState.state === 'demanding') resolvedTone = 'demanding';
     else if (behaviorState.state === 'sleepy') resolvedTone = 'tired';
     else if (behaviorState.state === 'clingy') resolvedTone = 'clingy';
     else if (behaviorState.state === 'withdrawn') resolvedTone = 'distant';

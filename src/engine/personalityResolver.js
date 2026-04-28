@@ -53,7 +53,13 @@ const STATE_FIDGETS = {
 };
 
 const DAILY_MOOD_POOL = ['lazy', 'playful', 'anxious', 'restless', 'content', 'quiet'];
-const RECENT_MOOD_TTL_MS = 30 * 60 * 1000; // 30 min for sulky / warm windows
+const RECENT_MOOD_TTL_MS = 30 * 60 * 1000;       // 30 min for sulky / warm (post-scold/praise)
+// Care satisfaction (Phase 11) — shorter window so the "I just got fed" beat
+// fades and the byte returns to ambient. 5 min keeps it tied to the moment.
+const RECENT_MOOD_CARE_TTL_MS = 5 * 60 * 1000;
+// Neglect (Phase 11) — fires from /sync when ignored_critical lands. Same
+// 5 min so it tracks the cooldown rhythm of ignored_critical itself.
+const RECENT_MOOD_NEGLECT_TTL_MS = 5 * 60 * 1000;
 
 // Per-temperament daily mood weights. Each entry is a flat draw pool so the
 // kind appearing more often = higher chance. Bytes without a temperament fall
@@ -226,4 +232,6 @@ module.exports = {
   STATE_FIDGETS,
   DAILY_MOOD_POOL,
   RECENT_MOOD_TTL_MS,
+  RECENT_MOOD_CARE_TTL_MS,
+  RECENT_MOOD_NEGLECT_TTL_MS,
 };

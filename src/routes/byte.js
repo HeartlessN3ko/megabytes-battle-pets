@@ -485,6 +485,30 @@ router.post('/:id/sync', async (req, res) => {
           personalityEngine.applyEvent(byte, 'ignored_critical');
           if (!byte.personality) byte.personality = {};
           byte.personality.lastIgnoredFireAt = new Date();
+          // Phase 11 — also stamp a specific neglect recentMood so the thought
+          // bar gets a matching tone overlay (hungry-too-long, dirty-too-long,
+          // restless-too-long, lonely-too-long). Kind picked from whichever
+          // need is most critical right now.
+          const needPairs = [
+            ['Hunger',    'hungry-too-long'],
+            ['Hygiene',   'dirty-too-long'],
+            ['Bandwidth', 'restless-too-long'],
+            ['Fun',       'lonely-too-long'],
+            ['Social',    'lonely-too-long'],
+            ['Mood',      null], // mood is downstream — no dedicated tone
+          ];
+          let worstKey = null;
+          let worstVal = Infinity;
+          for (const [needKey, moodKind] of needPairs) {
+            const v = Number(byte.needs?.[needKey] ?? 100);
+            if (v < worstVal && moodKind) {
+              worstVal = v;
+              worstKey = moodKind;
+            }
+          }
+          if (worstKey) {
+            personalityResolver.setRecentMood(byte, worstKey, personalityResolver.RECENT_MOOD_NEGLECT_TTL_MS);
+          }
         }
       }
     } catch (_e) { /* never block sync on ignored_critical fire */ }
@@ -822,6 +846,7 @@ router.patch('/:id/care', async (req, res) => {
       if (!failed) {
         if ((action === 'feed' || action === 'meal') && (decayed.needs.Hunger ?? 100) < 30) {
           personalityEngine.applyEvent(byte, 'feed_high_hunger');
+          personalityResolver.setRecentMood(byte, 'fed', personalityResolver.RECENT_MOOD_CARE_TTL_MS);
         } else if ((action === 'feed' || action === 'meal') && (decayed.needs.Hunger ?? 100) >= 70) {
           // Phase 3 (2026-04-27): overfeeding bumps impulse + sensitivity. Bytes
           // fed when not hungry learn that food is a constant, not a reward —
@@ -830,12 +855,15 @@ router.patch('/:id/care', async (req, res) => {
         }
         if ((action === 'clean' || action === 'perfect-clean') && (decayed.needs.Hygiene ?? 100) < 30) {
           personalityEngine.applyEvent(byte, 'clean_low_hygiene');
+          personalityResolver.setRecentMood(byte, 'cleaned', personalityResolver.RECENT_MOOD_CARE_TTL_MS);
         }
         if ((action === 'rest' || action === 'deep_rest') && (decayed.needs.Bandwidth ?? 100) < 30) {
           personalityEngine.applyEvent(byte, 'rest_low_bandwidth');
+          personalityResolver.setRecentMood(byte, 'rested', personalityResolver.RECENT_MOOD_CARE_TTL_MS);
         }
         if (action === 'play' || action === 'deep_play') {
           personalityEngine.applyEvent(byte, 'successful_play');
+          personalityResolver.setRecentMood(byte, 'played', personalityResolver.RECENT_MOOD_CARE_TTL_MS);
         }
       }
     } catch (_e) { /* never block care on personality nudge */ }
@@ -1356,6 +1384,12 @@ router.post('/:id/tap', async (req, res) => {
       }
       if (reaction.annoyanceStage === 3) {
         personalityEngine.applyEvent(byte, 'withdraw');
+      }
+      // Positive tap (annoyance still 0 + the engine returned a positive
+      // moodDelta) reads as "you gave me attention and I liked it." Stamps
+      // a 5min `attended` recentMood so the thought bar reflects it.
+      if (reaction.annoyanceStage === 0 && Number(reaction.moodDelta || 0) > 0) {
+        personalityResolver.setRecentMood(byte, 'attended', personalityResolver.RECENT_MOOD_CARE_TTL_MS);
       }
     } catch (_e) { /* never block tap on personality nudge */ }
 

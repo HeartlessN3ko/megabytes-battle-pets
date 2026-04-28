@@ -112,6 +112,19 @@ const POOP_SPRITES: Record<number, any> = {
   1: require('../../assets/images/poop2.gif'),
   2: require('../../assets/images/poop3.gif'),
 };
+// Sleep-block messages — fired when player tries to enter a room while
+// the byte is asleep. Random pick on each block gives the popup variety
+// in tone instead of the same canned string every time. Skye 2026-04-28.
+const SLEEP_BLOCK_MESSAGES = [
+  'BYTE is fast asleep. Wake it first to head in there.',
+  "BYTE is dreaming. You'll need to wake it before that.",
+  'BYTE is in deep rest. Wake it (Mood will dip) or wait it out.',
+  'BYTE is asleep. Disturbing it might leave it cranky.',
+  'BYTE is napping. The room will be there when it wakes up.',
+  'BYTE is resting hard. Tap to wake or let it dream.',
+  "BYTE is offline for now. Rouse it first if it's urgent.",
+];
+
 // Clutter sprites — 10 variants (2 originals + 8 new dropped 2026-04-27)
 // pulled randomly when a clutter node spawns. Files live in assets/clutter/.
 // Pure visual variety — no behavioral hooks per sprite type yet.
@@ -516,6 +529,10 @@ export default function HomeScreen() {
   // or null. Drives the sprite override + the per-node wiggle animation.
   const [clutterInteractionId, setClutterInteractionId] = useState<string | null>(null);
   const clutterWiggleAnim = useRef(new Animated.Value(0)).current;
+  // Sleep-block popup state (Skye 2026-04-28). When player taps a room
+  // while byte sleeps, a Modal surfaces with a varied message instead of
+  // a quiet status-bar line they might miss. Null when no popup active.
+  const [sleepBlockMessage, setSleepBlockMessage] = useState<string | null>(null);
   // Wake-reaction sprite override (Skye 2026-04-28). When the byte wakes up
   // from any source, a brief sprite override plays so the wake is visibly
   // distinct from "snap to idle." Pool + weights live in TUNABLES.wakeReaction.
@@ -1292,7 +1309,12 @@ export default function HomeScreen() {
   const handleRoomOpen = useCallback((route: string) => {
     if (transitionBusy) return;
     if (isSleeping) {
-      setTransientStatus('BYTE is sleeping... tap to wake first.', 2000);
+      // Sleep-block popup (Skye 2026-04-28) — surface a Modal with a varied
+      // message instead of the old quiet status-bar transient that was easy
+      // to miss. Pulls a random line each block for tone variety.
+      const msg = SLEEP_BLOCK_MESSAGES[Math.floor(Math.random() * SLEEP_BLOCK_MESSAGES.length)];
+      setSleepBlockMessage(msg);
+      playSfx('chirp1', 0.35);
       return;
     }
     setTransitionBusy(true);
@@ -1891,6 +1913,28 @@ export default function HomeScreen() {
 
       </SafeAreaView>
 
+      {/* ── Sleep-block popup ── shown when player taps a room while byte sleeps */}
+      <Modal
+        visible={!!sleepBlockMessage}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSleepBlockMessage(null)}
+      >
+        <View style={styles.sleepBlockOverlay}>
+          <View style={styles.sleepBlockCard}>
+            <Text style={styles.sleepBlockZ}>Z z z</Text>
+            <Text style={styles.sleepBlockMessage}>{sleepBlockMessage || ''}</Text>
+            <TouchableOpacity
+              style={styles.sleepBlockButton}
+              activeOpacity={0.8}
+              onPress={() => setSleepBlockMessage(null)}
+            >
+              <Text style={styles.sleepBlockButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Rooms drawer (swipe-up, restored) ── */}
       {drawerOpen && (
         <TouchableOpacity style={styles.drawerOverlay} onPress={closeDrawer} activeOpacity={1}>
@@ -2318,4 +2362,56 @@ const styles = StyleSheet.create({
   statsVal:      { color: '#fff', fontSize: 11, fontWeight: '700', width: 26, textAlign: 'right' },
   statsClose:     { marginTop: 12, alignItems: 'center', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
   statsCloseText: { color: 'rgba(255,255,255,0.55)', fontSize: 12, letterSpacing: 2, fontWeight: '700' },
+
+  // Sleep-block popup (Skye 2026-04-28). Center-screen modal that fires
+  // when the player taps a room while the byte is asleep.
+  sleepBlockOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  sleepBlockCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 16,
+    backgroundColor: '#0f1828',
+    borderWidth: 1,
+    borderColor: 'rgba(120, 175, 230, 0.35)',
+    paddingVertical: 22,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+  },
+  sleepBlockZ: {
+    color: '#9bbfe0',
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 4,
+    marginBottom: 8,
+    fontFamily: 'monospace',
+  },
+  sleepBlockMessage: {
+    color: '#e0eaf5',
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 18,
+  },
+  sleepBlockButton: {
+    minWidth: 120,
+    paddingVertical: 11,
+    paddingHorizontal: 22,
+    borderRadius: 10,
+    backgroundColor: 'rgba(120, 175, 230, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(120, 175, 230, 0.5)',
+    alignItems: 'center',
+  },
+  sleepBlockButtonText: {
+    color: '#cfe8ff',
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 2,
+  },
 });

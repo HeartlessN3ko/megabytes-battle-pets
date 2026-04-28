@@ -149,6 +149,27 @@ const TEMPERAMENT_HOOKS = {
   ],
 };
 
+// Tone overlays — pulled in by generateByteThought when personality modifiers
+// resolve to a non-neutral tone. Warm = high attachment + obedient (clingy /
+// affectionate). Sharp = low attachment OR low obedience (aloof / curt).
+// Neutral has no overlay; the base pools cover that range.
+const TONE_POOLS = {
+  warm: [
+    '[ByteName] just wanted to make sure you were still here.',
+    '[ByteName] is happy you came back.',
+    '[ByteName] is humming a little optimization sub-routine for you.',
+    '[ByteName] keeps checking the room for you and refusing to admit it.',
+    '[ByteName] is staying close and pretending it is for the system uptime.',
+  ],
+  sharp: [
+    '[ByteName] noticed you ignored that ping.',
+    '[ByteName] is running just fine without your input.',
+    '[ByteName] is busy. Try again later.',
+    '[ByteName] logged that you took your time getting back.',
+    '[ByteName] is doing its own thing and not waiting for instructions.',
+  ],
+};
+
 function pick(list) {
   if (!Array.isArray(list) || list.length === 0) return null;
   return list[Math.floor(Math.random() * list.length)];
@@ -182,6 +203,7 @@ export function generateByteThought({
   temperament,
   trainingSessionsToday = 0,
   idleTicks = 0,
+  tone = 'neutral',
 }) {
   const name = byteName || 'BYTE';
   const crit = criticalNeeds(needs);
@@ -200,6 +222,13 @@ export function generateByteThought({
 
   const temperamentPool = TEMPERAMENT_HOOKS[String(temperament || '')];
   if (temperamentPool) pools.push(temperamentPool);
+
+  // Personality tone overlay — push the tone pool twice when set so it has
+  // ~2× the selection weight of any single base pool. Neutral skips this.
+  if (tone === 'warm' || tone === 'sharp') {
+    pools.push(TONE_POOLS[tone]);
+    pools.push(TONE_POOLS[tone]);
+  }
 
   pools.push(THOUGHTS.system, THOUGHTS.general);
 

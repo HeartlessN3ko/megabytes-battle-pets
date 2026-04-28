@@ -534,6 +534,10 @@ export default function HomeScreen() {
     // visual). mult = 1 + (Speed - 10) * 0.02, clamped to [0.7, 1.4].
     travelDurationMin: 8000  / Math.max(0.7, Math.min(1.4, 1 + ((Number(byteData?.byte?.stats?.Speed ?? 10) - 10) * 0.02))),
     travelDurationMax: 13000 / Math.max(0.7, Math.min(1.4, 1 + ((Number(byteData?.byte?.stats?.Speed ?? 10) - 10) * 0.02))),
+    // Personality movement modifier from personalityEngine.getModifiers.
+    // High impulse = roams more often + faster; low impulse = settles longer.
+    // Stacks multiplicatively with the Speed-stat multiplier above.
+    movementMultiplier: Number(byteData?.personalityModifiers?.movement ?? 1),
   });
 
   // Pick the most urgent unmet need to surface as a request emote above the byte.
@@ -541,7 +545,12 @@ export default function HomeScreen() {
   // Returns null if nothing under the request threshold (or while sleeping — Z's cover that).
   const requestedNeed: NeedRequest = useMemo(() => {
     if (isSleeping) return null;
-    const REQUEST_THRESHOLD = 30;
+    // Personality demand multiplier — high-demand bytes (clingy + reactive)
+    // raise the threshold so they surface need-emotes earlier; low-demand
+    // bytes (independent + calm) keep their needs to themselves longer.
+    // Base 30, range ~15-45 at the engine's 0.5-1.5 multiplier band.
+    const demandMult = Number(byteData?.personalityModifiers?.demand ?? 1);
+    const REQUEST_THRESHOLD = Math.max(10, Math.min(60, 30 * demandMult));
     const candidates: { key: NeedRequest; value: number; priority: number }[] = [
       { key: 'hunger',    value: Number(needs.Hunger    ?? 100), priority: 4 },
       { key: 'hygiene',   value: Number(needs.Hygiene   ?? 100), priority: 3 },
@@ -553,7 +562,7 @@ export default function HomeScreen() {
     // Sort by lowest value, breaking ties with priority weight.
     unmet.sort((a, b) => (a.value - b.value) || (b.priority - a.priority));
     return unmet[0].key;
-  }, [isSleeping, needs.Hunger, needs.Hygiene, needs.Bandwidth, needs.Fun, needs.Social]);
+  }, [isSleeping, byteData?.personalityModifiers?.demand, needs.Hunger, needs.Hygiene, needs.Bandwidth, needs.Fun, needs.Social]);
 
   const clutterLabel = useMemo(() => {
     if (clutter >= 5) return 'Crowded';
@@ -802,10 +811,11 @@ export default function HomeScreen() {
       temperament: byteData?.byte?.temperament || null,
       trainingSessionsToday: Number(byteData?.byte?.trainingSessionsToday || 0),
       idleTicks: idleThoughtTicks,
+      tone: byteData?.personalityModifiers?.tone || 'neutral',
     });
     if (clutter >= 3) return `${thought} Home is ${clutterLabel.toLowerCase()}.`;
     return thought;
-  }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.byte?.trainingSessionsToday, clutter, clutterLabel, idleThoughtTicks, isSleeping, needs]);
+  }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.byte?.trainingSessionsToday, byteData?.personalityModifiers?.tone, clutter, clutterLabel, idleThoughtTicks, isSleeping, needs]);
 
   useEffect(() => { thoughtRef.current = randomThought; }, [randomThought]);
 

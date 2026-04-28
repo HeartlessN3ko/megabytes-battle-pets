@@ -20,6 +20,18 @@ const NeedsSchema = new mongoose.Schema({
   Mood:      { type: Number, default: 100, min: 0, max: 100 }
 }, { _id: false });
 
+// Personality axes (0-100). Modulation layer over existing systems — drives
+// movement frequency, demand frequency, interrupt chance, expression intensity,
+// thought-bubble tone. Read via personalityEngine.getModifiers(byte). Mutated
+// by personalityEngine.applyEvent (care actions) + applyDrift (slow tug toward
+// temperament baseline) + initFromHatch (egg → baby seeding with jitter).
+const PersonalitySchema = new mongoose.Schema({
+  obedience:    { type: Number, default: 50, min: 0, max: 100 },
+  impulse:      { type: Number, default: 50, min: 0, max: 100 },
+  attachment:   { type: Number, default: 50, min: 0, max: 100 },
+  lastDriftAt:  { type: Date, default: Date.now },
+}, { _id: false });
+
 const BehaviorMetricsSchema = new mongoose.Schema({
   loginFrequency:       { type: Number, default: 0 },
   sessionGapTime:       { type: Number, default: 0 }, // avg hours between sessions
@@ -111,6 +123,9 @@ const ByteSchema = new mongoose.Schema({
 
   // Behavior tracking
   behaviorMetrics: { type: BehaviorMetricsSchema, default: () => ({}) },
+
+  // Personality axes (modulation layer — see personalityEngine.js).
+  personality: { type: PersonalitySchema, default: () => ({ obedience: 50, impulse: 50, attachment: 50, lastDriftAt: new Date() }) },
 
   // Training tracking
   trainingSessionsToday: { type: Number, default: 0 },

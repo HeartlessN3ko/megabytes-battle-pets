@@ -23,6 +23,7 @@ const economyEngine   = require('../engine/economyEngine');
 const tapInteractionEngine = require('../engine/tapInteractionEngine');
 const affectionEngine      = require('../engine/affectionEngine');
 const dailyCareEngine      = require('../engine/dailyCareEngine');
+const personalityEngine    = require('../engine/personalityEngine');
 const { MOVE_CATALOG_MAP } = require('../data/moveCatalog');
 const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
 const { getActiveDecorEffects } = require('../data/decorCatalog');
@@ -263,6 +264,7 @@ router.get('/:id', async (req, res) => {
       streakData: snapshot.streakData,
       passiveXPGain: snapshot.passiveXPGain,
       affectionTier: affectionEngine.getAffectionTier(byte.affection || 50),
+      personalityModifiers: personalityEngine.getModifiers(byte),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -415,6 +417,12 @@ router.post('/:id/sync', async (req, res) => {
       if (temperament) byte.temperament = temperament;
     } catch (_e) { /* never block sync on temperament calc */ }
 
+    // Personality drift — slow tug of the 3 axes toward the temperament
+    // baseline. Throttled internally so spam-syncs don't spike movement.
+    try {
+      personalityEngine.applyDrift(byte);
+    } catch (_e) { /* never block sync on personality drift */ }
+
     // Passive XP (time-based, from computeLiveByteSnapshot)
     if (snapshot.passiveXPGain > 0) {
       const oldLevel = byte.level;
@@ -459,6 +467,7 @@ router.post('/:id/sync', async (req, res) => {
       ageDeathPending: lifespanEngine.shouldDieFromAge(byte.level) && !byte.isDevByte && byte.isAlive !== false,
       achievementUnlocks,
       sessionGapHours: lastLogin > 0 ? Math.max(0, gapHours) : 0,
+      personalityModifiers: personalityEngine.getModifiers(byte),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

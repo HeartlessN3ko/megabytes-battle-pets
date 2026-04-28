@@ -4,6 +4,7 @@
 
 const { getTemperamentPassive } = require('../data/effectsRegistry');
 const { ANIMAL_BIAS, SHAPE_BIAS } = require('./evolutionStatEngine');
+const personalityEngine = require('./personalityEngine');
 
 /**
  * Assign animal based on behavior scores.
@@ -199,6 +200,11 @@ function hatchByte(byte, _eggMetrics, _hatchAgeHours, _behaviorScores = null) {
   // Clear egg-specific fields
   byte.hatchAt = null;
   byte.eggMetrics = {};
+
+  // Seed personality axes with temperament-baseline + jitter so the byte
+  // feels distinct from day one. Temperament is null at v1 hatch, so this
+  // pulls the DEFAULT_BASELINE {50, 50, 50} ±8 jitter.
+  personalityEngine.initFromHatch(byte, byte.temperament || null);
 
   return byte;
 }

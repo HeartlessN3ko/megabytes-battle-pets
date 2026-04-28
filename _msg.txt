@@ -1,6 +1,17 @@
-feat(sleep): schedule-aware auto-sleep — night/evening tiers driven by user's localHour
-feat(sleep): inline auto-sleep on PATCH /lights so lights-down at 3am puts byte down immediately (no sync wait)
-fix(sleep): natural wake from sync now stamps lastWakeTime — prevents 5:55am re-sleep loop on night-tier expiry
-fix(sleep): shouldWakeFromRecovery skips long sleeps (sleepUntil > 1h away) so a fully-rested byte stays down at night
-chore(release): bump frontend version 3.7.0 -> 3.8.0
-chore(docs): CLAUDE.md + SYSTEM_LOGIC_LEDGER updated for schedule-aware sleep
+feat(personality): Personality Engine Phase 1 -- 3-axis modulation layer (obedience / impulse / attachment)
+feat(personality): personalityEngine.js with getModifiers / applyEvent / applyDrift / initFromHatch
+feat(personality): byte.personality schema field, default {50,50,50}, 0-100 axes
+feat(personality): hatch seeds personality with temperament-baseline +/-8 jitter via initFromHatch
+feat(personality): /sync drifts axes toward temperament baseline (1pt/day, throttled 60s)
+feat(personality): /sync and GET /:id responses now expose personalityModifiers for the frontend
+feat(home): useByteRoaming reads movementMultiplier -- high impulse roams more often + faster, low impulse settles longer
+feat(home): need-request threshold flexes with personality.demand -- clingy bytes signal earlier, stoic bytes wait longer
+feat(thoughts): byteThoughts gains warm/sharp tone overlays driven by personality attachment + obedience bands
+chore(docs): AI_PROTOCOL + CLAUDE.md updated with explicit Execution Mode directive (2026-04-27)
+chore(docs): PROJECT_MAP + SYSTEM_LOGIC_LEDGER + CLAUDE.md updated with Personality Engine Phase 1 entries
+
+TODOs left in code:
+- Wire personalityEngine.applyEvent into care routes (feed/clean/play/scold/praise/rest/ignore-critical) -- Phase 2
+- Wire interruptChance modifier into a real interrupt surface (exposed but no consumer)
+- Wire expression multiplier into sprite expression duration/intensity (Phase 2)
+- POWER drill (earlier today) still un-playtested

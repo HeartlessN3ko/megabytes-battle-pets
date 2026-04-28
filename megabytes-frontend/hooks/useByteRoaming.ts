@@ -39,6 +39,13 @@ export interface UseByteRoamingOpts {
   /** Optional pause-at-destination tuning. Defaults: 1500–3500ms (5000ms boredom hold). */
   pauseMin?: number;
   pauseMax?: number;
+  /**
+   * Personality movement multiplier from `personalityEngine.getModifiers(byte).movement`.
+   * Range 0.5–1.5. Default 1. Hook divides travel/pause durations by this so high-impulse
+   * bytes move more often + faster, low-impulse bytes settle longer. Also bends
+   * SKIP_TRAVEL_CHANCE so reactive bytes skip fewer travel segments.
+   */
+  movementMultiplier?: number;
 }
 
 export interface UseByteRoamingResult {
@@ -97,7 +104,19 @@ export function useByteRoaming(opts: UseByteRoamingOpts): UseByteRoamingResult {
     travelDurationMax = 13000,
     pauseMin          = 6000,
     pauseMax          = 12000,
+    movementMultiplier = 1,
   } = opts;
+
+  // Clamp to the personality engine's known range so a bad value can't freeze
+  // the byte (movement=0) or send it pin-balling (movement=10).
+  const mm = Math.max(0.5, Math.min(1.5, Number.isFinite(movementMultiplier) ? movementMultiplier : 1));
+  const scaledTravelMin = travelDurationMin / mm;
+  const scaledTravelMax = travelDurationMax / mm;
+  const scaledPauseMin  = pauseMin / mm;
+  const scaledPauseMax  = pauseMax / mm;
+  // Skip chance flexes within ±20% of the base 0.5: high-impulse bytes
+  // (mm > 1) skip less often, low-impulse bytes (mm < 1) skip more.
+  const skipTravelChance = Math.max(0.15, Math.min(0.85, SKIP_TRAVEL_CHANCE - (mm - 1) * 0.4));
 
   const translateX = useRef(new Animated.Value(0)).current;
   const [facing,      setFacing]      = useState<RoamFacing>('idle');
@@ -111,10 +130,24 @@ export function useByteRoaming(opts: UseByteRoamingOpts): UseByteRoamingResult {
 
   // Keep stable refs of tuning inputs so enabling/disabling is the only thing
   // that rebuilds the loop.
-  const cfgRef = useRef({ halfSpreadX, travelDurationMin, travelDurationMax, pauseMin, pauseMax });
+  const cfgRef = useRef({
+    halfSpreadX,
+    travelDurationMin: scaledTravelMin,
+    travelDurationMax: scaledTravelMax,
+    pauseMin: scaledPauseMin,
+    pauseMax: scaledPauseMax,
+    skipTravelChance,
+  });
   useEffect(() => {
-    cfgRef.current = { halfSpreadX, travelDurationMin, travelDurationMax, pauseMin, pauseMax };
-  }, [halfSpreadX, travelDurationMin, travelDurationMax, pauseMin, pauseMax]);
+    cfgRef.current = {
+      halfSpreadX,
+      travelDurationMin: scaledTravelMin,
+      travelDurationMax: scaledTravelMax,
+      pauseMin: scaledPauseMin,
+      pauseMax: scaledPauseMax,
+      skipTravelChance,
+    };
+  }, [halfSpreadX, scaledTravelMin, scaledTravelMax, scaledPauseMin, scaledPauseMax, skipTravelChance]);
 
   useEffect(() => {
     if (!enabled) {
@@ -158,10 +191,10 @@ export function useByteRoaming(opts: UseByteRoamingOpts): UseByteRoamingResult {
       const cfg    = cfgRef.current;
       const bored  = boredRef.current;
 
-      // 50% chance to skip travel and just chain another pause. Breaks the
-      // patrol cadence so the byte feels alive, not programmed. Bored byte
-      // still paces (the boredom pull is intentional behavior).
-      if (!bored && Math.random() < SKIP_TRAVEL_CHANCE) {
+      // 50% chance (modulated by personality.movement) to skip travel and just
+      // chain another pause. Breaks the patrol cadence so the byte feels alive,
+      // not programmed. Bored byte still paces (the boredom pull is intentional).
+      if (!bored && Math.random() < cfg.skipTravelChance) {
         setFacing('idle');
         setGlance(null);
         setMotionState('resting');

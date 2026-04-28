@@ -189,9 +189,12 @@ async function validateAndNormalizeLoadout(byte, payload = {}) {
 function getDecayOptions(_req, byte = null) {
   // Real-time decay only. Demo mode was removed.
   // Lifespan stage is plumbed in here so per-stage decay multipliers apply
-  // automatically at every applyDecay call site.
+  // automatically at every applyDecay call site. isSleeping is read from
+  // the pre-sync byte state — needDecay applies the sleep multiplier to
+  // the elapsed window (Skye 2026-04-28: 0.3x while asleep).
   const opts = {};
   if (byte && byte.lifespanStage) opts.stage = byte.lifespanStage;
+  if (byte && byte.isSleeping) opts.isSleeping = true;
   return opts;
 }
 

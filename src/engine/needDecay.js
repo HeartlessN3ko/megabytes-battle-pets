@@ -138,6 +138,7 @@ function applyDecay(needs, lastNeedsUpdate, now = new Date(), options = {}, deco
   const speedMultiplier = Number(options?.speedMultiplier || 1);
   const maxWindowMinutes = Number(options?.maxWindowMinutes || 60);
   const stage = options?.stage || 'adult';  // lifespan stage; per-need multipliers
+  const isSleeping = !!options?.isSleeping; // Skye 2026-04-28: sleep cuts decay
   const safeSpeed = Number.isFinite(speedMultiplier) && speedMultiplier > 0 ? speedMultiplier : 1;
   const safeMaxWindow = Number.isFinite(maxWindowMinutes) && maxWindowMinutes > 0 ? maxWindowMinutes : 60;
 
@@ -159,11 +160,17 @@ function applyDecay(needs, lastNeedsUpdate, now = new Date(), options = {}, deco
   // Sunset painting: reduce Mood decay rate
   const moodDecayMult = 1 - Math.min(0.5, Number(decorEffects.moodDecayReduction || 0));
 
+  // Sleep decay multiplier: when the byte is asleep, all needs decay at a
+  // fraction of the awake rate (gameBalance.SLEEP_DECAY_MULTIPLIER, default 0.3).
+  // The flag reflects pre-sync state — by the time the snapshot route runs
+  // wake-up logic, decay has already been computed against the sleep window.
+  const sleepMult = isSleeping ? Number(gameBalance.SLEEP_DECAY_MULTIPLIER ?? 1) : 1;
+
   const updated = {};
   for (const need of NEEDS) {
     const current = Number(needs?.[need] ?? 100);
     const stageMult = lifespanEngine.decayMultiplier(stage, need);
-    let needLoss = loss[need] * neglectMult * stageMult;
+    let needLoss = loss[need] * neglectMult * stageMult * sleepMult;
     if (need === 'Mood') needLoss *= moodDecayMult;
     updated[need] = Math.max(0, Math.min(100, current - needLoss));
   }

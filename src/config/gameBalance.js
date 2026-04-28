@@ -42,6 +42,15 @@ const NEED_DECAY_HOURS = {
 const CORRUPTION_FULL_HOURS = 72;
 
 // ─────────────────────────────────────────────────────────────────
+// SLEEP DECAY MULTIPLIER
+// ─────────────────────────────────────────────────────────────────
+// Multiplier applied to need decay when the byte is sleeping. Set to 1
+// for full decay (always-alive feel), 0 to pause decay entirely while
+// asleep, or anywhere in between. Skye 2026-04-28: 0.3 — sleep is mostly
+// rest but the byte still loses some ground if you park it indefinitely.
+const SLEEP_DECAY_MULTIPLIER = 0.3;
+
+// ─────────────────────────────────────────────────────────────────
 // CLUTTER / POO SPAWNS
 // ─────────────────────────────────────────────────────────────────
 const CLUTTER_SPAWN_HOURS = 3;
@@ -194,6 +203,7 @@ module.exports = {
   // Raw tunables (edit these)
   NEED_DECAY_HOURS,
   CORRUPTION_FULL_HOURS,
+  SLEEP_DECAY_MULTIPLIER,
   CLUTTER_SPAWN_HOURS,
   POO_SPAWN_HOURS,
   CARE_GAIN_HOURS,

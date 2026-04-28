@@ -117,6 +117,18 @@ const GLANCE_TO_SPRITE_KEY: Record<string, import('../../services/byteSprites').
 const STAGE_NAMES = ['EGG', 'Stage 1 .PNG', 'Stage 2 .SVG', 'Stage 3 .GIF', 'Stage 4 .ANI', 'Stage 5 .MOV'];
 const getStageName = (stage: number) => STAGE_NAMES[Math.max(0, Math.min(5, stage))] || 'Unknown';
 
+// Poop sprite progression — 3-tap clean routine per Skye 2026-04-27.
+// Stage 0 (fresh) -> stage 1 (resting) -> stage 2 (almost gone) -> removed.
+// Each tap advances one stage; the final tap removes the node and shows
+// a "clean!" flavor popup instead of the standard +BB reward popup.
+const POOP_SPRITES: Record<number, any> = {
+  0: require('../../assets/images/poop.gif'),
+  1: require('../../assets/images/poop2.gif'),
+  2: require('../../assets/images/poop3.gif'),
+};
+// Cute flavor lines for the final poop-cleaned popup. Random pick on each clean.
+const POOP_CLEAN_LINES = ['All clean!', 'Sparkly!', 'Spotless.', 'Tidy.', 'Looks better!', 'So fresh.'];
+
 // Clutter sprites — 10 variants (2 originals + 8 new dropped 2026-04-27)
 // pulled randomly when a clutter node spawns. Files live in assets/clutter/.
 // Pure visual variety — no behavioral hooks per sprite type yet.
@@ -517,7 +529,7 @@ export default function HomeScreen() {
   const [statusText,    setStatusText]    = useState('BYTE is scanning the network.');
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [clutter,       setClutter]       = useState(0);
-  const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: string; size: number; front: boolean; kind: 'trash' | 'poop' }[]>([]);
+  const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: string; size: number; front: boolean; kind: 'trash' | 'poop'; cleanStage?: number }[]>([]);
   const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
   // Personality misbehavior — fake need signal. Misbehaving bytes occasionally
   // surface a need-emote bubble for a need that isn't actually low. Sets a
@@ -796,11 +808,12 @@ export default function HomeScreen() {
     const bottom: string = `${zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin)}%`;
     return {
       id: `clutter-${Date.now()}-${index}-${Math.random()}`,
-      // Poop nodes render as an emoji and skip the sprite image entirely.
+      // Poop sprites are now staged via cleanStage (POOP_SPRITES lookup at render time).
       sprite: kind === 'poop' ? null : CLUTTER_SPRITES[Math.floor(Math.random() * CLUTTER_SPRITES.length)],
       left, bottom, size,
       front: Math.random() < zone.frontChance,
       kind,
+      cleanStage: kind === 'poop' ? 0 : undefined,
     };
   }, []);
 
@@ -1101,6 +1114,28 @@ export default function HomeScreen() {
       );
       wiggle.start();
       setTimeout(() => {
+        // Phase 9B — outcome roll. 50% inert, 25% drop, 15% multiply, 10% destroy.
+        // Probabilities tuned so most interactions are visual-only (low friction
+        // baseline) and the more disruptive outcomes are rare moments.
+        const outcomeRoll = Math.random();
+        if (outcomeRoll < 0.10) {
+          // Destroy — byte ate it / kicked it under the couch.
+          setClutterNodes((prev) => prev.filter((n) => n.id !== target.id));
+          setClutter((prev) => Math.max(0, prev - 1));
+        } else if (outcomeRoll < 0.25) {
+          // Multiply — byte broke it open. setClutter increment triggers the
+          // existing spawn useEffect to add a fresh node.
+          setClutter((prev) => Math.min(8, prev + 1));
+        } else if (outcomeRoll < 0.50) {
+          // Drop — byte moved it to a new floor position.
+          const zone = CLUTTER_ZONES[Math.floor(Math.random() * CLUTTER_ZONES.length)];
+          const newLeftPct = zone.leftMin + Math.random() * (zone.leftMax - zone.leftMin);
+          const newLeft = ((width - target.size) * newLeftPct) / 100;
+          const newBottom = `${zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin)}%`;
+          setClutterNodes((prev) => prev.map((n) => n.id === target.id ? { ...n, left: newLeft, bottom: newBottom } : n));
+        }
+        // else: 50% inert — node unchanged, byte just played with it.
+
         setClutterInteractionId(null);
         clutterWiggleAnim.stopAnimation();
         clutterWiggleAnim.setValue(0);
@@ -1334,13 +1369,32 @@ export default function HomeScreen() {
 
   const handleClutterTap = useCallback(async (id: string) => {
     const tappedNode = clutterNodes.find((n) => n.id === id);
+    if (!tappedNode) return;
+
+    // Poop has a 3-tap clean routine. Stages 0 -> 1 -> 2 just advance the
+    // sprite; final tap (stage 2) removes the node and shows the cute
+    // "clean!" flavor popup instead of the standard +BB reward popup.
+    if (tappedNode.kind === 'poop' && (tappedNode.cleanStage ?? 0) < 2) {
+      const nextStage = (tappedNode.cleanStage ?? 0) + 1;
+      setClutterNodes((prev) => prev.map((n) => n.id === id ? { ...n, cleanStage: nextStage } : n));
+      playSfx('tap', 0.45);
+      return;
+    }
+
+    // Final clean (poop stage 2) or single-tap remove (non-poop clutter).
     setClutterNodes((prev) => prev.filter((n) => n.id !== id));
     setClutter((prev) => Math.max(0, prev - 1));
     playSfx('tap', 0.45);
-    const award = 2 + Math.floor(Math.random() * 4);
+
+    const isPoopClean = tappedNode.kind === 'poop';
+    const award = isPoopClean ? 6 : (2 + Math.floor(Math.random() * 4));
+    const popupText = isPoopClean
+      ? POOP_CLEAN_LINES[Math.floor(Math.random() * POOP_CLEAN_LINES.length)]
+      : `+${award} BB`;
+
     setRewardPopups((prev) => [...prev, {
       id: `reward-${Date.now()}-${Math.random()}`,
-      text: `+${award} BB`,
+      text: popupText,
       left:   Math.max(8, Math.min(width - 120, Number(tappedNode?.left   || width * 0.45))),
       bottom: Math.max(72, Number(tappedNode?.bottom || 72) + 40),
     }]);
@@ -1584,7 +1638,11 @@ export default function HomeScreen() {
                 >
                   <Animated.View style={wiggleStyle}>
                     {node.kind === 'poop' ? (
-                      <Text style={[styles.clutterEmoji, { fontSize: node.size * 0.7 }]}>💩</Text>
+                      <Image
+                        source={POOP_SPRITES[node.cleanStage ?? 0] || POOP_SPRITES[0]}
+                        style={styles.clutterImg}
+                        resizeMode="contain"
+                      />
                     ) : (
                       <Image source={node.sprite} style={styles.clutterImg} resizeMode="contain" />
                     )}
@@ -1650,7 +1708,11 @@ export default function HomeScreen() {
                 >
                   <Animated.View style={wiggleStyle}>
                     {node.kind === 'poop' ? (
-                      <Text style={[styles.clutterEmoji, { fontSize: node.size * 0.7 }]}>💩</Text>
+                      <Image
+                        source={POOP_SPRITES[node.cleanStage ?? 0] || POOP_SPRITES[0]}
+                        style={styles.clutterImgFront}
+                        resizeMode="contain"
+                      />
                     ) : (
                       <Image source={node.sprite} style={styles.clutterImgFront} resizeMode="contain" />
                     )}

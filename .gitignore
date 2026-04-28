@@ -3,3 +3,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local commit-message scratch file used by the session-close batch script.
+# Lives in megabytes-backend/, written + deleted around each commit.
+_msg.txt

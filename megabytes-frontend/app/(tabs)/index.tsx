@@ -85,6 +85,14 @@ const IDLE_VARIANT_TO_SPRITE_KEY: Record<string, import('../../services/byteSpri
 const IDLE_VARIANT_KEYS = Object.keys(IDLE_VARIANT_TO_SPRITE_KEY);
 const IDLE_VARIANT_MIN_DELAY_MS = 8000;
 const IDLE_VARIANT_MAX_DELAY_MS = 15000;
+
+// Tap-to-wake tuning. Reduced from 10 → 3 (2026-04-27) so a sleeping byte
+// responds to player attention quickly. A swipe counts as 2 taps toward
+// wake (it's a more deliberate gesture than a single poke).
+const WAKE_TAP_THRESHOLD = 3;
+// Total finger movement (px) below this counts as a tap, above is a swipe.
+// Tuned for finger fat enough to make small accidental moves on a real tap.
+const SWIPE_MOVEMENT_THRESHOLD_PX = 14;
 const IDLE_VARIANT_HOLD_MS      = 2500;
 
 // Glance lookup — maps useByteRoaming's glance state to a SpriteKey, resolved
@@ -1303,8 +1311,8 @@ export default function HomeScreen() {
       const nextTaps = wakeUpTaps + 1;
       setWakeUpTaps(nextTaps);
       playSfx('tap', 0.5);
-      setTransientStatus(`Tapping BYTE to wake it... (${nextTaps}/10)`, 1500);
-      if (nextTaps >= 10) {
+      setTransientStatus(`Tapping BYTE to wake it... (${nextTaps}/${WAKE_TAP_THRESHOLD})`, 1500);
+      if (nextTaps >= WAKE_TAP_THRESHOLD) {
         try {
           playSfx('byte_wake', 0.9);
           await wakeUpByte(); setIsSleeping(false); setSleepUntil(null); setWakeUpTaps(0);
@@ -1390,6 +1398,65 @@ export default function HomeScreen() {
       reactionBounce, reactionShake, reactionShrink, reactionRotate,
       reactionHeartOpacity, reactionBlinkOpacity]);
 
+  // Swipe handler — fires when a finger moves more than SWIPE_MOVEMENT_THRESHOLD_PX
+  // across the byte sprite. Treated as petting/scratching: gentler than a poke.
+  // No /tap API call — annoyance accumulator stays untouched. Sleeping bytes
+  // wake faster from swipes (counts as 2 taps) since it's a more deliberate gesture.
+  const handleByteSwipe = useCallback(async () => {
+    Animated.sequence([
+      Animated.timing(tapScale, { toValue: 0.95, duration: 120, useNativeDriver: true }),
+      Animated.spring(tapScale,  { toValue: 1, friction: 5, useNativeDriver: true }),
+    ]).start();
+
+    if (isSleeping) {
+      const nextTaps = Math.min(WAKE_TAP_THRESHOLD, wakeUpTaps + 2);
+      setWakeUpTaps(nextTaps);
+      playSfx('tap', 0.4);
+      setTransientStatus(`Stroking BYTE... (${nextTaps}/${WAKE_TAP_THRESHOLD})`, 1500);
+      if (nextTaps >= WAKE_TAP_THRESHOLD) {
+        try {
+          playSfx('byte_wake', 0.9);
+          await wakeUpByte(); setIsSleeping(false); setSleepUntil(null); setWakeUpTaps(0);
+          setTransientStatus('BYTE woke up!', 2000);
+          await refreshData();
+        } catch {
+          setTransientStatus('Could not wake BYTE. Try praise or scold instead.', 2800);
+          refreshData().catch(() => {});
+        }
+      }
+      return;
+    }
+
+    // Awake byte: gentle pet reaction. Heart pop + soft chirp, no API hit so
+    // repeated petting doesn't trigger annoyance the way tap-spam does.
+    playSfx('chirp1', 0.4);
+    Animated.sequence([
+      Animated.timing(reactionHeartOpacity, { toValue: 1, duration: 120, useNativeDriver: true }),
+      Animated.delay(600),
+      Animated.timing(reactionHeartOpacity, { toValue: 0, duration: 280, useNativeDriver: true }),
+    ]).start();
+  }, [isSleeping, wakeUpTaps, setTransientStatus, tapScale, refreshData, reactionHeartOpacity]);
+
+  // PanResponder distinguishes tap from swipe by total finger travel. Both
+  // gestures stay within this responder so the byte sprite never loses focus
+  // mid-gesture (which would happen with TouchableOpacity + a parent gesture).
+  const byteGestureResponder = useMemo(
+    () => PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderRelease: (_, g) => {
+        const distance = Math.sqrt(g.dx * g.dx + g.dy * g.dy);
+        if (distance > SWIPE_MOVEMENT_THRESHOLD_PX) {
+          handleByteSwipe();
+        } else {
+          handleByteTap();
+        }
+      },
+      onPanResponderTerminate: () => { /* finger left without release — no-op */ },
+    }),
+    [handleByteTap, handleByteSwipe],
+  );
+
   // ─── Render ────────────────────────────────────────────────────────────────────
 
   return (
@@ -1462,9 +1529,9 @@ export default function HomeScreen() {
               { scale: reactionShrink },
             ],
           }]}>
-            <TouchableOpacity onPress={handleByteTap} activeOpacity={1}>
+            <View {...byteGestureResponder.panHandlers}>
               <Image source={petSprite} style={[styles.byteSprite, { width: byteFootprint, height: byteFootprint }]} resizeMode="contain" />
-            </TouchableOpacity>
+            </View>
             <CorruptionAura corruption={corruptionValue} size={byteFootprint * 0.5} containerSize={byteFootprint} />
             <SleepZsOverlay visible={isSleeping} />
             <NeedRequestBubble need={requestedNeed} />

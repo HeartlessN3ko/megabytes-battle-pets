@@ -108,9 +108,20 @@ const GLANCE_TO_SPRITE_KEY: Record<string, import('../../services/byteSprites').
 const STAGE_NAMES = ['EGG', 'Stage 1 .PNG', 'Stage 2 .SVG', 'Stage 3 .GIF', 'Stage 4 .ANI', 'Stage 5 .MOV'];
 const getStageName = (stage: number) => STAGE_NAMES[Math.max(0, Math.min(5, stage))] || 'Unknown';
 
+// Clutter sprites — 10 variants (2 originals + 8 new dropped 2026-04-27)
+// pulled randomly when a clutter node spawns. Files live in assets/clutter/.
+// Pure visual variety — no behavioral hooks per sprite type yet.
 const CLUTTER_SPRITES = [
-  require('../../assets/images/clutter1.png'),
-  require('../../assets/images/clutter2.png'),
+  require('../../assets/clutter/clutter1.png'),
+  require('../../assets/clutter/clutter2.png'),
+  require('../../assets/clutter/clutter_battery_dead.png'),
+  require('../../assets/clutter/clutter_cable.png'),
+  require('../../assets/clutter/clutter_data_can.png'),
+  require('../../assets/clutter/clutter_error_paper.png'),
+  require('../../assets/clutter/clutter_floppy.png'),
+  require('../../assets/clutter/clutter_notifications.png'),
+  require('../../assets/clutter/clutter_spinner_broken.png'),
+  require('../../assets/clutter/clutter_usb.png'),
 ];
 
 // bottomMin/Max are % of the field height, matching the byte's `bottom: '20%'`

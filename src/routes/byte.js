@@ -192,7 +192,12 @@ function getDecayOptions(_req, byte = null) {
   // automatically at every applyDecay call site. isSleeping is read from
   // the pre-sync byte state — needDecay applies the sleep multiplier to
   // the elapsed window (Skye 2026-04-28: 0.3x while asleep).
-  const opts = {};
+  // maxWindowMinutes = 1440 (24h) — restored 2026-04-28 after the demo-mode
+  // removal (commit a2776f1) accidentally dropped it. Without this, every
+  // applyDecay caller fell back to the engine's 60-min default and overnight
+  // sessions registered as 1h of decay. 24h cap is a safety valve so a week
+  // away doesn't hand back a corpse, but a normal overnight reads in full.
+  const opts = { maxWindowMinutes: 1440 };
   if (byte && byte.lifespanStage) opts.stage = byte.lifespanStage;
   if (byte && byte.isSleeping) opts.isSleeping = true;
   return opts;

@@ -18,13 +18,17 @@
 // ─────────────────────────────────────────────────────────────────
 // NEED DECAY
 // ─────────────────────────────────────────────────────────────────
+// Skye 2026-04-28: previous values (28/40/36/21/48/40) were tuned for a
+// weekly check-in cadence — Hunger never bubbled, Social never dipped
+// below 90 over a full day. Halved across the board so this reads as
+// daily pet care (forced engagement at least once per real day).
 const NEED_DECAY_HOURS = {
-  Hunger:    28,   // ~1 meal/day
-  Bandwidth: 40,   // one deep rest every ~1.7 days
-  Hygiene:   36,   // clean every 1.5 days
-  Fun:       21,   // internal, not shown on home meter
-  Social:    48,
-  Mood:      40,
+  Hunger:    14,   // ~2 meals/day
+  Bandwidth: 20,   // deep rest every ~20h
+  Hygiene:   18,   // clean every ~18h
+  Fun:       12,   // internal, not shown on home meter
+  Social:    22,
+  Mood:      24,
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -33,7 +37,9 @@ const NEED_DECAY_HOURS = {
 // Hours from 0 → 100 corruption if conditions keep accruing.
 // Per-minute rate is derived below; existing hygiene/stability modifiers
 // in corruptionEngine still scale this.
-const CORRUPTION_FULL_HOURS = 168;
+// Skye 2026-04-28: cut from 168 (a full week) → 72 (3 days). At the prior
+// rate corruption was effectively invisible inside a single play session.
+const CORRUPTION_FULL_HOURS = 72;
 
 // ─────────────────────────────────────────────────────────────────
 // CLUTTER / POO SPAWNS

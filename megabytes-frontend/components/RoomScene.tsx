@@ -11,6 +11,7 @@ import { consumeItem, getByte, getInventory, getShopItems } from '../services/ap
 import { getByteMotionProfile } from '../services/byteMotion';
 import { initSfx, playSfx } from '../services/sfx';
 import { resolveByteSprite, getStageSprite, type LifespanStage } from '../services/byteSprites';
+import { StatRadar, type StatRadarStat } from './StatRadar';
 
 const { width, height } = Dimensions.get('window');
 
@@ -56,6 +57,9 @@ interface RoomSceneProps {
   timerLine?: string | null;
   metaProgress?: RoomMetaProgress | null;
   statsMatrix?: { label: string; value: number }[];
+  /** When set, renders a radar chart in flow above the action grid. Suppresses
+   *  the legacy absolute-positioned statsMatrix dock to avoid overlap. */
+  radarStats?: StatRadarStat[];
   resultWindow?: RoomResultWindow | null;
   onDismissResultWindow?: () => void;
   backgroundSource?: any;
@@ -103,6 +107,7 @@ export default function RoomScene({
   timerLine,
   metaProgress = null,
   statsMatrix = [],
+  radarStats = [],
   resultWindow = null,
   onDismissResultWindow,
   backgroundSource,
@@ -616,7 +621,7 @@ export default function RoomScene({
               </View>
             ) : null}
 
-            {statsMatrix.length > 0 ? (
+            {statsMatrix.length > 0 && radarStats.length === 0 ? (
               <View style={styles.matrixDock}>
                 <Text style={styles.matrixTitle}>STAT MATRIX</Text>
                 <View style={styles.matrixGrid}>
@@ -642,6 +647,16 @@ export default function RoomScene({
             </Animated.View>
           ) : null}
         </View>
+
+        {radarStats.length > 0 ? (
+          <View style={styles.radarDock}>
+            <StatRadar
+              stats={radarStats}
+              size={Math.min(width - 40, 300)}
+              accent={accent}
+            />
+          </View>
+        ) : null}
 
         {uniformGrid ? (
           <View style={styles.uniformGrid}>
@@ -1272,4 +1287,10 @@ const styles = StyleSheet.create({
   },
   processSub: { color: 'rgba(111,175,255,0.7)', fontSize: 9.6, fontWeight: '700', letterSpacing: 1.2 },
   processFooter: { color: 'rgba(140,178,255,0.74)', fontSize: 9.4, fontWeight: '700' },
+  radarDock: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+  },
 });

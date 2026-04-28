@@ -8,6 +8,7 @@ import { markHomeClutterCleared } from '../../services/homeRuntimeState';
 import { MiniGameDef, getMiniGameById } from '../../services/minigames';
 import { MiniGameRoomId, recordTrainingUsage, setPendingMiniGameResult } from '../../services/minigameRuntime';
 import { initSfx, playSfx, startLoopSfx, stopLoopSfx, type SfxKey } from '../../services/sfx';
+import { PowerDrill } from '../../components/minigames/drills/PowerDrill';
 
 type Grade = 'fail' | 'good' | 'perfect';
 type Variant = 'quick' | 'long';
@@ -234,7 +235,21 @@ function buildTracePatterns(variant: Variant) {
   }));
 }
 
+// New-architecture drills are fully self-contained components (own play
+// surface, settle pipeline, result panel, routing). The dispatcher below
+// hands them off by id and falls through to LegacyMiniGameRunner for
+// everything else.
 export default function MiniGameRunnerScreen() {
+  const params = useLocalSearchParams<{ id?: string; variant?: string; room?: string }>();
+  const rawId = typeof params.id === 'string' ? params.id : '';
+  if (rawId === 'training-power') {
+    const game = getMiniGameById(rawId);
+    if (game) return <PowerDrill game={game} />;
+  }
+  return <LegacyMiniGameRunner />;
+}
+
+function LegacyMiniGameRunner() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string; variant?: string; room?: string }>();
   const game = useMemo(() => getMiniGameById(typeof params.id === 'string' ? params.id : ''), [params.id]);

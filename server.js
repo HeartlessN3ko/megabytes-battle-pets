@@ -22,7 +22,7 @@ app.use(express.json());
 // Health check bypasses the rate limiter — Render pings this and shouldn't eat the budget
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500 }));
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 2000 }));
 
 // Routes
 app.use('/api/player',   require('./src/routes/player'));

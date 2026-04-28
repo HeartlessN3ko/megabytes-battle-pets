@@ -183,7 +183,7 @@ export default function TrainingCenterRoom() {
       accent="#d893ff"
       statusLine={status}
       timerLine={timerLine}
-      statsMatrix={statsMatrix}
+      radarStats={statsMatrix}
       primaryActions={[primaryActions[0], primaryActions[1]]}
       secondaryActions={secondaryActions}
       backgroundSource={require('../../assets/backgrounds/battleground.jpg')}

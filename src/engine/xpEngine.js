@@ -21,6 +21,13 @@ const CARE_ACTION_XP = {
   deep_rest: 40,
   calm: 35,
   deep_play: 50,
+
+  // Home-screen RPS minigame win. The RPS overlay calls
+  // careAction('rps', 'good') on win, and gameBalance already routes
+  // the need fill (Social / Mood) via MINIGAME_GAIN_HOURS.rps. Without
+  // this entry xpEngine throws "Unknown action: rps" and /care 500s.
+  // Skye 2026-04-28 fix.
+  rps: 45,
 };
 
 // ─────────────────────────────────────────────────────────────────

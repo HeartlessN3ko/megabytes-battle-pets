@@ -270,7 +270,11 @@ function pick(list) {
 }
 
 function replaceName(template, name) {
-  return String(template || '').replaceAll('[ByteName]', name || 'BYTE');
+  // Case-insensitive so a future typo in copy ([bytename] / [BYTENAME] /
+  // etc.) still gets replaced and never leaks the literal placeholder to
+  // the player. All current entries use [ByteName] exactly; this guard is
+  // for future contributor mistakes.
+  return String(template || '').replace(/\[ByteName\]/gi, name || 'BYTE');
 }
 
 function dominantNeedKey(needs = {}) {

@@ -121,7 +121,8 @@ async function request(method, path, body, extraHeaders = null) {
 
 // Byte
 export const getByte = () => request('GET', `/api/byte/${activeIds().byteId}`);
-export const syncByte = () => request('POST', `/api/byte/${activeIds().byteId}/sync`);
+export const syncByte = () =>
+  request('POST', `/api/byte/${activeIds().byteId}/sync`, { localHour: new Date().getHours() });
 
 export const careAction = (action, grade = 'good', extra = {}) =>
   request('PATCH', `/api/byte/${activeIds().byteId}/care`, { action: action.toLowerCase(), grade, ...extra });
@@ -144,7 +145,11 @@ export const evolveByte = (itemUsed = null, playerChoice = {}) =>
   request('POST', `/api/byte/${activeIds().byteId}/evolve`, { itemUsed, playerChoice });
 export const getByteMoves = () => request('GET', `/api/byte/${activeIds().byteId}/moves`);
 export const updateByteLoadout = (payload) => request('PATCH', `/api/byte/${activeIds().byteId}/loadout`, payload);
-export const setByteLights = (lightsOn) => request('PATCH', `/api/byte/${activeIds().byteId}/lights`, { lightsOn: !!lightsOn });
+export const setByteLights = (lightsOn) =>
+  request('PATCH', `/api/byte/${activeIds().byteId}/lights`, {
+    lightsOn: !!lightsOn,
+    localHour: new Date().getHours(),
+  });
 
 // Dev-only mutations (wire the in-app dev menu to backend admin routes).
 // Backend gates all 4 routes on x-dev-key matching DEV_MODE_KEY env. Frontend

@@ -227,15 +227,39 @@ function applyLightsAnnoyance(needs = {}, lightsOn = true, isSleeping = false, m
 // | 15–29     | awake (Mood drag) | drowsy nap, 10min |
 // | 5–14      | awake (Mood drag) | tired sleep, 15min|
 // | 0–4       | auto-sleep        | deep sleep, 25min |
+// Schedule constants — user's local hour drives a "loose bedtime."
+const NIGHT_HOUR_START   = 22; // 10pm
+const NIGHT_HOUR_END     = 6;  // 6am (exclusive)
+const EVENING_HOUR_START = 20; // 8pm
+
 const SLEEP_TIERS = {
-  drowsy:    { maxBandwidth: 29, durationMs: 10 * 60 * 1000 },
-  tired:     { maxBandwidth: 14, durationMs: 15 * 60 * 1000 },
-  exhausted: { maxBandwidth:  4, durationMs: 25 * 60 * 1000 },
+  drowsy:          { maxBandwidth:  29, durationMs: 10 * 60 * 1000 },
+  tired:           { maxBandwidth:  14, durationMs: 15 * 60 * 1000 },
+  exhausted:       { maxBandwidth:   4, durationMs: 25 * 60 * 1000 },
+  evening_drowsy:  { maxBandwidth:  40, durationMs: 20 * 60 * 1000 },
+  night_restless:  { maxBandwidth:  50, durationMs: 30 * 60 * 1000 },
+  night:           { maxBandwidth: 100, durationMs:  8 * 60 * 60 * 1000 },
 };
 
-// Early-wake threshold: if Bandwidth recovers above this, sleep ends even
-// before sleepUntil fires.
+// Early-wake threshold: short naps end if Bandwidth recovers above this
+// before sleepUntil fires. Long sleeps (>= LONG_SLEEP_THRESHOLD_MS away)
+// skip this so a fully-rested byte put down at 3am stays asleep.
 const SLEEP_WAKE_BANDWIDTH = 80;
+const LONG_SLEEP_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
+
+function isNightHour(localHour) {
+  if (localHour == null) return false;
+  const h = Number(localHour);
+  if (!Number.isFinite(h)) return false;
+  return h >= NIGHT_HOUR_START || h < NIGHT_HOUR_END;
+}
+
+function isEveningHour(localHour) {
+  if (localHour == null) return false;
+  const h = Number(localHour);
+  if (!Number.isFinite(h)) return false;
+  return h >= EVENING_HOUR_START && h < NIGHT_HOUR_START;
+}
 
 /**
  * Decide whether the byte should auto-sleep this tick.
@@ -245,24 +269,40 @@ const SLEEP_WAKE_BANDWIDTH = 80;
  * @param {boolean} lightsOn - true if home lights are on
  * @returns {{ shouldSleep: boolean, durationMs: number, tier: 'drowsy'|'tired'|'exhausted'|null }}
  */
-function getAutoSleepBehavior(bandwidth, lightsOn) {
+function getAutoSleepBehavior(bandwidth, lightsOn, localHour) {
   const bw = Math.max(0, Math.min(100, Number(bandwidth ?? 100)));
+  const night   = isNightHour(localHour);
+  const evening = isEveningHour(localHour);
 
-  // Exhausted: sleeps regardless of lights (drains Mood via lights annoyance
-  // if lights were on at exhaustion, but byte still falls down).
+  // Exhausted: sleeps regardless of lights or hour.
   if (bw <= SLEEP_TIERS.exhausted.maxBandwidth) {
     return { shouldSleep: true, durationMs: SLEEP_TIERS.exhausted.durationMs, tier: 'exhausted' };
   }
 
-  // Lights ON suppresses naps until the byte is exhausted.
+  // NIGHT WINDOW + lights off: deep sleep regardless of Bandwidth.
+  if (night && !lightsOn) {
+    return { shouldSleep: true, durationMs: SLEEP_TIERS.night.durationMs, tier: 'night' };
+  }
+
+  // NIGHT WINDOW + lights on: byte still drifts off once mildly tired.
+  if (night && bw <= SLEEP_TIERS.night_restless.maxBandwidth) {
+    return { shouldSleep: true, durationMs: SLEEP_TIERS.night_restless.durationMs, tier: 'night_restless' };
+  }
+
+  // EVENING + lights off + slightly tired: short doze.
+  if (evening && !lightsOn && bw <= SLEEP_TIERS.evening_drowsy.maxBandwidth) {
+    return { shouldSleep: true, durationMs: SLEEP_TIERS.evening_drowsy.durationMs, tier: 'evening_drowsy' };
+  }
+
+  // DAY: lights ON suppresses naps until exhausted (handled above).
   if (lightsOn) return { shouldSleep: false, durationMs: 0, tier: null };
 
-  // Lights OFF + tired tier
+  // DAY + lights OFF + tired tier.
   if (bw <= SLEEP_TIERS.tired.maxBandwidth) {
     return { shouldSleep: true, durationMs: SLEEP_TIERS.tired.durationMs, tier: 'tired' };
   }
 
-  // Lights OFF + drowsy tier
+  // DAY + lights OFF + drowsy tier.
   if (bw <= SLEEP_TIERS.drowsy.maxBandwidth) {
     return { shouldSleep: true, durationMs: SLEEP_TIERS.drowsy.durationMs, tier: 'drowsy' };
   }
@@ -274,8 +314,13 @@ function getAutoSleepBehavior(bandwidth, lightsOn) {
  * Should the byte wake early because Bandwidth has recovered enough?
  * Lets short naps end as soon as the byte is rested.
  */
-function shouldWakeFromRecovery(bandwidth) {
-  return Number(bandwidth ?? 0) >= SLEEP_WAKE_BANDWIDTH;
+function shouldWakeFromRecovery(bandwidth, sleepUntil, now) {
+  if (Number(bandwidth ?? 0) < SLEEP_WAKE_BANDWIDTH) return false;
+  if (!sleepUntil) return true;
+  const refNow = now instanceof Date ? now.getTime() : Date.now();
+  const endMs  = new Date(sleepUntil).getTime();
+  if (!Number.isFinite(endMs)) return true;
+  return (endMs - refNow) < LONG_SLEEP_THRESHOLD_MS;
 }
 
 module.exports = {
@@ -287,8 +332,14 @@ module.exports = {
   applyLightsAnnoyance,
   getAutoSleepBehavior,
   shouldWakeFromRecovery,
+  isNightHour,
+  isEveningHour,
   SLEEP_TIERS,
   SLEEP_WAKE_BANDWIDTH,
+  LONG_SLEEP_THRESHOLD_MS,
+  NIGHT_HOUR_START,
+  NIGHT_HOUR_END,
+  EVENING_HOUR_START,
   BANDWIDTH_TIRED_THRESHOLD,
   LIGHTS_ANNOY_MOOD_PER_MIN,
 };

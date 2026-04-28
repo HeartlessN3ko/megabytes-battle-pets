@@ -1,22 +1,6 @@
-chore: finish demo mode removal + lint cleanup
-
-Frontend — demo mode fully removed:
-- Settings: dropped demo toggle UI
-- Home/collection/index/egg: removed isDemoModeActive gating
-- Onboarding flow + clinic room: stripped demo branches
-- Splash (app/index): auto-route on load
-- services/api.js: no more x-is-demo / x-demo-decay-multiplier headers
-- config/gameBalance.ts: dropped demo multipliers
-- EvolutionContext + achievements: demo paths removed
-- Deleted: services/demoSession.js, hooks/useDemoMode.ts
-- Restored 5 files from HEAD after local truncation
-  (CorruptionAura, RPSGame, RoomScene, useByteRoaming, homeRuntimeState)
-
-Backend:
-- Lint cleanup: 10 unused vars across 7 files
-  (dead declarations deleted; signature params prefixed with _)
-- scripts/smokeLifecycle.js: dropped reset-demo prep step
-- Deleted: scripts/smokeDemo.js
-- package.json: removed smoke:demo script
-
-Pairs with backend commit a2776f1. Task #18 closed.
+feat(sleep): schedule-aware auto-sleep — night/evening tiers driven by user's localHour
+feat(sleep): inline auto-sleep on PATCH /lights so lights-down at 3am puts byte down immediately (no sync wait)
+fix(sleep): natural wake from sync now stamps lastWakeTime — prevents 5:55am re-sleep loop on night-tier expiry
+fix(sleep): shouldWakeFromRecovery skips long sleeps (sleepUntil > 1h away) so a fully-rested byte stays down at night
+chore(release): bump frontend version 3.7.0 -> 3.8.0
+chore(docs): CLAUDE.md + SYSTEM_LOGIC_LEDGER updated for schedule-aware sleep

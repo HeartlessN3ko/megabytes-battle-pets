@@ -277,8 +277,15 @@ router.post('/:id/sync', async (req, res) => {
     const shouldWake = byte.isSleeping && (
       !byte.sleepUntil ||
       new Date() >= new Date(byte.sleepUntil) ||
-      // Early wake: Bandwidth has recovered enough to end the nap early.
-      needInterdependencyEngine.shouldWakeFromRecovery(byte.needs?.Bandwidth) ||
+      // Early wake: Bandwidth has recovered enough to end a SHORT nap early.
+      // Long sleeps (night tier) ride out their full duration — the guard
+      // inside shouldWakeFromRecovery suppresses early wake when sleepUntil
+      // is more than 1h away.
+      needInterdependencyEngine.shouldWakeFromRecovery(
+        byte.needs?.Bandwidth,
+        byte.sleepUntil,
+        new Date()
+      ) ||
       req.body?.forceWakeup
     );
 
@@ -317,10 +324,15 @@ router.post('/:id/sync', async (req, res) => {
       byte.moodLowSinceAt = null;
     }
 
-    // ADAPTIVE SLEEP: clear sleep state only after accruing final recovery on sync
+    // ADAPTIVE SLEEP: clear sleep state only after accruing final recovery on sync.
+    // Stamp lastWakeTime so the auto-sleep cooldown below applies to natural
+    // wakes too — without this, a byte that wakes from an 8h night sleep at
+    // 5:55am (lights still off, still in night window) would immediately
+    // re-trigger the night tier and loop back to sleep.
     if (shouldWake) {
       byte.isSleeping = false;
       byte.sleepUntil = null;
+      byte.lastWakeTime = new Date();
     }
 
     // AUTO-SLEEP: tiered behavior based on Bandwidth + lights. See
@@ -333,9 +345,13 @@ router.post('/:id/sync', async (req, res) => {
     const withinWakeGrace = msSinceWake < AUTO_SLEEP_COOLDOWN_MS;
     if (!byte.isSleeping && !withinWakeGrace) {
       const lightsOn = byte.lightsOn !== false;
+      const localHour = Number.isFinite(Number(req.body?.localHour))
+        ? Number(req.body.localHour)
+        : undefined;
       const sleepBehavior = needInterdependencyEngine.getAutoSleepBehavior(
         byte.needs?.Bandwidth,
-        lightsOn
+        lightsOn,
+        localHour
       );
       if (sleepBehavior.shouldSleep) {
         byte.isSleeping = true;
@@ -950,8 +966,13 @@ router.patch('/:id/loadout', async (req, res) => {
 });
 
 // PATCH /:id/lights — toggle the home-screen lights for this byte.
-// Body: { lightsOn: boolean }. Annoyance is applied lazily in the snapshot
-// computation, not here — this route just persists the flag.
+// Body: { lightsOn: boolean, localHour?: number }. Annoyance is applied
+// lazily in the snapshot computation, not here.
+//
+// Inline auto-sleep: if the toggle leaves the byte in a state that warrants
+// sleep (e.g. lights-off during the night window), flip isSleeping
+// immediately so the user doesn't have to wait for the next sync. The
+// 5-min wake grace and existing isSleeping check still gate this.
 router.patch('/:id/lights', async (req, res) => {
   try {
     const byte = await Byte.findById(req.params.id);
@@ -959,9 +980,39 @@ router.patch('/:id/lights', async (req, res) => {
 
     const next = Boolean(req.body?.lightsOn);
     byte.lightsOn = next;
+
+    const localHour = Number.isFinite(Number(req.body?.localHour))
+      ? Number(req.body.localHour)
+      : undefined;
+
+    const AUTO_SLEEP_COOLDOWN_MS = 5 * 60 * 1000;
+    const msSinceWake = byte.lastWakeTime
+      ? Date.now() - new Date(byte.lastWakeTime).getTime()
+      : Infinity;
+    const withinWakeGrace = msSinceWake < AUTO_SLEEP_COOLDOWN_MS;
+
+    let appliedSleep = null;
+    if (!byte.isSleeping && !withinWakeGrace) {
+      const sleepBehavior = needInterdependencyEngine.getAutoSleepBehavior(
+        byte.needs?.Bandwidth,
+        next,
+        localHour
+      );
+      if (sleepBehavior.shouldSleep) {
+        byte.isSleeping = true;
+        byte.sleepUntil = new Date(Date.now() + sleepBehavior.durationMs);
+        appliedSleep = { tier: sleepBehavior.tier, sleepUntil: byte.sleepUntil };
+      }
+    }
+
     await byte.save();
 
-    res.json({ lightsOn: byte.lightsOn });
+    res.json({
+      lightsOn: byte.lightsOn,
+      isSleeping: byte.isSleeping,
+      sleepUntil: byte.sleepUntil,
+      sleepApplied: appliedSleep,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

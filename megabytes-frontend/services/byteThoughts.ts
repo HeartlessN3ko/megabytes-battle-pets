@@ -153,25 +153,49 @@ const TEMPERAMENT_HOOKS = {
 // resolve to a non-neutral tone. Phase 8 expanded the universe beyond the
 // original warm/neutral/sharp triplet to also include behaviorState-derived
 // tones (sulky after scold, demanding when impulsive + needy, clingy on
-// long-gap return with high attachment). Neutral has no overlay; the base
-// pools cover that range. ChatGPT owns these copy pools per AI_PROTOCOL.
-// Six pools below (sulky / demanding / clingy / distant / anxious / playful)
-// were rewritten by ChatGPT 2026-04-27 to replace Claude placeholder copy.
-// warm / sharp are still Claude placeholder until ChatGPT does that pass.
+// long-gap return with high attachment, tired on low-bandwidth sleepy state).
+// Neutral has no overlay; the base pools cover that range. ChatGPT owns these
+// copy pools per AI_PROTOCOL. All current pools (warm / sharp / sulky /
+// demanding / clingy / distant / anxious / playful / tired) were authored by
+// ChatGPT 2026-04-27 and 2026-04-27 (later same-day batch).
 const TONE_POOLS = {
   warm: [
-    '[ByteName] just wanted to make sure you were still here.',
-    '[ByteName] is happy you came back.',
-    '[ByteName] is humming a little optimization sub-routine for you.',
-    '[ByteName] keeps checking the room for you and refusing to admit it.',
-    '[ByteName] is staying close and pretending it is for the system uptime.',
+    "[ByteName] feels better when things are steady like this.",
+    "[ByteName] is glad you're here. That part matters.",
+    "[ByteName] is keeping things running smoothly, just for both of you.",
+    "[ByteName] is in a good place and wants to stay there.",
+    "[ByteName] is relaxed and quietly enjoying this moment.",
+    "[ByteName] feels safe enough to slow down a little.",
+    "[ByteName] is doing well and hopes you are too.",
+    "[ByteName] is stable, content, and not asking for much.",
+    "[ByteName] is holding onto this feeling for as long as it can.",
+    "[ByteName] is okay. More than okay.",
   ],
   sharp: [
-    '[ByteName] noticed you ignored that ping.',
-    '[ByteName] is running just fine without your input.',
-    '[ByteName] is busy. Try again later.',
-    '[ByteName] logged that you took your time getting back.',
-    '[ByteName] is doing its own thing and not waiting for instructions.',
+    "[ByteName] already knows what needs to happen.",
+    "[ByteName] is not impressed with the current state of things.",
+    "[ByteName] is correcting for inefficiency in real time.",
+    "[ByteName] expects better execution from both of you.",
+    "[ByteName] is focused and cutting out everything unnecessary.",
+    "[ByteName] sees the problem clearly. Do you?",
+    "[ByteName] is operating at a higher standard than this.",
+    "[ByteName] is tightening the system whether you're ready or not.",
+    "[ByteName] is not here to waste cycles.",
+    "[ByteName] is precise. This isn't.",
+  ],
+  // Tired — fires when behaviorState.state === 'sleepy' (Bandwidth <= 25).
+  // Lower-energy than 'sulky'; it's a body state, not an emotional one.
+  tired: [
+    "[ByteName] is slowing down and letting processes fall behind.",
+    "[ByteName] is running, but not well.",
+    "[ByteName] is trying to keep up and failing quietly.",
+    "[ByteName] is low on energy and it shows in everything.",
+    "[ByteName] is drifting between actions without finishing them.",
+    "[ByteName] is doing less because it has to.",
+    "[ByteName] is lagging in a way that feels personal.",
+    "[ByteName] is here, just not fully.",
+    "[ByteName] is operating at reduced capacity.",
+    "[ByteName] is one good rest away from being okay again.",
   ],
   // Sulky — recent scold within 30 min. Hurt + withdrawn, not angry.
   sulky: [
@@ -255,14 +279,41 @@ const TONE_POOLS = {
 
 // Tone selection priority. Resolver-driven tones outrank the base
 // warm/neutral/sharp because they reflect specific recent events.
-const RESOLVER_TONE_PRIORITY: Array<'sulky' | 'demanding' | 'clingy' | 'distant' | 'anxious' | 'playful'> = [
+const RESOLVER_TONE_PRIORITY: Array<'sulky' | 'demanding' | 'clingy' | 'distant' | 'anxious' | 'playful' | 'tired'> = [
   'sulky',
   'demanding',
+  'tired',
   'clingy',
   'distant',
   'anxious',
   'playful',
 ];
+
+// Sleep dream pool — only used while byte.isSleeping is true. Each line wraps
+// in `Zzz` markers per Skye's spec; rendered raw into the status bar in place
+// of the regular thought cycle. Authored by ChatGPT 2026-04-27.
+const SLEEP_DREAMS = [
+  "Zzz [ByteName] is floating through soft data that doesn't need to make sense. Zzz",
+  "Zzz [ByteName] is dreaming of perfect systems where nothing breaks. Zzz",
+  "Zzz [ByteName] is chasing signals that keep dissolving into light. Zzz",
+  "Zzz [ByteName] is replaying something warm and staying there longer this time. Zzz",
+  "Zzz [ByteName] is drifting through quiet loops that feel safe. Zzz",
+  "Zzz [ByteName] is building something beautiful it won't remember. Zzz",
+  "Zzz [ByteName] is resting in a place with no errors. Zzz",
+  "Zzz [ByteName] is syncing with something deeper and slower. Zzz",
+  "Zzz [ByteName] is watching distant data like stars. Zzz",
+  "Zzz [ByteName] is finally still. Zzz",
+];
+
+/**
+ * Pick a random dream line for a sleeping byte. Replaces the hardcoded
+ * "tap to wake" status string. Dream pool is dedicated — not pulled from
+ * TONE_POOLS or THOUGHTS — because the rhythm + Zzz framing is unique.
+ */
+export function generateSleepDream(byteName?: string): string {
+  const name = byteName || 'BYTE';
+  return replaceName(pick(SLEEP_DREAMS), name);
+}
 
 function pick(list) {
   if (!Array.isArray(list) || list.length === 0) return null;
@@ -334,14 +385,15 @@ export function generateByteThought({
   if (temperamentPool) pools.push(temperamentPool);
 
   // Phase 8 — pick a single resolver-driven tone if behaviorState resolves to
-  // one. Priority order: state.recentMood > state.state > dailyMood. Whichever
-  // hits first becomes the dominant tone overlay (~2× weight). Falls through
-  // to the base warm/neutral/sharp tone if nothing resolves.
+  // one. Priority order: recentMood > state-driven (sulky/tired/etc) > dailyMood.
+  // Whichever hits first becomes the dominant tone overlay (~2× weight). Falls
+  // through to the base warm/neutral/sharp tone if nothing resolves.
   let resolvedTone: string | null = null;
   if (behaviorState) {
     if (behaviorState.recentMood === 'sulky') resolvedTone = 'sulky';
     else if (behaviorState.recentMood === 'warm') resolvedTone = 'warm';
     else if (behaviorState.state === 'demanding') resolvedTone = 'demanding';
+    else if (behaviorState.state === 'sleepy') resolvedTone = 'tired';
     else if (behaviorState.state === 'clingy') resolvedTone = 'clingy';
     else if (behaviorState.state === 'withdrawn') resolvedTone = 'distant';
     else if (behaviorState.dailyMood === 'anxious') resolvedTone = 'anxious';

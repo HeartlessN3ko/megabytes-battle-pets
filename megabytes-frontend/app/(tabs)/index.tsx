@@ -45,7 +45,7 @@ import { initSfx, playSfx } from '../../services/sfx';
 import { useEvolution } from '../../context/EvolutionContext';
 import { useActionGate } from '../../hooks/useActionGate';
 import { useByteRoaming } from '../../hooks/useByteRoaming';
-import { generateByteThought } from '../../services/byteThoughts';
+import { generateByteThought, generateSleepDream } from '../../services/byteThoughts';
 import { getByteMotionProfile } from '../../services/byteMotion';
 import { getStageSprite, type LifespanStage } from '../../services/byteSprites';
 import {
@@ -831,8 +831,11 @@ export default function HomeScreen() {
     // clearly read "Sleeping..." while the byte is asleep so the user knows
     // why interactions are no-op or require a wake.
     if (isSleeping) {
-      const name = byteData?.byte?.name || 'BYTE';
-      return `${name} is sleeping... tap to wake, or praise/scold to force wake.`;
+      // Pull from the dedicated sleep-dream pool — atmospheric Zzz-wrapped
+      // dream lines instead of the old hardcoded "tap to wake" instruction.
+      // Player gets sleep texture; the wake mechanic is still discoverable
+      // via the existing tap interaction.
+      return generateSleepDream(byteData?.byte?.name || 'BYTE');
     }
     const thought = generateByteThought({
       byteName: byteData?.byte?.name || 'BYTE',

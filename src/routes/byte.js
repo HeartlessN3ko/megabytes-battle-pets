@@ -730,6 +730,11 @@ router.patch('/:id/care', async (req, res) => {
       if (!failed) {
         if ((action === 'feed' || action === 'meal') && (decayed.needs.Hunger ?? 100) < 30) {
           personalityEngine.applyEvent(byte, 'feed_high_hunger');
+        } else if ((action === 'feed' || action === 'meal') && (decayed.needs.Hunger ?? 100) >= 70) {
+          // Phase 3 (2026-04-27): overfeeding bumps impulse + sensitivity. Bytes
+          // fed when not hungry learn that food is a constant, not a reward —
+          // makes them more reactive and less patient.
+          personalityEngine.applyEvent(byte, 'feed_overfeed');
         }
         if ((action === 'clean' || action === 'perfect-clean') && (decayed.needs.Hygiene ?? 100) < 30) {
           personalityEngine.applyEvent(byte, 'clean_low_hygiene');
@@ -1160,8 +1165,16 @@ router.post('/:id/scold', async (req, res) => {
     const metrics = behaviorTracker.recordInteraction(byte.behaviorMetrics.toObject?.() || byte.behaviorMetrics, 'scold');
     byte.behaviorMetrics = metrics;
 
-    // Personality nudge — scold pushes obedience up, attachment down.
-    try { personalityEngine.applyEvent(byte, 'scold'); } catch (_e) { /* never block scold on personality nudge */ }
+    // Personality nudge — scold pushes obedience up, attachment down. Every
+    // third scold also fires scold_harsh which ratchets sensitivity up + pushes
+    // impulse down further (Skye spec: "spam scold = anxious, reactive byte").
+    try {
+      personalityEngine.applyEvent(byte, 'scold');
+      const totalScolds = Number(byte.behaviorMetrics?.scoldCount || 0);
+      if (totalScolds > 0 && totalScolds % 3 === 0) {
+        personalityEngine.applyEvent(byte, 'scold_harsh');
+      }
+    } catch (_e) { /* never block scold on personality nudge */ }
 
     await byte.save();
     res.json({

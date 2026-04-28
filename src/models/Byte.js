@@ -29,6 +29,8 @@ const PersonalitySchema = new mongoose.Schema({
   obedience:    { type: Number, default: 50, min: 0, max: 100 },
   impulse:      { type: Number, default: 50, min: 0, max: 100 },
   attachment:   { type: Number, default: 50, min: 0, max: 100 },
+  curiosity:    { type: Number, default: 50, min: 0, max: 100 },
+  sensitivity:  { type: Number, default: 50, min: 0, max: 100 },
   lastDriftAt:  { type: Date, default: Date.now },
 }, { _id: false });
 
@@ -125,7 +127,7 @@ const ByteSchema = new mongoose.Schema({
   behaviorMetrics: { type: BehaviorMetricsSchema, default: () => ({}) },
 
   // Personality axes (modulation layer — see personalityEngine.js).
-  personality: { type: PersonalitySchema, default: () => ({ obedience: 50, impulse: 50, attachment: 50, lastDriftAt: new Date() }) },
+  personality: { type: PersonalitySchema, default: () => ({ obedience: 50, impulse: 50, attachment: 50, curiosity: 50, sensitivity: 50, lastDriftAt: new Date() }) },
 
   // Training tracking
   trainingSessionsToday: { type: Number, default: 0 },

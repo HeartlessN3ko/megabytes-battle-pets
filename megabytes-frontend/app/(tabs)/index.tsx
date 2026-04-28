@@ -491,6 +491,10 @@ export default function HomeScreen() {
   const [clutter,       setClutter]       = useState(0);
   const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: string; size: number; front: boolean; kind: 'trash' | 'poop' }[]>([]);
   const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
+  // Personality misbehavior — fake need signal. Misbehaving bytes occasionally
+  // surface a need-emote bubble for a need that isn't actually low. Sets a
+  // need key for ~6s, clears, repeats on the misbehavior tick below.
+  const [fakeNeed, setFakeNeed] = useState<NeedRequest>(null);
   const [rewardPopups,  setRewardPopups]  = useState<{ id: string; text: string; left: number; bottom: number }[]>([]);
   const [actionBursts,  setActionBursts]  = useState<{ id: string; type: 'praise' | 'scold' }[]>([]);
   const [levelUpBanners, setLevelUpBanners] = useState<{ id: string }[]>([]);
@@ -558,11 +562,16 @@ export default function HomeScreen() {
       { key: 'fun',       value: Math.min(Number(needs.Fun ?? 100), Number(needs.Social ?? 100)), priority: 1 },
     ];
     const unmet = candidates.filter((c) => c.value < REQUEST_THRESHOLD);
-    if (unmet.length === 0) return null;
-    // Sort by lowest value, breaking ties with priority weight.
-    unmet.sort((a, b) => (a.value - b.value) || (b.priority - a.priority));
-    return unmet[0].key;
-  }, [isSleeping, byteData?.personalityModifiers?.demand, needs.Hunger, needs.Hygiene, needs.Bandwidth, needs.Fun, needs.Social]);
+    if (unmet.length > 0) {
+      // Sort by lowest value, breaking ties with priority weight.
+      unmet.sort((a, b) => (a.value - b.value) || (b.priority - a.priority));
+      return unmet[0].key;
+    }
+    // No real need is low — fall through to the fake-need misbehavior signal.
+    // Misbehaving bytes occasionally cry wolf; the fake state is set/cleared
+    // by the personality tick above. Same emote pipeline, same UI.
+    return fakeNeed;
+  }, [isSleeping, byteData?.personalityModifiers?.demand, needs.Hunger, needs.Hygiene, needs.Bandwidth, needs.Fun, needs.Social, fakeNeed]);
 
   const clutterLabel = useMemo(() => {
     if (clutter >= 5) return 'Crowded';
@@ -919,10 +928,48 @@ export default function HomeScreen() {
       const p = hygieneLow
         ? clutterSpawnProbabilityDirty(POLL_SECONDS)
         : clutterSpawnProbability(POLL_SECONDS);
-      if (Math.random() < p) setClutter((prev) => Math.min(8, prev + 1));
+      let spawned = Math.random() < p;
+      // Personality misbehavior — high impulse + high curiosity + low obedience
+      // bytes occasionally make a mess of their own. Caps at 5%/30s tick when
+      // misbehaviorChance == 1, so worst case ~1 extra clutter per 10 min.
+      if (!spawned) {
+        const mis = Number(byteData?.personalityModifiers?.misbehaviorChance ?? 0);
+        if (mis > 0 && Math.random() < mis * 0.05) spawned = true;
+      }
+      if (spawned) setClutter((prev) => Math.min(8, prev + 1));
     }, POLL_SECONDS * 1000);
     return () => clearInterval(t);
-  }, [needs.Hygiene]);
+  }, [needs.Hygiene, byteData?.personalityModifiers?.misbehaviorChance]);
+
+  // Personality misbehavior — fake need signal. Every 45s, roll dice scaled
+  // by misbehaviorChance. If no real need is in the request range and the
+  // roll passes, pick a random need and surface it for ~6s. Player learns
+  // their byte sometimes "lies." Doesn't fire while sleeping.
+  useEffect(() => {
+    const POLL_MS = 45_000;
+    const HOLD_MS = 6_000;
+    const FAKE_NEEDS: NeedRequest[] = ['hunger', 'hygiene', 'bandwidth', 'fun'];
+    const t = setInterval(() => {
+      if (isSleeping) return;
+      const mis = Number(byteData?.personalityModifiers?.misbehaviorChance ?? 0);
+      if (mis <= 0) return;
+      // Don't fake-signal if a real need is already low — would just feel doubled-up.
+      const anyRealLow =
+        Number(needs.Hunger ?? 100) < 40 ||
+        Number(needs.Hygiene ?? 100) < 40 ||
+        Number(needs.Bandwidth ?? 100) < 40 ||
+        Math.min(Number(needs.Fun ?? 100), Number(needs.Social ?? 100)) < 40;
+      if (anyRealLow) return;
+      // Roll: at mis=1.0, ~15% chance per 45s tick → ~1 fake every ~5min
+      if (Math.random() >= mis * 0.15) return;
+      const pick = FAKE_NEEDS[Math.floor(Math.random() * FAKE_NEEDS.length)];
+      setFakeNeed(pick);
+      const clearT = setTimeout(() => setFakeNeed(null), HOLD_MS);
+      // No need to track clearT — interval won't double-fire within HOLD_MS at our rates.
+      return () => clearTimeout(clearT);
+    }, POLL_MS);
+    return () => clearInterval(t);
+  }, [byteData?.personalityModifiers?.misbehaviorChance, isSleeping, needs.Hunger, needs.Hygiene, needs.Bandwidth, needs.Fun, needs.Social]);
 
   // Feed → digestion → poop pipeline.
   // Detects a feed by watching Hunger for an upward jump (≥ FEED_DETECT_MIN).

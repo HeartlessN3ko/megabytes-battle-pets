@@ -226,14 +226,71 @@ function applyActivitySideEffect(byte, effect) {
       byte._activityIntents = byte._activityIntents || [];
       byte._activityIntents.push({ kind: 'clutter_spawn', magnitude: mag || 1 });
       break;
-    case 'hazard_spawn':
-      // Hazards system arrives in commit 3; intent is logged for the frontend
-      // so the signal isn't dropped in the meantime.
-      byte._activityIntents = byte._activityIntents || [];
-      byte._activityIntents.push({ kind: 'hazard_spawn', magnitude: mag || 1 });
+    case 'hazard_spawn': {
+      // Roll a hazard kind. Weighted: fire 0.45 / corrupt 0.20 / leak 0.20 /
+      // warning 0.15. Each kind has its own clear profile (taps vs swipes).
+      const kindRoll = Math.random();
+      let kind, glyph, tapsRequired, swipesRequired;
+      if (kindRoll < 0.45) {
+        kind = 'fire';     glyph = '🔥'; tapsRequired = 3; swipesRequired = 0;
+      } else if (kindRoll < 0.65) {
+        kind = 'corrupt';  glyph = '💀'; tapsRequired = 0; swipesRequired = 2;
+      } else if (kindRoll < 0.85) {
+        kind = 'leak';     glyph = '🌀'; tapsRequired = 4; swipesRequired = 0;
+      } else {
+        kind = 'warning';  glyph = '📛'; tapsRequired = 2; swipesRequired = 0;
+      }
+      const id = `haz-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const px = 0.15 + Math.random() * 0.7;  // keep off the very edges
+      const py = 0.20 + Math.random() * 0.55; // upper-mid band, leaves byte room
+      byte.hazards = (byte.hazards || []).concat([{
+        id, kind, glyph,
+        spawnedAt: new Date(),
+        position: { x: px, y: py },
+        tapsRequired, tapProgress: 0,
+        swipesRequired, swipeProgress: 0,
+      }]);
+      byte.markModified('hazards');
       break;
+    }
     default:
       break;
+  }
+}
+
+/**
+ * Apply per-sync passive drain for any active hazards. Each hazard ticks
+ * mood- and corruption+ scaled by minutes since last tick. Caps applied via
+ * the existing clamp helpers. Idempotent — re-running with 0 minutes is a
+ * no-op.
+ */
+function tickHazards(byte, minutesElapsed) {
+  if (!byte.hazards || byte.hazards.length === 0) return;
+  const safeMin = Math.max(0, Number(minutesElapsed) || 0);
+  if (safeMin <= 0) return;
+  // Per-hazard rates (per minute):
+  //   fire    mood -0.12, corruption +0.08
+  //   corrupt mood -0.08, corruption +0.15
+  //   leak    mood -0.06, corruption +0.10
+  //   warning mood -0.04, corruption +0.04
+  const RATES = {
+    fire:    { mood: 0.12, corr: 0.08 },
+    corrupt: { mood: 0.08, corr: 0.15 },
+    leak:    { mood: 0.06, corr: 0.10 },
+    warning: { mood: 0.04, corr: 0.04 },
+  };
+  let totalMood = 0;
+  let totalCorr = 0;
+  for (const h of byte.hazards) {
+    const r = RATES[h.kind] || RATES.warning;
+    totalMood += r.mood * safeMin;
+    totalCorr += r.corr * safeMin;
+  }
+  if (totalMood > 0) {
+    byte.needs.Mood = clampNeed(Number(byte.needs.Mood ?? 100) - totalMood);
+  }
+  if (totalCorr > 0) {
+    byte.corruption = Math.min(100, Math.max(0, (Number(byte.corruption) || 0) + totalCorr));
   }
 }
 
@@ -398,6 +455,7 @@ router.get('/:id', async (req, res) => {
       }),
       peakHour: derivePeakHour(byte),
       activeActivity: byte.activeActivity?.id ? byte.activeActivity : null,
+      hazards: byte.hazards || [],
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -682,6 +740,9 @@ router.post('/:id/sync', async (req, res) => {
       processActiveActivity(byte, new Date());
       const mods = personalityEngine.getModifiers(byte);
       maybeRollActivity(byte, mods, new Date());
+      // Tick hazards — passive mood/corruption drain scaled by elapsed time.
+      // Use syncElapsedMin captured before the snapshot overwrite.
+      tickHazards(byte, Number(syncElapsedMin) || 0);
       await byte.save().catch(() => {});
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -699,6 +760,7 @@ router.post('/:id/sync', async (req, res) => {
       sessionGapHours: sessionGapHoursOut,
       activeActivity: byte.activeActivity?.id ? byte.activeActivity : null,
       activityIntents: byte._activityIntents || [],
+      hazards: byte.hazards || [],
       personalityModifiers: personalityEngine.getModifiers(byte),
       behaviorState,
       peakHour: derivePeakHour(byte),
@@ -2111,6 +2173,74 @@ router.post('/:id/closeActivity', async (req, res) => {
       closed,
       activeActivity: byte.activeActivity?.id ? byte.activeActivity : null,
       result,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// POST /api/byte/:id/hazard/:hazardId/clear — progress a hazard toward clearing
+// Body: { action: 'tap' | 'swipe' }
+// Each successful action increments tapProgress / swipeProgress. When BOTH
+// requirements are met (tapProgress >= tapsRequired AND swipeProgress >=
+// swipesRequired), the hazard is removed and the player gets a small bytebits
+// reward + a corruption tickle-down to acknowledge the cleanup.
+router.post('/:id/hazard/:hazardId/clear', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+    const hazardId = String(req.params.hazardId || '');
+    const action = String(req.body?.action || 'tap');
+
+    const idx = (byte.hazards || []).findIndex((h) => h.id === hazardId);
+    if (idx < 0) return res.status(404).json({ error: 'Hazard not found' });
+    const h = byte.hazards[idx];
+
+    if (action === 'tap') {
+      h.tapProgress = (h.tapProgress || 0) + 1;
+    } else if (action === 'swipe') {
+      h.swipeProgress = (h.swipeProgress || 0) + 1;
+    } else {
+      return res.status(400).json({ error: 'Unknown action' });
+    }
+
+    const tapDone   = (h.tapProgress   || 0) >= (h.tapsRequired   || 0);
+    const swipeDone = (h.swipeProgress || 0) >= (h.swipesRequired || 0);
+    let cleared = false;
+    let reward = 0;
+
+    if (tapDone && swipeDone) {
+      // Hazard cleared. Reward scales with hazard severity (corrupt > leak > fire > warning).
+      const REWARDS = { corrupt: 14, leak: 10, fire: 8, warning: 5 };
+      reward = REWARDS[h.kind] ?? 5;
+      byte.hazards.splice(idx, 1);
+      // Corruption nudge-down on cleanup so the player feels the reward.
+      byte.corruption = Math.max(0, (Number(byte.corruption) || 0) - 2);
+      cleared = true;
+      // Award byteBits via Player doc (best-effort; do not fail the route).
+      try {
+        if (reward > 0 && byte.ownerId) {
+          await Player.updateOne(
+            { _id: byte.ownerId },
+            { $inc: { byteBits: reward } },
+          );
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[hazard] reward credit failed:', e?.message || e);
+      }
+    }
+
+    byte.markModified('hazards');
+    await byte.save();
+
+    res.json({
+      ok: true,
+      cleared,
+      reward,
+      hazard: cleared ? null : h,
+      hazards: byte.hazards || [],
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

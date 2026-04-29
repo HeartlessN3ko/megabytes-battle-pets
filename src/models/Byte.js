@@ -171,6 +171,27 @@ const ByteSchema = new mongoose.Schema({
   },
   lastActivityEndedAt: { type: Date, default: null },
 
+  // Hazards spawned by 'bad' activity expirations (e.g. weird_downloads ->
+  // a fire/corruption/leak/warning lands on the home screen). Each hazard
+  // applies a small passive mood- and corruption+ drain per /sync until
+  // cleared via POST /:id/hazard/:hazardId/clear. See activityCatalog.js
+  // hazard_spawn side-effect.
+  hazards: [{
+    _id: false,
+    id:             { type: String, required: true },
+    kind:           { type: String, default: 'fire' },     // fire | corrupt | leak | warning
+    glyph:          { type: String, default: '🔥' },
+    spawnedAt:      { type: Date,   default: Date.now },
+    position:       {
+      x: { type: Number, default: 0.5 },                   // 0-1 home-screen coords
+      y: { type: Number, default: 0.5 },
+    },
+    tapsRequired:   { type: Number, default: 3 },
+    tapProgress:    { type: Number, default: 0 },
+    swipesRequired: { type: Number, default: 0 },          // 0 = tap-only
+    swipeProgress:  { type: Number, default: 0 },
+  }],
+
   // Training tracking
   trainingSessionsToday: { type: Number, default: 0 },
   lastTrainingReset:     { type: Date, default: Date.now },

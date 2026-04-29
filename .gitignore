@@ -7,3 +7,8 @@ yarn-error.log*
 # Local commit-message scratch file used by the session-close batch script.
 # Lives in megabytes-backend/, written + deleted around each commit.
 _msg.txt
+
+# Scratch file for capturing git CLI output from cowork shell pipelines.
+# cmd.exe pre-opens redirect files, so this can sneak into a commit if
+# add -A runs after the redirect was opened — keep it ignored.
+_gitout.txt

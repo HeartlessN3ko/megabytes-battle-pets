@@ -14,6 +14,7 @@ import { StaminaDrill } from '../../components/minigames/drills/StaminaDrill';
 import { SpeedDrill } from '../../components/minigames/drills/SpeedDrill';
 import { AgilityDrill } from '../../components/minigames/drills/AgilityDrill';
 import { SpecialDrill } from '../../components/minigames/drills/SpecialDrill';
+import { DefenseDrill } from '../../components/minigames/drills/DefenseDrill';
 
 type Grade = 'fail' | 'good' | 'perfect';
 type Variant = 'quick' | 'long';
@@ -270,6 +271,10 @@ export default function MiniGameRunnerScreen() {
   if (rawId === 'training-special') {
     const game = getMiniGameById(rawId);
     if (game) return <SpecialDrill game={game} />;
+  }
+  if (rawId === 'training-defense') {
+    const game = getMiniGameById(rawId);
+    if (game) return <DefenseDrill game={game} />;
   }
   return <LegacyMiniGameRunner />;
 }

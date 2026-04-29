@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   careAction,
+  closeActivity,
   earnCurrency,
   evolveByte,
   getPlayer,
@@ -59,6 +60,7 @@ import RPSGame from '../../components/RPSGame';
 import SleepZsOverlay from '../../components/SleepZsOverlay';
 import NeedRequestBubble, { NeedRequest } from '../../components/NeedRequestBubble';
 import CorruptionAura from '../../components/CorruptionAura';
+import { ActivityPopup } from '../../components/ActivityPopup';
 
 const { width, height } = Dimensions.get('window');
 
@@ -1390,7 +1392,24 @@ export default function HomeScreen() {
     // TODO: wire to treat API endpoint when item use system is built
   }, [treatCount, setTransientStatus]);
 
+  // Activity popup tap — increments resist counter; force-closes once
+  // the byte's tapResistance threshold is hit. Mood penalty applied server-side.
+  const handleActivityTap = useCallback(async () => {
+    try { await closeActivity('tap'); } catch {}
+    refreshData().catch(() => {});
+  }, [refreshData]);
+
   const handlePraise = useCallback(async () => {
+    // Activity popup is up — praise routes through closeActivity instead so
+    // the byte gets the praise nudge AND the popup resolves cleanly.
+    const activeAct = byteData?.activeActivity;
+    if (activeAct?.id) {
+      playSfx('praise', 0.8);
+      setEmotion('praise');
+      try { await closeActivity('praise_continue'); } catch {}
+      refreshData().catch(() => {});
+      return;
+    }
     playSfx('praise', 0.8);
     setEmotion('praise');
     if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
@@ -1427,6 +1446,14 @@ export default function HomeScreen() {
   }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude, triggerWakeReaction]);
 
   const handleScold = useCallback(async () => {
+    const activeAct = byteData?.activeActivity;
+    if (activeAct?.id) {
+      playSfx('scold', 0.8);
+      setEmotion('scold');
+      try { await closeActivity('scold_close'); } catch {}
+      refreshData().catch(() => {});
+      return;
+    }
     playSfx('scold', 0.8);
     setEmotion('scold');
     if (emotionTimerRef.current) clearTimeout(emotionTimerRef.current);
@@ -1778,6 +1805,7 @@ export default function HomeScreen() {
               <Image source={petSprite} style={[styles.byteSprite, { width: byteFootprint, height: byteFootprint }]} resizeMode="contain" />
             </View>
             <CorruptionAura corruption={corruptionValue} size={byteFootprint * 0.5} containerSize={byteFootprint} />
+          <ActivityPopup activity={byteData?.activeActivity ?? null} onTap={handleActivityTap} />
             <SleepZsOverlay visible={isSleeping} />
             <NeedRequestBubble need={requestedNeed} />
             {greeting ? (

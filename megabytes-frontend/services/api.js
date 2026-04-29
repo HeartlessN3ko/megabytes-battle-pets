@@ -145,6 +145,8 @@ export const evolveByte = (itemUsed = null, playerChoice = {}) =>
   request('POST', `/api/byte/${activeIds().byteId}/evolve`, { itemUsed, playerChoice });
 export const getByteMoves = () => request('GET', `/api/byte/${activeIds().byteId}/moves`);
 export const updateByteLoadout = (payload) => request('PATCH', `/api/byte/${activeIds().byteId}/loadout`, payload);
+export const closeActivity = (action) =>
+  request('POST', `/api/byte/${activeIds().byteId}/closeActivity`, { action });
 export const setByteLights = (lightsOn) =>
   request('PATCH', `/api/byte/${activeIds().byteId}/lights`, {
     lightsOn: !!lightsOn,

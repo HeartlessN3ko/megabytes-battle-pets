@@ -19,6 +19,7 @@ import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   careAction,
+  clearHazard,
   closeActivity,
   earnCurrency,
   evolveByte,
@@ -61,6 +62,7 @@ import SleepZsOverlay from '../../components/SleepZsOverlay';
 import NeedRequestBubble, { NeedRequest } from '../../components/NeedRequestBubble';
 import CorruptionAura from '../../components/CorruptionAura';
 import { ActivityPopup } from '../../components/ActivityPopup';
+import { HazardOverlay, type Hazard } from '../../components/HazardOverlay';
 
 const { width, height } = Dimensions.get('window');
 
@@ -1399,6 +1401,13 @@ export default function HomeScreen() {
     refreshData().catch(() => {});
   }, [refreshData]);
 
+  // Hazard tap/swipe — progresses the clear counter on the targeted hazard.
+  // Server resolves clears on threshold and returns the updated hazard list.
+  const handleHazardClear = useCallback(async (hazardId: string, action: 'tap' | 'swipe') => {
+    try { await clearHazard(hazardId, action); } catch {}
+    refreshData().catch(() => {});
+  }, [refreshData]);
+
   const handlePraise = useCallback(async () => {
     // Activity popup is up — praise routes through closeActivity instead so
     // the byte gets the praise nudge AND the popup resolves cleanly.
@@ -1806,6 +1815,12 @@ export default function HomeScreen() {
             </View>
             <CorruptionAura corruption={corruptionValue} size={byteFootprint * 0.5} containerSize={byteFootprint} />
           <ActivityPopup activity={byteData?.activeActivity ?? null} onTap={handleActivityTap} />
+          <HazardOverlay
+            hazards={(byteData?.hazards as Hazard[] | undefined) || []}
+            stageWidth={Dimensions.get('window').width}
+            stageHeight={Dimensions.get('window').height - 240}
+            onClearAction={handleHazardClear}
+          />
             <SleepZsOverlay visible={isSleeping} />
             <NeedRequestBubble need={requestedNeed} />
             {greeting ? (

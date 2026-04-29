@@ -157,6 +157,20 @@ const ByteSchema = new mongoose.Schema({
     dailyMood:  { kind: null, day: null },
   }) },
 
+  // Misbehavior — "byte fakes accessing the internet." A pop-up activity
+  // window appears on the home screen with a flavor label; player can
+  // tap-close (resists), scold-close, praise-continue, or let it run to
+  // completion and apply its sideEffect. See data/activityCatalog.js.
+  activeActivity: {
+    id:          { type: String, default: null },
+    label:       { type: String, default: null },
+    kind:        { type: String, default: null }, // good | neutral | bad
+    startedAt:   { type: Date,   default: null },
+    expiresAt:   { type: Date,   default: null },
+    tapResistCount: { type: Number, default: 0 },
+  },
+  lastActivityEndedAt: { type: Date, default: null },
+
   // Training tracking
   trainingSessionsToday: { type: Number, default: 0 },
   lastTrainingReset:     { type: Date, default: Date.now },

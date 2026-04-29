@@ -28,6 +28,7 @@ const personalityResolver  = require('../engine/personalityResolver');
 const { MOVE_CATALOG_MAP } = require('../data/moveCatalog');
 const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
 const { getActiveDecorEffects } = require('../data/decorCatalog');
+const activityCatalog = require('../data/activityCatalog');
 const { optionalAuth, requireDevMode } = require('../middleware/auth');
 
 const router = express.Router();
@@ -193,6 +194,101 @@ function getDecayOptions(_req, byte = null) {
   return opts;
 }
 
+// ── Activity (browser pop-up misbehavior) helpers ───────────────────────
+// Source of truth: data/activityCatalog.js. These helpers mutate the byte —
+// only call from /sync, never from read-only GET. Wrapped at the call site
+// in try/catch so an activity fault never blocks the rest of /sync.
+
+function applyActivitySideEffect(byte, effect) {
+  if (!effect || effect.kind === 'none') return;
+  const mag = Number(effect.magnitude || 0);
+  switch (effect.kind) {
+    case 'mood_up':
+      byte.needs.Mood = clampNeed(Number(byte.needs.Mood ?? 100) + mag);
+      break;
+    case 'mood_down':
+      byte.needs.Mood = clampNeed(Number(byte.needs.Mood ?? 100) - mag);
+      break;
+    case 'social_up':
+      byte.needs.Social = clampNeed(Number(byte.needs.Social ?? 100) + mag);
+      break;
+    case 'special_up':
+      // Light passive nudge to the Special stat. Cap at 25 (v1 stat ceiling).
+      if (byte.stats) {
+        const cur = Number(byte.stats.Special ?? 10);
+        byte.stats.Special = Math.min(25, cur + mag);
+      }
+      break;
+    case 'corruption_up':
+      byte.corruption = Math.min(100, Math.max(0, (Number(byte.corruption) || 0) + mag));
+      break;
+    case 'clutter_spawn':
+      byte._activityIntents = byte._activityIntents || [];
+      byte._activityIntents.push({ kind: 'clutter_spawn', magnitude: mag || 1 });
+      break;
+    case 'hazard_spawn':
+      // Hazards system arrives in commit 3; intent is logged for the frontend
+      // so the signal isn't dropped in the meantime.
+      byte._activityIntents = byte._activityIntents || [];
+      byte._activityIntents.push({ kind: 'hazard_spawn', magnitude: mag || 1 });
+      break;
+    default:
+      break;
+  }
+}
+
+/**
+ * If the active activity has expired, apply its side-effect (player let it
+ * run to completion) and clear the slot. Idempotent.
+ */
+function processActiveActivity(byte, now = new Date()) {
+  const a = byte.activeActivity;
+  if (!a || !a.id || !a.expiresAt) return;
+  if (new Date(a.expiresAt).getTime() > now.getTime()) return;
+
+  const def = activityCatalog.getActivity(a.id);
+  if (def) {
+    applyActivitySideEffect(byte, def.sideEffect);
+    if (def.extraEffect) applyActivitySideEffect(byte, def.extraEffect);
+  }
+
+  byte.lastActivityEndedAt = now;
+  byte.activeActivity = {
+    id: null, label: null, kind: null,
+    startedAt: null, expiresAt: null, tapResistCount: 0,
+  };
+  byte.markModified('activeActivity');
+}
+
+/**
+ * If no activity is currently active and cooldown has elapsed, roll for a
+ * new one. Mutates byte.activeActivity in place.
+ */
+function maybeRollActivity(byte, modifiers, now = new Date()) {
+  if (byte.activeActivity && byte.activeActivity.id) return;
+  if (byte.isSleeping) return;
+  if (byte.isEgg) return;
+
+  const def = activityCatalog.pickActivity({
+    misbehaviorChance: Number(modifiers?.misbehaviorChance || 0),
+    mood: Number(byte.needs?.Mood ?? 50),
+    obedience: Number(byte.personality?.obedience ?? 50),
+    lastActivityEndedAt: byte.lastActivityEndedAt,
+    now,
+  });
+  if (!def) return;
+
+  byte.activeActivity = {
+    id: def.id,
+    label: def.label,
+    kind: def.kind,
+    startedAt: now,
+    expiresAt: new Date(now.getTime() + def.durationMs),
+    tapResistCount: 0,
+  };
+  byte.markModified('activeActivity');
+}
+
 function getSleepRecoveryMinutes(byte, req, now = new Date()) {
   if (!byte?.isSleeping) return 0;
 
@@ -301,6 +397,7 @@ router.get('/:id', async (req, res) => {
         peakHour: derivePeakHour(byte),
       }),
       peakHour: derivePeakHour(byte),
+      activeActivity: byte.activeActivity?.id ? byte.activeActivity : null,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -577,6 +674,20 @@ router.post('/:id/sync', async (req, res) => {
       peakHour: derivePeakHour(byte),
     });
 
+    // Misbehavior — pop-up activity surface. Resolve any expired window first
+    // (applies side-effect as if the player had let it run), then roll for a
+    // fresh one if cooldown allows. Wrapped in try/catch so an activity fault
+    // never blocks the rest of /sync.
+    try {
+      processActiveActivity(byte, new Date());
+      const mods = personalityEngine.getModifiers(byte);
+      maybeRollActivity(byte, mods, new Date());
+      await byte.save().catch(() => {});
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[activity] /sync hook failed:', err?.message || err);
+    }
+
     res.json({
       byte,
       computedStats: snapshot.computedStats,
@@ -586,6 +697,8 @@ router.post('/:id/sync', async (req, res) => {
       ageDeathPending: lifespanEngine.shouldDieFromAge(byte.level) && !byte.isDevByte && byte.isAlive !== false,
       achievementUnlocks,
       sessionGapHours: sessionGapHoursOut,
+      activeActivity: byte.activeActivity?.id ? byte.activeActivity : null,
+      activityIntents: byte._activityIntents || [],
       personalityModifiers: personalityEngine.getModifiers(byte),
       behaviorState,
       peakHour: derivePeakHour(byte),
@@ -1915,6 +2028,89 @@ router.post('/:id/dev/reset', requireDevMode, async (req, res) => {
         level: byte.level,
         xp: byte.xp,
       },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// POST /api/byte/:id/closeActivity — handle player interaction with an active
+// pop-up activity window. Body: { action: 'tap' | 'force_close' | 'scold_close' | 'praise_continue' }
+//   tap            increments tapResistCount; force-closes once it hits the
+//                  activity's tapResistance threshold (no side-effect applied,
+//                  player intervened) and applies a kind-scaled mood penalty.
+//   force_close    skips the resistance check (UI shortcut) — same outcome.
+//   scold_close    closes the window AND fires a normal scold (mood penalty,
+//                  personality scold event); side-effect skipped.
+//   praise_continue keeps window open, applies a small mood + affection bump.
+//                  For 'bad' activities, doubles the side-effect on expire.
+router.post('/:id/closeActivity', async (req, res) => {
+  try {
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+    const a = byte.activeActivity;
+    if (!a || !a.id) return res.status(400).json({ error: 'No active activity' });
+    const def = activityCatalog.getActivity(a.id);
+    if (!def) return res.status(400).json({ error: 'Unknown activity' });
+
+    const action = String(req.body?.action || 'tap');
+    let closed = false;
+    let result = { action, kind: def.kind, label: def.label, applied: null };
+
+    if (action === 'tap') {
+      const next = (a.tapResistCount || 0) + 1;
+      a.tapResistCount = next;
+      byte.markModified('activeActivity');
+      if (next >= (def.tapResistance || 1)) closed = true;
+    } else if (action === 'force_close') {
+      closed = true;
+    } else if (action === 'scold_close') {
+      // Normal scold logic — light mood penalty + personality nudge.
+      const moodPenalty = 5;
+      byte.needs.Mood = clampNeed(Number(byte.needs.Mood ?? 100) - moodPenalty);
+      try { personalityEngine.applyEvent(byte, 'scold'); } catch (e) {}
+      result.applied = { mood: -moodPenalty, scolded: true };
+      closed = true;
+    } else if (action === 'praise_continue') {
+      // Praise without closing — reward the byte for what it's doing. For
+      // 'bad' activities this is the "you're encouraging this" path: the
+      // side-effect doubles when the timer runs out.
+      const moodGain = 4;
+      byte.needs.Mood = clampNeed(Number(byte.needs.Mood ?? 0) + moodGain);
+      try { personalityEngine.applyEvent(byte, 'praise'); } catch (e) {}
+      if (def.kind === 'bad') {
+        a.tapResistCount = -1; // sentinel: doubled-on-expire
+        byte.markModified('activeActivity');
+      }
+      result.applied = { mood: +moodGain, praised: true, doubled: def.kind === 'bad' };
+    } else {
+      return res.status(400).json({ error: 'Unknown action' });
+    }
+
+    if (closed) {
+      // Force-close path — apply mood penalty scaled to kind, do NOT apply
+      // the activity side-effect (player intervened).
+      if (action === 'tap' || action === 'force_close') {
+        const penaltyByKind = { good: 2, neutral: 4, bad: 8 };
+        const moodPenalty = penaltyByKind[def.kind] ?? 4;
+        byte.needs.Mood = clampNeed(Number(byte.needs.Mood ?? 100) - moodPenalty);
+        result.applied = { mood: -moodPenalty, forced: true };
+      }
+      byte.lastActivityEndedAt = new Date();
+      byte.activeActivity = {
+        id: null, label: null, kind: null,
+        startedAt: null, expiresAt: null, tapResistCount: 0,
+      };
+      byte.markModified('activeActivity');
+    }
+
+    await byte.save();
+    res.json({
+      ok: true,
+      closed,
+      activeActivity: byte.activeActivity?.id ? byte.activeActivity : null,
+      result,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

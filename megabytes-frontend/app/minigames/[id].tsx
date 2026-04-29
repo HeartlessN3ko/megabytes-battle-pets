@@ -10,6 +10,7 @@ import { MiniGameRoomId, recordTrainingUsage, setPendingMiniGameResult } from '.
 import { initSfx, playSfx, startLoopSfx, stopLoopSfx, type SfxKey } from '../../services/sfx';
 import { PowerDrill } from '../../components/minigames/drills/PowerDrill';
 import { AccuracyDrill } from '../../components/minigames/drills/AccuracyDrill';
+import { StaminaDrill } from '../../components/minigames/drills/StaminaDrill';
 
 type Grade = 'fail' | 'good' | 'perfect';
 type Variant = 'quick' | 'long';
@@ -250,6 +251,10 @@ export default function MiniGameRunnerScreen() {
   if (rawId === 'training-accuracy') {
     const game = getMiniGameById(rawId);
     if (game) return <AccuracyDrill game={game} />;
+  }
+  if (rawId === 'training-stamina') {
+    const game = getMiniGameById(rawId);
+    if (game) return <StaminaDrill game={game} />;
   }
   return <LegacyMiniGameRunner />;
 }

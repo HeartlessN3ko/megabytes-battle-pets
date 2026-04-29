@@ -11,6 +11,7 @@ import { initSfx, playSfx, startLoopSfx, stopLoopSfx, type SfxKey } from '../../
 import { PowerDrill } from '../../components/minigames/drills/PowerDrill';
 import { AccuracyDrill } from '../../components/minigames/drills/AccuracyDrill';
 import { StaminaDrill } from '../../components/minigames/drills/StaminaDrill';
+import { SpeedDrill } from '../../components/minigames/drills/SpeedDrill';
 
 type Grade = 'fail' | 'good' | 'perfect';
 type Variant = 'quick' | 'long';
@@ -255,6 +256,10 @@ export default function MiniGameRunnerScreen() {
   if (rawId === 'training-stamina') {
     const game = getMiniGameById(rawId);
     if (game) return <StaminaDrill game={game} />;
+  }
+  if (rawId === 'training-speed') {
+    const game = getMiniGameById(rawId);
+    if (game) return <SpeedDrill game={game} />;
   }
   return <LegacyMiniGameRunner />;
 }

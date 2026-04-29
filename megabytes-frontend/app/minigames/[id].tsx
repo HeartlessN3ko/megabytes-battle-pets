@@ -9,6 +9,7 @@ import { MiniGameDef, getMiniGameById } from '../../services/minigames';
 import { MiniGameRoomId, recordTrainingUsage, setPendingMiniGameResult } from '../../services/minigameRuntime';
 import { initSfx, playSfx, startLoopSfx, stopLoopSfx, type SfxKey } from '../../services/sfx';
 import { PowerDrill } from '../../components/minigames/drills/PowerDrill';
+import { AccuracyDrill } from '../../components/minigames/drills/AccuracyDrill';
 
 type Grade = 'fail' | 'good' | 'perfect';
 type Variant = 'quick' | 'long';
@@ -245,6 +246,10 @@ export default function MiniGameRunnerScreen() {
   if (rawId === 'training-power') {
     const game = getMiniGameById(rawId);
     if (game) return <PowerDrill game={game} />;
+  }
+  if (rawId === 'training-accuracy') {
+    const game = getMiniGameById(rawId);
+    if (game) return <AccuracyDrill game={game} />;
   }
   return <LegacyMiniGameRunner />;
 }

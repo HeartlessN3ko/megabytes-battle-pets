@@ -1008,14 +1008,24 @@ export default function HomeScreen() {
   }, [byteData?.byte?.isEgg, byteData?.byte?.evolutionStage, router]);
 
   useEffect(() => {
+    // Personality expression amplitude (Phase 6) — high-sensitivity / high-impulse
+    // bytes hold thoughts longer; stoic bytes cycle faster. Clamped to a sane band.
+    const expr = Number(byteData?.personalityModifiers?.expression ?? 1);
+    const cycleMs = Math.max(
+      TUNABLES.home.IDLE_THOUGHT_CYCLE_MIN_MS,
+      Math.min(
+        TUNABLES.home.IDLE_THOUGHT_CYCLE_MAX_MS,
+        Math.round(TUNABLES.home.IDLE_THOUGHT_CYCLE_MS * expr),
+      ),
+    );
     const t = setInterval(() => {
       if (Date.now() >= stickyUntilRef.current) {
         setStatusText(randomThought());
         setIdleThoughtTicks((prev) => prev + 1);
       }
-    }, TUNABLES.home.IDLE_THOUGHT_CYCLE_MS);
+    }, cycleMs);
     return () => clearInterval(t);
-  }, [randomThought]);
+  }, [randomThought, byteData?.personalityModifiers?.expression]);
 
   // Periodic background sync — persists level/corruption/needs.
   useEffect(() => {
@@ -1085,6 +1095,22 @@ export default function HomeScreen() {
       if (cleared) clearTimeout(cleared);
     };
   }, [byteData?.behaviorState?.fidgetCadenceMs, byteData?.behaviorState?.fidget, isSleeping, emotion, greeting, roamMotionState]);
+
+  // Personality interrupt — high-impulse / low-obedience bytes have a short
+  // attention span. While a fidget is active, every second roll
+  // (interruptChance × INTERRUPT_ROLL_SCALE). On hit, clear the fidget early.
+  // Effect: high-impulse bytes show shorter, more clipped fidgets while
+  // calm bytes hold them for the full HOLD_MS. Subtle, felt over time.
+  useEffect(() => {
+    if (!activeFidget) return;
+    const chance = Number(byteData?.personalityModifiers?.interruptChance ?? 0);
+    if (chance <= 0.05) return; // calm bytes — skip the per-second roll
+    const scale = TUNABLES.fidget.INTERRUPT_ROLL_SCALE;
+    const t = setInterval(() => {
+      if (Math.random() < chance * scale) setActiveFidget(null);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [activeFidget, byteData?.personalityModifiers?.interruptChance]);
 
   // Personality misbehavior — fake need signal. Every 45s, roll dice scaled
   // by misbehaviorChance. If no real need is in the request range and the

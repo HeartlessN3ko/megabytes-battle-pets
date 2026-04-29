@@ -174,6 +174,23 @@ function resolveBehaviorState(byte, needs = {}, context = {}) {
   const recentMoodKind = isRecentMoodActive(p.recentMood, nowMs) ? p.recentMood.kind : null;
   const dailyMoodKind = (p.dailyMood && p.dailyMood.kind) || null;
 
+  // Peak-hour bias (Phase 6 follow-up). When the byte's stored peakHour is
+  // close to the player's localHour, lower thresholds for high-energy states
+  // (exploring / playful). When far from peak, raise them so the byte trends
+  // toward calmer states. Hard signals above (sleepy / demanding / recentMood
+  // / clingy / withdrawn) are unaffected — peak hour can't override unmet needs.
+  const localHour = Number.isFinite(Number(context.localHour)) ? Number(context.localHour) : null;
+  const peakHour  = Number.isFinite(Number(context.peakHour))  ? Number(context.peakHour)  : null;
+  let peakDelta = null;
+  if (localHour !== null && peakHour !== null) {
+    const raw = Math.abs(localHour - peakHour);
+    peakDelta = Math.min(raw, 24 - raw); // wrap around midnight
+  }
+  const onPeak  = peakDelta !== null && peakDelta <= 2;
+  const offPeak = peakDelta !== null && peakDelta >= 5;
+  const exploreThresh = onPeak ? 55 : (offPeak ? 75 : 65);
+  const playfulMoodThresh = onPeak ? 50 : (offPeak ? 70 : 60);
+
   const minNeed = Math.min(Hunger, Bandwidth, Hygiene, Fun, Social);
   const criticalNeed = minNeed < 20;
   const needyNeed = minNeed < 40;
@@ -194,9 +211,9 @@ function resolveBehaviorState(byte, needs = {}, context = {}) {
     state = 'withdrawn';
   } else if (Fun < 30) {
     state = 'bored';
-  } else if (curiosity >= 65 && !needyNeed) {
+  } else if (curiosity >= exploreThresh && !needyNeed) {
     state = 'exploring';
-  } else if (dailyMoodKind === 'playful' || (impulse + curiosity >= 140 && Mood >= 60)) {
+  } else if (dailyMoodKind === 'playful' || (impulse + curiosity >= 140 && Mood >= playfulMoodThresh)) {
     state = 'playful';
   } else if (obedience >= 65 && impulse <= 35) {
     state = 'focused';

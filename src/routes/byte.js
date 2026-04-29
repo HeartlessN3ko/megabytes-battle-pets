@@ -37,19 +37,9 @@ router.use(optionalAuth);
 // Both helpers tolerate Mongoose Maps and plain objects since the schema is a
 // Map but reads can come back either way depending on `.toObject()` shape.
 
-function deriveFavoriteRoom(byte) {
-  const dist = byte?.behaviorMetrics?.roomTimeDistribution;
-  if (!dist) return null;
-  let entries;
-  if (typeof dist?.entries === 'function') entries = Array.from(dist.entries());
-  else entries = Object.entries(dist);
-  if (!entries || entries.length === 0) return null;
-  entries.sort((a, b) => Number(b[1]) - Number(a[1]));
-  const [room, count] = entries[0];
-  // Need a minimum signal — under 5 visits, "favorite" is statistical noise.
-  if (Number(count) < 5) return null;
-  return String(room);
-}
+// deriveFavoriteRoom removed 2026-04-28 — Phase 6 follow-up scrapped per Skye:
+// "doesn't play well." roomTimeDistribution data is still collected by
+// behaviorTracker (cheap, may resurface) but no consumer reads it.
 
 function derivePeakHour(byte) {
   const tod = byte?.behaviorMetrics?.timeOfDayPattern;
@@ -305,8 +295,11 @@ router.get('/:id', async (req, res) => {
       passiveXPGain: snapshot.passiveXPGain,
       affectionTier: affectionEngine.getAffectionTier(byte.affection || 50),
       personalityModifiers: personalityEngine.getModifiers(byte),
-      behaviorState: personalityResolver.resolveBehaviorState(byte, snapshot.needs || byte.needs, {}),
-      favoriteRoom: deriveFavoriteRoom(byte),
+      // GET is read-only and has no body — peakHour bias falls through without
+      // a localHour. The /sync path provides both and gets the full bias.
+      behaviorState: personalityResolver.resolveBehaviorState(byte, snapshot.needs || byte.needs, {
+        peakHour: derivePeakHour(byte),
+      }),
       peakHour: derivePeakHour(byte),
     });
   } catch (err) {
@@ -575,8 +568,13 @@ router.post('/:id/sync', async (req, res) => {
     }
 
     const sessionGapHoursOut = lastLogin > 0 ? Math.max(0, gapHours) : 0;
+    const syncLocalHour = Number.isFinite(Number(req.body?.localHour))
+      ? Number(req.body.localHour)
+      : undefined;
     const behaviorState = personalityResolver.resolveBehaviorState(byte, byte.needs, {
       sessionGapHours: sessionGapHoursOut,
+      localHour: syncLocalHour,
+      peakHour: derivePeakHour(byte),
     });
 
     res.json({
@@ -590,7 +588,6 @@ router.post('/:id/sync', async (req, res) => {
       sessionGapHours: sessionGapHoursOut,
       personalityModifiers: personalityEngine.getModifiers(byte),
       behaviorState,
-      favoriteRoom: deriveFavoriteRoom(byte),
       peakHour: derivePeakHour(byte),
     });
   } catch (err) {

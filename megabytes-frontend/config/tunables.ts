@@ -26,8 +26,13 @@ const home = {
   SWIPE_MOVEMENT_THRESHOLD_PX: 14,
 
   /** Idle thought bubble cycle length (ms). Status text refreshes inside
-   *  this window. Skye 2026-04-27: keep slow — faster feels overwhelming. */
+   *  this window. Skye 2026-04-27: keep slow — faster feels overwhelming.
+   *  Phase 6 (2026-04-28): scaled per-byte by personalityModifiers.expression
+   *  (sensitivity-dominant, 0.4–1.6). High-expression bytes hold thoughts
+   *  longer; stoic bytes cycle faster. Clamp keeps the timing chain sane. */
   IDLE_THOUGHT_CYCLE_MS: 30_000,
+  IDLE_THOUGHT_CYCLE_MIN_MS: 22_000,
+  IDLE_THOUGHT_CYCLE_MAX_MS: 45_000,
 
   /** Random idle sprite variant (wink / lookUp / etc.) cadence range. */
   IDLE_VARIANT_MIN_DELAY_MS: 8_000,
@@ -227,6 +232,12 @@ const emote = {
 const fidget = {
   /** How long an ambient fidget sprite stays on screen. */
   HOLD_MS: 2_500,
+  /** Per-second interrupt roll while a fidget is active. Multiplied by the
+   *  byte's personalityModifiers.interruptChance (0–1). At chance=0.3 and
+   *  scale=0.3, each second rolls 9% — roughly 1 in 5 fidgets gets cut
+   *  short for a moderately impulsive byte. Lower this if cuts feel too
+   *  frequent; raise to make high-impulse bytes feel more jittery. */
+  INTERRUPT_ROLL_SCALE: 0.3,
 } as const;
 
 // ─── Wake reactions (tap / praise / scold / natural) ────────────────────────

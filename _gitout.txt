@@ -1,0 +1,5 @@
+[main dfc2a02] SpeedDrill: migrate training-speed off the legacy runner
+ 3 files changed, 403 insertions(+), 1 deletion(-)
+ create mode 100644 megabytes-frontend/components/minigames/drills/SpeedDrill.tsx
+To https://github.com/HeartlessN3ko/megabytes-battle-pets.git
+   21a4399..dfc2a02  main -> main

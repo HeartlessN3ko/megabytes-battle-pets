@@ -12,6 +12,7 @@ import { PowerDrill } from '../../components/minigames/drills/PowerDrill';
 import { AccuracyDrill } from '../../components/minigames/drills/AccuracyDrill';
 import { StaminaDrill } from '../../components/minigames/drills/StaminaDrill';
 import { SpeedDrill } from '../../components/minigames/drills/SpeedDrill';
+import { AgilityDrill } from '../../components/minigames/drills/AgilityDrill';
 
 type Grade = 'fail' | 'good' | 'perfect';
 type Variant = 'quick' | 'long';
@@ -260,6 +261,10 @@ export default function MiniGameRunnerScreen() {
   if (rawId === 'training-speed') {
     const game = getMiniGameById(rawId);
     if (game) return <SpeedDrill game={game} />;
+  }
+  if (rawId === 'training-agility') {
+    const game = getMiniGameById(rawId);
+    if (game) return <AgilityDrill game={game} />;
   }
   return <LegacyMiniGameRunner />;
 }

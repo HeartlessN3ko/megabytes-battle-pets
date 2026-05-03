@@ -185,6 +185,10 @@ export const SweetSpotTimer = forwardRef<SweetSpotTimerHandle, SweetSpotTimerPro
           if (!paused) startSweep();
         },
       }),
+      // pos is a stable Animated.Value ref; startSweep is recreated each render
+      // but only invoked through reset() which the parent rarely calls — keeping
+      // the handle stable across renders is intentional.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       [windowCenter, tolerance, perfectThreshold, goodThreshold, paused],
     );
 

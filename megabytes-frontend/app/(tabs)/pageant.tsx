@@ -59,7 +59,7 @@ const PLAYER_GRADE_LABEL: Record<string, string> = {
   neglectful: 'NEGLECTFUL',
 };
 
-const STAT_ORDER: Array<{ key: keyof CeremonyStats; label: string }> = [
+const STAT_ORDER: { key: keyof CeremonyStats; label: string }[] = [
   { key: 'cuteness',   label: 'CUTENESS' },
   { key: 'talent',     label: 'TALENT' },
   { key: 'charm',      label: 'CHARM' },

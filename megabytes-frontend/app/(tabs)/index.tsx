@@ -104,9 +104,6 @@ const GLANCE_TO_SPRITE_KEY: Record<string, import('../../services/byteSprites').
   'look-up':    'lookUp',
 };
 
-const STAGE_NAMES = ['EGG', 'Stage 1 .PNG', 'Stage 2 .SVG', 'Stage 3 .GIF', 'Stage 4 .ANI', 'Stage 5 .MOV'];
-const getStageName = (stage: number) => STAGE_NAMES[Math.max(0, Math.min(5, stage))] || 'Unknown';
-
 // Poop sprite progression — 3-tap clean routine per Skye 2026-04-27.
 // Stage 0 (fresh) -> stage 1 (resting) -> stage 2 (almost gone) -> removed.
 // Each tap advances one stage; the final tap removes the node and shows
@@ -660,12 +657,10 @@ export default function HomeScreen() {
   const corruptionTier  = (byteData?.corruptionTier || byteData?.byte?.corruptionTier || 'none') as string;
   const corruptionColor = CORRUPTION_TIER_COLOR[corruptionTier] || '#888888';
   const affection       = Number(byteData?.byte?.affection ?? 50);
-  const affectionTier   = (byteData?.affectionTier || 'normal') as string;
 
   const byteName  = byteData?.byte?.name  || 'BYTE';
   const byteLevel = Number(byteData?.byte?.level || 1);
   const moodLabel = effectiveMood >= 75 ? 'Happy' : effectiveMood >= 40 ? 'Stable' : 'Needs care';
-  const stageName = getStageName(stage);
 
   // Level-up banner detection — compares byte.level to the last value we
   // acknowledged on this screen (stored per-byte in AsyncStorage). Catches:
@@ -713,16 +708,6 @@ export default function HomeScreen() {
   const activeTasks    = byteData?.byte?.activeDailyTasks || [];
   const completedTasks = activeTasks.filter((t: any) => t.completed || (t.target === true && !t.failed)).length;
   const totalTasks     = activeTasks.length;
-
-  // Home needs display: Hunger, Bandwidth, Hygiene, Social, Corruption, Affection
-  const HOME_NEEDS = [
-    { label: 'HUNGER',    val: needs.Hunger    || 0, color: '#ff6b87' },
-    { label: 'ENERGY',    val: needs.Bandwidth || 0, color: '#52e58f' },
-    { label: 'HYGIENE',   val: needs.Hygiene   || 0, color: '#56d9ff' },
-    { label: 'SOCIAL',    val: needs.Social    || 0, color: '#ffba47' },
-    { label: 'CORRUPT',   val: Number(byteData?.byte?.corruption || 0), color: corruptionColor },
-    { label: 'LOVE',      val: affection,              color: '#dd9aff' },
-  ];
 
   // Sprite state machine — evaluated in priority order.
   // Higher-priority branches win; the default idle path may swap in a random
@@ -1452,7 +1437,7 @@ export default function HomeScreen() {
       setTransientStatus('Praise failed — try again.', 2000);
     }
     refreshData().catch(() => {});
-  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude, triggerWakeReaction]);
+  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude, byteData?.activeActivity, triggerWakeReaction]);
 
   const handleScold = useCallback(async () => {
     const activeAct = byteData?.activeActivity;
@@ -1496,7 +1481,7 @@ export default function HomeScreen() {
       setTransientStatus('Scold failed — try again.', 2000);
     }
     refreshData().catch(() => {});
-  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude, triggerWakeReaction]);
+  }, [isSleeping, refreshData, setTransientStatus, byteData?.behaviorState?.reactionAmplitude, byteData?.activeActivity, triggerWakeReaction]);
 
   const handlePlay = useCallback(() => {
     playSfx('menu', 0.75);
@@ -1814,13 +1799,6 @@ export default function HomeScreen() {
               <Image source={petSprite} style={[styles.byteSprite, { width: byteFootprint, height: byteFootprint }]} resizeMode="contain" />
             </View>
             <CorruptionAura corruption={corruptionValue} size={byteFootprint * 0.5} containerSize={byteFootprint} />
-          <ActivityPopup activity={byteData?.activeActivity ?? null} onTap={handleActivityTap} />
-          <HazardOverlay
-            hazards={(byteData?.hazards as Hazard[] | undefined) || []}
-            stageWidth={Dimensions.get('window').width}
-            stageHeight={Dimensions.get('window').height - 240}
-            onClearAction={handleHazardClear}
-          />
             <SleepZsOverlay visible={isSleeping} />
             <NeedRequestBubble need={requestedNeed} />
             {greeting ? (
@@ -1829,6 +1807,15 @@ export default function HomeScreen() {
               </View>
             ) : null}
           </Animated.View>
+
+          {/* Screen-level overlays — siblings of byteStage, not children, so they aren't clipped/transformed by the byte's container. */}
+          <ActivityPopup activity={byteData?.activeActivity ?? null} onTap={handleActivityTap} />
+          <HazardOverlay
+            hazards={(byteData?.hazards as Hazard[] | undefined) || []}
+            stageWidth={Dimensions.get('window').width}
+            stageHeight={Dimensions.get('window').height - 240}
+            onClearAction={handleHazardClear}
+          />
 
           {/* Byte name / level / status — floats above the sprite */}
           <View style={styles.byteLabel} pointerEvents="none">

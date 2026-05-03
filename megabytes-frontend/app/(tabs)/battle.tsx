@@ -419,7 +419,7 @@ export default function BattleScreen() {
     };
 
     finalize();
-  }, [overlayOp, restoreBattleState, returningHome, safeNavigate, isCampaignBattle, victory, campaignNodeId]);
+  }, [overlayOp, restoreBattleState, returningHome, safeNavigate, isCampaignBattle, victory, campaignNodeId, router]);
 
   // Tick-log playback: consume each entry in battleLogRef, apply events to UI.
   const playTick = useCallback((tickEntry: BattleTick) => {
@@ -727,7 +727,7 @@ export default function BattleScreen() {
               addFloatingText(cheer, '📢');
               if (battleId) {
                 try {
-                  const res = await cheerBattle(battleId);
+                  await cheerBattle(battleId);
                 } catch {}
               }
             }}

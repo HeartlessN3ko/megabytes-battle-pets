@@ -54,18 +54,6 @@ function familyLabelFor(game: MiniGameDef) {
   return game.id.startsWith('training-') ? 'TRAINING SIMULATION' : 'CARE SIMULATION';
 }
 
-function kindLabelFor(kind: MiniGameDef['kind']) {
-  if (kind === 'tap-target') return 'REACTION';
-  if (kind === 'scrub') return 'SCRUB';
-  if (kind === 'trace') return 'TRACE';
-  if (kind === 'match') return 'MATCH';
-  if (kind === 'sequence') return 'SEQUENCE';
-  if (kind === 'timing') return 'TIMING';
-  if (kind === 'rapid-tap') return 'RAPID TAP';
-  if (kind === 'ordered-sequence') return 'ORDER';
-  return 'MODULE';
-}
-
 function gradeForQuality(q: number): Grade {
   if (q >= 0.85) return 'perfect';
   if (q >= 0.45) return 'good';
@@ -104,16 +92,6 @@ function calcEconomy(def: MiniGameDef, grade: Grade, variant: Variant, quality: 
   // Display matches backend TRAINING_GAIN * ~1.0 avg dailyMult * ~0.9 needMult → +3/+2/+1.
   const statGain = training && def.stat ? `${def.stat} +${grade === 'perfect' ? 3 : grade === 'good' ? 2 : 1}` : null;
   return { byteBits, energyCost, statGain };
-}
-
-function processLabelFor(game: MiniGameDef) {
-  if (game.id === 'feed-upload') return 'UPLOADING NUTRIENTS...';
-  if (game.id === 'run-cleanup') return 'CLEANING...';
-  if (game.id === 'stabilize-signal') return 'STABILIZING...';
-  if (game.id === 'engage-simulation') return 'RUNNING PLAY PACKAGE...';
-  if (game.id === 'sync-link') return 'SYNCING LINKS...';
-  if (game.id === 'emote-align') return 'ALIGNING EMOTES...';
-  return 'COMPILING RESULTS...';
 }
 
 function startCueFor(game: MiniGameDef): SfxKey {
@@ -198,10 +176,6 @@ function targetGoalFor(game: MiniGameDef, variant: Variant) {
   if (game.kind === 'rapid-tap') return variant === 'long' ? 24 : 12;
   if (game.kind === 'tap-target') return variant === 'long' ? 12 : 6;
   return 0;
-}
-
-function randomRange(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 // DEEP-CLEAN (run-cleanup) — v2: broad-swipe clearing (Fruit-Ninja family).
@@ -294,7 +268,7 @@ function LegacyMiniGameRunner() {
   const [interactions, setInteractions] = useState(0);
   const [quality, setQuality] = useState(0);
   const [grade, setGrade] = useState<Grade>('fail');
-  const [status, setStatus] = useState('Booting mini game process...');
+  const [, setStatus] = useState('Booting mini game process...');
   const [syncing, setSyncing] = useState(false);
   const [synced, setSynced] = useState(false);
   const [resultReady, setResultReady] = useState(false);
@@ -304,10 +278,10 @@ function LegacyMiniGameRunner() {
   const [resultBits, setResultBits] = useState(0);
   const [resultSkill, setResultSkill] = useState<string | null>(null);
   const [resultEnergyCost, setResultEnergyCost] = useState(0);
-  const [postProcessing, setPostProcessing] = useState(false);
-  const [postPercent, setPostPercent] = useState(0);
+  const [, setPostProcessing] = useState(false);
+  const [, setPostPercent] = useState(0);
 
-  const [tapCount, setTapCount] = useState(0);
+  const [, setTapCount] = useState(0);
   const [targetPos, setTargetPos] = useState({ x: 30, y: 30 });
   // CHOMP (feed-upload) state.
   type ChompFood = {
@@ -324,7 +298,7 @@ function LegacyMiniGameRunner() {
   const [chompGoodCaught, setChompGoodCaught] = useState(0);
   const [chompGoodMissed, setChompGoodMissed] = useState(0);
   const [chompBadEaten, setChompBadEaten] = useState(0);
-  const [chompGoodSpawned, setChompGoodSpawned] = useState(0);
+  const [, setChompGoodSpawned] = useState(0);
   const [chompReaction, setChompReaction] = useState<'none' | 'good' | 'bad' | 'miss'>('none');
   const [chompFlash, setChompFlash] = useState(false);
   const [chompTick, setChompTick] = useState(0); // forces re-render so drift/bob animates
@@ -361,7 +335,7 @@ function LegacyMiniGameRunner() {
   const [grimeNodes, setGrimeNodes] = useState<GrimeNode[]>([]);
   const [grimeCleared, setGrimeCleared] = useState(0);
   const [grimeCombo, setGrimeCombo] = useState(0);
-  const [grimeMaxCombo, setGrimeMaxCombo] = useState(0);
+  const [, setGrimeMaxCombo] = useState(0);
   const [scrubBursts, setScrubBursts] = useState<ScrubBurst[]>([]);
   const [scrubReaction, setScrubReaction] = useState<'idle' | 'good'>('idle');
   const grimeNodesRef = useRef<GrimeNode[]>([]);
@@ -388,11 +362,11 @@ function LegacyMiniGameRunner() {
   const [revealed, setRevealed] = useState<boolean[]>([]);
   const [matched, setMatched] = useState<boolean[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
-  const [pairCount, setPairCount] = useState(0);
+  const [, setPairCount] = useState(0);
 
   const [seqPattern, setSeqPattern] = useState<number[]>([]);
   const [seqIndex, setSeqIndex] = useState(0);
-  const [seqCorrect, setSeqCorrect] = useState(0);
+  const [, setSeqCorrect] = useState(0);
   const [sequencePreviewing, setSequencePreviewing] = useState(false);
 
   const [orderedNext, setOrderedNext] = useState(1);
@@ -415,7 +389,6 @@ function LegacyMiniGameRunner() {
   const scrubMaxActive = variant === 'long' ? SCRUB_LONG_MAX_ACTIVE : SCRUB_QUICK_MAX_ACTIVE;
   const scrubSpawnMs = variant === 'long' ? SCRUB_LONG_SPAWN_MS : SCRUB_QUICK_SPAWN_MS;
   const activeTracePattern = tracePatterns[traceStage] ?? null;
-  const traceGoal = activeTracePattern?.goal ?? 0;
 
   const cleanupTimers = useCallback(() => {
     if (timerRef.current) {
@@ -1215,7 +1188,7 @@ function LegacyMiniGameRunner() {
           lastPointRef.current = null;
         },
       }),
-    [addScrubBurst, finishRound, game?.kind, playGameSfx, running, scrubTarget, triggerScrubReaction]
+    [addScrubBurst, finishRound, game?.kind, playGameSfx, running, triggerScrubReaction]
   );
 
   const tracePan = useMemo(

@@ -110,7 +110,7 @@ export function AccuracyDrill({ game }: { game: MiniGameDef }) {
       try {
         if (stat) {
           await trainStat(stat, finalGrade).catch((err: unknown) => {
-            // eslint-disable-next-line no-console
+             
             console.error(`trainStat failed for ${stat}:`, err);
             return null;
           });

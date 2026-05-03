@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -53,15 +53,6 @@ const TASK_LABELS: Record<string, { label: string; icon: string; desc: string }>
   perfect_cycle:        { label: 'Perfect Cycle',          icon: 'sync-outline',            desc: 'Feed, play, and rest all in optimal windows' },
   thriving_state:       { label: 'Thriving State',         icon: 'sunny-outline',           desc: 'Keep average needs above 85% for 5 minutes' },
   zero_neglect:         { label: 'Zero Neglect',           icon: 'eye-outline',             desc: 'Keep all needs above 40% all day' },
-};
-
-const TYPE_COLORS: Record<string, string> = {
-  basic:       '#7ec8ff',
-  quality:     '#ffd45a',
-  state:       '#7cffb2',
-  variety:     '#ff9ef5',
-  consistency: '#a8c8ff',
-  stretch:     '#ff6b6b',
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -173,7 +164,7 @@ export default function DailyCareScreen() {
 
           {/* Task List */}
           {tasks.length === 0 && (
-            <Text style={s.emptyText}>No tasks assigned yet — sync your Byte to generate today's tasks.</Text>
+            <Text style={s.emptyText}>No tasks assigned yet — sync your Byte to generate today&apos;s tasks.</Text>
           )}
 
           {tasks.map((task) => {

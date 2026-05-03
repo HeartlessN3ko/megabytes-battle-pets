@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import {

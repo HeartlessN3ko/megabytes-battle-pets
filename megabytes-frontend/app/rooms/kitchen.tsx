@@ -7,7 +7,6 @@ import { consumePendingMiniGameResult } from '../../services/minigameRuntime';
 import { THOUGHTS } from '../../services/byteThoughts';
 
 const QUICK_FEED_LIMIT = 5;
-const QUICK_FEED_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 // Hunger-aware kitchen thoughts pulled from the FT system
 function getKitchenThought(byteName: string, hunger: number): string {

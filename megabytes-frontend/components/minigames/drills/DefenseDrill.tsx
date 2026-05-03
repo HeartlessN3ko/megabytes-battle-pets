@@ -32,7 +32,7 @@ import { SweetSpotGrade } from '../primitives/SweetSpotTimer';
 const ROUNDS = 3;
 const ROUND_DURATION_MS = 8000;
 // (perfect, good) merge counts per round. Below `good` is fail.
-const ROUND_TARGETS: Array<{ perfect: number; good: number }> = [
+const ROUND_TARGETS: { perfect: number; good: number }[] = [
   { perfect: 7, good: 5 },
   { perfect: 8, good: 6 },
   { perfect: 9, good: 7 },
@@ -179,7 +179,7 @@ export function DefenseDrill({ game }: { game: MiniGameDef }) {
       try {
         if (stat) {
           await trainStat(stat, finalGrade).catch((err: unknown) => {
-            // eslint-disable-next-line no-console
+             
             console.error(`trainStat failed for ${stat}:`, err);
             return null;
           });

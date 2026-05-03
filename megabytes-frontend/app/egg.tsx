@@ -1,11 +1,10 @@
-﻿import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, Image, TouchableOpacity, StyleSheet,
   Animated, Dimensions, StatusBar, ImageBackground, Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { useEvolution } from '../context/EvolutionContext';
 import { careAction, hatchByte } from '../services/api';
 import { playSfx } from '../services/sfx';
 
@@ -28,7 +27,7 @@ function Particle({ emoji, startX, delay, size }: { emoji: string; startX: numbe
       ]).start();
     }, delay);
     return () => clearTimeout(t);
-  }, []);
+  }, [delay, opacity, scale, y]);
 
   return (
     <Animated.Text style={{
@@ -42,7 +41,6 @@ function Particle({ emoji, startX, delay, size }: { emoji: string; startX: numbe
 
 export default function EggScreen() {
   const router = useRouter();
-  const { reloadFromServer } = useEvolution();
 
   const eggBob      = useRef(new Animated.Value(0)).current;
   const eggScale    = useRef(new Animated.Value(1)).current;
@@ -65,7 +63,7 @@ export default function EggScreen() {
         Animated.timing(eggBob, { toValue: 0,   duration: 1400, useNativeDriver: true }),
       ])
     ).start();
-  }, []);
+  }, [eggBob]);
 
   // Hatch timer countdown
   useEffect(() => {
@@ -87,6 +85,10 @@ export default function EggScreen() {
     return () => {
       if (hatchTimerRef.current) clearInterval(hatchTimerRef.current);
     };
+    // hatchTimeMs intentionally omitted — interval reads via functional setState
+    // and adding it would tear down + re-create the timer every 100ms tick.
+    // triggerEvolution is captured by closure on first render; safe for one-shot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Progress bar animation
@@ -96,7 +98,7 @@ export default function EggScreen() {
       duration: 200,
       useNativeDriver: false,
     }).start();
-  }, [hatchProgress]);
+  }, [hatchProgress, progressAnim]);
 
   const spawnParticles = useCallback((emoji: string, count: number) => {
     const newP = Array.from({ length: count }, (_, i) => ({
@@ -126,7 +128,7 @@ export default function EggScreen() {
       }
       router.replace('/(tabs)');
     });
-  }, []);
+  }, [eggScale, router, whiteFlash]);
 
   const handleFeed = useCallback(async () => {
     spawnParticles('❤️', 5);
@@ -135,7 +137,7 @@ export default function EggScreen() {
       Animated.spring(eggScale, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
     try { await careAction('feed'); } catch {}
-  }, [spawnParticles]);
+  }, [eggScale, spawnParticles]);
 
   const handleClean = useCallback(async () => {
     spawnParticles('💧', 6);
@@ -144,7 +146,7 @@ export default function EggScreen() {
       Animated.spring(eggScale, { toValue: 1, friction: 4, useNativeDriver: true }),
     ]).start();
     try { await careAction('clean'); } catch {}
-  }, [spawnParticles]);
+  }, [eggScale, spawnParticles]);
 
   const handleLove = useCallback(() => {
     spawnParticles('💗', 7);
@@ -152,7 +154,7 @@ export default function EggScreen() {
       Animated.timing(eggScale, { toValue: 1.12, duration: 130, useNativeDriver: true }),
       Animated.spring(eggScale, { toValue: 1, friction: 3, useNativeDriver: true }),
     ]).start();
-  }, [spawnParticles]);
+  }, [eggScale, spawnParticles]);
 
   const progressColor = progressAnim.interpolate({
     inputRange: [0, 0.5, 1],

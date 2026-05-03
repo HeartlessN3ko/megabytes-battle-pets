@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { startCampaignNode, completeCampaignNode, startBattle } from '../../services/api';
+import { startCampaignNode, startBattle } from '../../services/api';
 
 export default function CampaignNodeScreen() {
   const router = useRouter();
@@ -30,17 +30,7 @@ export default function CampaignNodeScreen() {
     setTimeout(() => { navLock.current = false; }, delay);
   }, []);
 
-  useEffect(() => {
-    loadNode();
-  }, [nodeId]);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      loadNode();
-    }, [nodeId])
-  );
-
-  const loadNode = async () => {
+  const loadNode = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -51,7 +41,17 @@ export default function CampaignNodeScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [nodeId]);
+
+  useEffect(() => {
+    loadNode();
+  }, [loadNode]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadNode();
+    }, [loadNode])
+  );
 
   const handleStartBattle = async () => {
     try {

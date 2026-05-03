@@ -10,7 +10,7 @@ import { useByteRoaming } from '../hooks/useByteRoaming';
 import { consumeItem, getByte, getInventory, getShopItems } from '../services/api';
 import { getByteMotionProfile } from '../services/byteMotion';
 import { initSfx, playSfx } from '../services/sfx';
-import { resolveByteSprite, getStageSprite, type LifespanStage } from '../services/byteSprites';
+import { getStageSprite, type LifespanStage, type SpriteKey } from '../services/byteSprites';
 import { StatRadar, type StatRadarStat } from './StatRadar';
 
 const { width, height } = Dimensions.get('window');
@@ -83,11 +83,9 @@ type RoomInventoryItem = {
 };
 
 const DEBUG_LINES = Array.from({ length: 16 }, (_, idx) => idx);
-
 // Glance lookup — maps useByteRoaming's glance state to a SpriteKey. Resolved
 // per-stage at render time via getStageSprite. lookUp falls back to blinkBounce
 // inside byteSprites until Circle-look-up.gif ships. Mirrors index.tsx.
-import type { SpriteKey } from '../services/byteSprites';
 const GLANCE_TO_SPRITE_KEY: Record<'look-left' | 'look-right' | 'look-up' | 'look-down', SpriteKey> = {
   'look-left':  'lookLeft',
   'look-right': 'lookRight',
@@ -311,6 +309,9 @@ export default function RoomScene({
         useNativeDriver: false,
       }).start();
     }
+    // metaProgress is read for value/max only — listing the whole object would
+    // re-fire the bar animation every render the parent re-creates the prop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metaProgress?.value, metaProgress?.max, metaProgressAnim]);
 
   // Motion contract (LOCKED 2026-04-23 — do NOT re-introduce bob, breathe, or drift here):

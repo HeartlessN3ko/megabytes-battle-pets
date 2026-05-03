@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
-import { enterRoom, getByte, trainStat } from '../../services/api';
+import { enterRoom, getByte } from '../../services/api';
 import RoomScene, { RoomAction, RoomResultWindow } from '../../components/RoomScene';
-import { consumePendingMiniGameResult, getTrainingCooldownRemainingMs, getTrainingFatigue, recordTrainingUsage } from '../../services/minigameRuntime';
+import { consumePendingMiniGameResult, getTrainingCooldownRemainingMs, getTrainingFatigue } from '../../services/minigameRuntime';
 
 // v1 lifespan-stage gate: training is only available to teen + adult.
 // Baby and child are too young; elder bytes have stopped training.
@@ -58,7 +58,7 @@ export default function TrainingCenterRoom() {
       clearInterval(statsTicker);
       clearInterval(cooldownTicker);
     };
-  }, [bandwidth]);
+  }, [bandwidth, loadStats]);
 
   useFocusEffect(
     React.useCallback(() => {

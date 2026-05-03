@@ -19,11 +19,30 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  Image,
   PanResponder,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+
+import { TEST_CANDIDATES } from '../config/testCandidates';
+import { TUNABLES } from '../config/tunables';
+
+// Resolve the test-candidate sprite for a given hazard kind, or null when
+// the layer is off / the slot is set to fall back. Consumers render the
+// emoji glyph when this returns null. See `config/testCandidates.ts`.
+function getHazardSprite(kind: string) {
+  if (!TUNABLES.testCandidates.ENABLED) return null;
+  const slotKey =
+    kind === 'fire'    ? TUNABLES.testCandidates.hazardFire    :
+    kind === 'corrupt' ? TUNABLES.testCandidates.hazardCorrupt :
+    kind === 'leak'    ? TUNABLES.testCandidates.hazardLeak    :
+    kind === 'warning' ? TUNABLES.testCandidates.hazardWarning :
+    null;
+  if (!slotKey) return null;
+  return TEST_CANDIDATES.hazard[slotKey] ?? null;
+}
 
 export type Hazard = {
   id: string;
@@ -151,6 +170,8 @@ function HazardSprite({
     outputRange: [-5, 5],
   });
 
+  const sprite = getHazardSprite(hazard.kind);
+
   return (
     <Animated.View
       {...responder.panHandlers}
@@ -163,7 +184,11 @@ function HazardSprite({
         },
       ]}
     >
-      <Text style={styles.glyph}>{hazard.glyph}</Text>
+      {sprite ? (
+        <Image source={sprite} style={styles.sprite} resizeMode="contain" />
+      ) : (
+        <Text style={styles.glyph}>{hazard.glyph}</Text>
+      )}
       <View style={styles.progressRow}>
         {showTaps && (
           <Text style={styles.progressTap}>
@@ -192,6 +217,10 @@ const styles = StyleSheet.create({
   glyph: {
     fontSize: 38,
     textAlign: 'center',
+  },
+  sprite: {
+    width: HAZARD_SIZE * 0.85,
+    height: HAZARD_SIZE * 0.85,
   },
   progressRow: {
     flexDirection: 'row',

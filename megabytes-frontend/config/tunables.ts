@@ -298,6 +298,25 @@ const lifespan = {
   EVOLUTION_GATES: [5, 10, 20, 35, 50, 75] as readonly number[],
 } as const;
 
+// ─── Test-candidate asset layer (Skye review, task 2K) ─────────────────────
+// Master switch + per-slot overrides for the hand-picked candidate art that
+// lives under `assets/test_candidates/`. Consumers read sprites from
+// `config/testCandidates.ts` keyed by the slot values below. Flip ENABLED
+// to render the candidates; set any individual slot to null to revert that
+// one to its default (emoji glyph) without flipping the whole layer.
+const testCandidates = {
+  /** Master switch for the test-candidate asset layer. When false, every
+   *  consumer falls back to its existing default (emoji hazards, no VFX). */
+  ENABLED: false,
+
+  /** Per-slot override. Set any value to null to fall back to default for
+   *  just that slot. Otherwise the value names a key under TEST_CANDIDATES.<group>. */
+  hazardFire:    'fire',           // 'fire' | 'fire_alt' | null
+  hazardCorrupt: 'corrupt',        // 'corrupt' | 'corrupt_alt' | null
+  hazardLeak:    'leak',           // 'leak' | null
+  hazardWarning: 'warning',        // 'warning' | null
+} as const;
+
 // ─── Public export ──────────────────────────────────────────────────────────
 export const TUNABLES = {
   home,
@@ -314,6 +333,7 @@ export const TUNABLES = {
   fidget,
   wakeReaction,
   lifespan,
+  testCandidates,
 } as const;
 
 // ─── Derived helpers ────────────────────────────────────────────────────────

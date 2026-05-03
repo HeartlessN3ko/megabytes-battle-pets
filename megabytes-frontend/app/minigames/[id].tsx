@@ -201,6 +201,13 @@ const SCRUB_HIT_RADIUS_PX = 40;
 const SCRUB_CLUSTER_RADIUS_PX = 48;
 const SCRUB_BURST_TTL_MS = 480;
 const SCRUB_BYTE_REACTION_MS = 420;
+// 2G — cross-swipe optimal-combo system. A swipe counts as "optimal" if it
+// clears at least SCRUB_OPTIMAL_THRESHOLD nodes in one continuous stroke.
+// Consecutive optimals build the multiplier; one sub-optimal stroke resets it.
+// Pure visual celebration — quality / need-fill / XP math is unchanged.
+const SCRUB_OPTIMAL_THRESHOLD = 3;
+const SCRUB_COMBO_MULTIPLIERS = [1.0, 1.25, 1.5, 1.75, 2.0];
+const SCRUB_COMBO_MILESTONES = new Set<number>([3, 5, 7]);
 const SCRUB_SPRITE_IDLE = require('../../assets/bytes/Circle/Circle-idle.gif');
 // 2026-04-26: clean is the dedicated bath/scrub reaction (Deep Clean minigame).
 const SCRUB_SPRITE_HAPPY = require('../../assets/bytes/Circle/Circle-clean.gif');
@@ -353,6 +360,12 @@ function LegacyMiniGameRunner() {
   const grimeClearedRef = useRef(0);
   const grimeMaxComboRef = useRef(0);
   const swipeComboRef = useRef(0);
+  // 2G — cross-stroke optimal-combo state. Mirrors CHOMP's combo wiring but
+  // lives in its own refs so the two minigames stay independent.
+  const [scrubOptimalCombo, setScrubOptimalCombo] = useState(0);
+  const scrubOptimalComboRef = useRef(0);
+  const scrubMaxOptimalComboRef = useRef(0);
+  const scrubOptimalCountRef = useRef(0);
   const scrubNextIdRef = useRef(0);
   const scrubBurstIdRef = useRef(0);
   const scrubSpawnTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -502,6 +515,10 @@ function LegacyMiniGameRunner() {
     setGrimeMaxCombo(0);
     grimeMaxComboRef.current = 0;
     swipeComboRef.current = 0;
+    setScrubOptimalCombo(0);
+    scrubOptimalComboRef.current = 0;
+    scrubMaxOptimalComboRef.current = 0;
+    scrubOptimalCountRef.current = 0;
     setScrubBursts([]);
     setScrubReaction('idle');
     scrubNextIdRef.current = 0;
@@ -758,6 +775,10 @@ function LegacyMiniGameRunner() {
         // existing reward popup, not in place of it.
         game.id === 'feed-upload' && chompMaxComboRef.current > 0 ? `Max combo: ${chompMaxComboRef.current}x` : '',
         game.id === 'feed-upload' ? `Perfect catches: ${chompPerfectCountRef.current}` : '',
+        // 2G — Deep Clean summary lines. scrubMaxOptimalComboRef tracks peak
+        // optimal-swipe streak; scrubOptimalCountRef tracks total optimal swipes.
+        game.id === 'run-cleanup' && scrubMaxOptimalComboRef.current > 0 ? `Max swipe combo: ${scrubMaxOptimalComboRef.current}x` : '',
+        game.id === 'run-cleanup' ? `Optimal swipes: ${scrubOptimalCountRef.current}` : '',
       ].filter(Boolean));
       setResultBits(economy.byteBits);
       setResultSkill(economy.statGain);
@@ -1127,6 +1148,24 @@ function LegacyMiniGameRunner() {
     scrubReactionTimerRef.current = setTimeout(() => setScrubReaction('idle'), SCRUB_BYTE_REACTION_MS);
   }, []);
 
+  // 2G — Deep Clean's layered SFX stack. Mirrors CHOMP's playChompMunchStack
+  // shape so the two minigames feel related but stay independent.
+  const playScrubStack = useCallback((tier: 'whoosh' | 'optimal' | 'milestone') => {
+    if (tier === 'whoosh') {
+      void playSfx('minigame_cleanup_scrub', 0.42);
+      return;
+    }
+    if (tier === 'optimal') {
+      void playSfx('minigame_cleanup_scrub', 0.5);
+      void playSfx('ui_pop', 0.55);
+      return;
+    }
+    // milestone — optimal stack + chime
+    void playSfx('minigame_cleanup_scrub', 0.55);
+    void playSfx('ui_pop', 0.6);
+    void playSfx('ui_twinkle', 0.7);
+  }, []);
+
   const spawnGrimeCluster = useCallback((bw: number, bh: number) => {
     if (bw <= 0 || bh <= 0) return;
     const cx = 40 + Math.random() * Math.max(1, bw - 80);
@@ -1193,6 +1232,8 @@ function LegacyMiniGameRunner() {
           lastPointRef.current = { x: g.moveX - off.x, y: g.moveY - off.y };
           swipeComboRef.current = 0;
           setGrimeCombo(0);
+          // 2G — base whoosh on every stroke, regardless of whether it lands a hit.
+          playScrubStack('whoosh');
         },
         onPanResponderMove: (_, g) => {
           if (!running || game?.kind !== 'scrub') return;
@@ -1246,17 +1287,47 @@ function LegacyMiniGameRunner() {
           }
         },
         onPanResponderRelease: () => {
+          // 2G — resolve cross-swipe optimal combo at stroke end. swipeComboRef
+          // holds the per-stroke clear count built up during onPanResponderMove.
+          const strokeCleared = swipeComboRef.current;
+          if (strokeCleared >= SCRUB_OPTIMAL_THRESHOLD) {
+            scrubOptimalComboRef.current += 1;
+            const combo = scrubOptimalComboRef.current;
+            if (combo > scrubMaxOptimalComboRef.current) scrubMaxOptimalComboRef.current = combo;
+            scrubOptimalCountRef.current += 1;
+            setScrubOptimalCombo(combo);
+            const isMilestone = SCRUB_COMBO_MILESTONES.has(combo);
+            playScrubStack(isMilestone ? 'milestone' : 'optimal');
+            // Sparkle ring at the swipe-end point — extra rings on milestone.
+            const last = lastPointRef.current;
+            if (last) {
+              addScrubBurst(last.x, last.y);
+              if (isMilestone) {
+                addScrubBurst(last.x, last.y);
+                addScrubBurst(last.x, last.y);
+              }
+            }
+          } else if (strokeCleared > 0) {
+            // Stroke landed but didn't meet optimal threshold — combo breaks.
+            scrubOptimalComboRef.current = 0;
+            setScrubOptimalCombo(0);
+          }
           swipeComboRef.current = 0;
           setGrimeCombo(0);
           lastPointRef.current = null;
         },
         onPanResponderTerminate: () => {
+          // Same combo-break behavior on interrupt — don't reward an interrupted stroke.
+          if (swipeComboRef.current > 0 && swipeComboRef.current < SCRUB_OPTIMAL_THRESHOLD) {
+            scrubOptimalComboRef.current = 0;
+            setScrubOptimalCombo(0);
+          }
           swipeComboRef.current = 0;
           setGrimeCombo(0);
           lastPointRef.current = null;
         },
       }),
-    [addScrubBurst, finishRound, game?.kind, playGameSfx, running, triggerScrubReaction]
+    [addScrubBurst, finishRound, game?.kind, playGameSfx, playScrubStack, running, triggerScrubReaction]
   );
 
   const tracePan = useMemo(
@@ -1468,6 +1539,14 @@ function LegacyMiniGameRunner() {
               <Text style={styles.chompComboLabel}>COMBO</Text>
               <Text style={styles.chompComboValue}>
                 {(CHOMP_COMBO_MULTIPLIERS[Math.min(chompCombo, CHOMP_COMBO_MULTIPLIERS.length - 1)] ?? 2.0).toFixed(2)}x
+              </Text>
+            </View>
+          ) : null}
+          {game.id === 'run-cleanup' && scrubOptimalCombo > 0 ? (
+            <View style={[styles.chompComboBadge, SCRUB_COMBO_MILESTONES.has(scrubOptimalCombo) && styles.chompComboBadgeMilestone]}>
+              <Text style={styles.chompComboLabel}>COMBO</Text>
+              <Text style={styles.chompComboValue}>
+                {(SCRUB_COMBO_MULTIPLIERS[Math.min(scrubOptimalCombo, SCRUB_COMBO_MULTIPLIERS.length - 1)] ?? 2.0).toFixed(2)}x
               </Text>
             </View>
           ) : null}

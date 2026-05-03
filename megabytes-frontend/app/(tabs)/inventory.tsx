@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { consumeItem, equipDecor, getByte, getDecorCatalog, getInventory, getPlayer, getShopItems, unequipDecor } from '../../services/api';
 import { playSfx } from '../../services/sfx';
+import { PALETTE, RADIUS, SPACING, TYPE } from '../../constants/theme';
 
 type InventoryRow = {
   id: string;
@@ -14,9 +15,10 @@ type InventoryRow = {
   layer?: string;
 };
 
-const TYPE_ORDER = ['recovery', 'clutch', 'utility', 'stat_boost', 'evolution', 'battle_only', 'decor'];
+const TYPE_ORDER = ['treat', 'recovery', 'clutch', 'utility', 'decor', 'stat_boost', 'evolution', 'battle_only'];
 
 const TYPE_COLOR: Record<string, string> = {
+  treat:       '#ffe08d',
   recovery:    '#7cffc0',
   clutch:      '#ff9a72',
   utility:     '#9bd7ff',
@@ -27,6 +29,7 @@ const TYPE_COLOR: Record<string, string> = {
 };
 
 const TYPE_LABEL: Record<string, string> = {
+  treat:       'TREAT',
   recovery:    'RECOVERY',
   clutch:      'CLUTCH',
   utility:     'UTILITY',
@@ -36,8 +39,45 @@ const TYPE_LABEL: Record<string, string> = {
   decor:       'DECOR',
 };
 
+// 2D — group display by category. Underlying TYPE values stay the same so
+// shop catalog + backend contracts are untouched; this is presentation-only.
+type Category = 'treats' | 'care' | 'decor' | 'battle';
+const CATEGORY_ORDER: Category[] = ['treats', 'care', 'decor', 'battle'];
+const TYPE_TO_CATEGORY: Record<string, Category> = {
+  treat:       'treats',
+  recovery:    'care',
+  clutch:      'care',
+  utility:     'care',
+  decor:       'decor',
+  stat_boost:  'battle',
+  evolution:   'battle',
+  battle_only: 'battle',
+};
+const CATEGORY_LABEL: Record<Category, string> = {
+  treats: 'TREATS',
+  care:   'CARE PROGRAMS',
+  decor:  'ROOM DECOR',
+  battle: 'BATTLE-LOCKED',
+};
+const CATEGORY_HINT: Record<Category, string> = {
+  treats: 'Snack packets and quick-feeds.',
+  care:   'Mood, hygiene, energy, recovery routines.',
+  decor:  'Furniture and room layer items.',
+  battle: 'Stat boosts and battle gear — unlocks with Expansion 1.',
+};
+const CATEGORY_ACCENT: Record<Category, string> = {
+  treats: '#ffe08d',
+  care:   '#7cffc0',
+  decor:  '#f9c0e8',
+  battle: '#ff6b6b',
+};
+
 function typeColor(type: string) {
-  return TYPE_COLOR[type] || '#9bd7ff';
+  return TYPE_COLOR[type] || PALETTE.accentBlue;
+}
+
+function categoryFor(type: string): Category {
+  return TYPE_TO_CATEGORY[type] || 'care';
 }
 
 export default function InventoryScreen() {
@@ -132,6 +172,18 @@ export default function InventoryScreen() {
     return rows.filter((r) => r.type === typeFilter);
   }, [rows, typeFilter]);
 
+  // Group visible rows by display category. Order honors CATEGORY_ORDER and
+  // skips empty categories so the layout stays compact under filtering.
+  const grouped = useMemo(() => {
+    const map: Record<Category, InventoryRow[]> = { treats: [], care: [], decor: [], battle: [] };
+    visibleRows.forEach((r) => {
+      map[categoryFor(r.type)].push(r);
+    });
+    return CATEGORY_ORDER
+      .map((cat) => ({ cat, items: map[cat] }))
+      .filter((g) => g.items.length > 0);
+  }, [visibleRows]);
+
   const consumeInventoryItem = useCallback(async (id: string) => {
     setStatus(`Using ${id}...`);
     try {
@@ -169,6 +221,55 @@ export default function InventoryScreen() {
     }
   }, [equipped]);
 
+  const renderRow = (row: InventoryRow) => {
+    const accent = typeColor(row.type);
+    const isDecor = row.type === 'decor';
+    const isEquipped = isDecor && equipped.has(row.id);
+    const isBusy = busyId === row.id;
+    const actionLabel = isDecor
+      ? (isEquipped ? 'REMOVE FROM ROOM' : `PLACE IN ${(row.layer || 'ROOM').toUpperCase()}`)
+      : 'USE ITEM';
+    const onAction = isDecor
+      ? () => toggleDecorPlacement(row)
+      : () => consumeInventoryItem(row.id);
+    return (
+      <View key={row.id} style={styles.rowCard}>
+        <View style={[styles.accentBar, { backgroundColor: accent }]} />
+        <View style={styles.rowInner}>
+          <View style={styles.rowTop}>
+            <Text style={styles.rowName}>{row.name}</Text>
+            <View style={[styles.qtyBadge, { borderColor: `${accent}66` }]}>
+              <Text style={[styles.qtyText, { color: accent }]}>x{row.quantity}</Text>
+            </View>
+          </View>
+          <View style={styles.badgeRow}>
+            <Text style={[styles.typeBadge, { color: accent }]}>
+              {TYPE_LABEL[row.type] || row.type.toUpperCase()}
+            </Text>
+            {isEquipped ? (
+              <Text style={styles.equippedTag}>EQUIPPED</Text>
+            ) : null}
+          </View>
+          <Text style={styles.rowDesc}>{row.description}</Text>
+          <TouchableOpacity
+            style={[
+              styles.actionBtn,
+              { borderColor: `${accent}55`, backgroundColor: `${accent}14` },
+              isBusy && styles.actionBtnDisabled,
+            ]}
+            onPress={onAction}
+            disabled={isBusy}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.actionText, { color: accent }]}>
+              {isBusy ? '...' : actionLabel}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
   return (
     <ImageBackground source={require('../../assets/backgrounds/bg916.jpg')} style={styles.bg} resizeMode="cover">
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -176,11 +277,11 @@ export default function InventoryScreen() {
         {/* Compact top bar: title + status + filters */}
         <View style={styles.topBar}>
           <View style={styles.titleRow}>
-            <Text style={styles.title}>INVENTORY</Text>
-            <Text style={styles.subtitle}>ITEM STORAGE SYSTEM</Text>
+            <Text style={styles.title}>BYTE STORAGE</Text>
+            <Text style={styles.subtitle}>OWNED PROGRAMS, TREATS, AND DECOR</Text>
           </View>
           <View style={styles.statusBar}>
-            <Ionicons name="server-outline" size={10} color="#4a9eff" style={{ marginRight: 5 }} />
+            <Ionicons name="server-outline" size={10} color={PALETTE.accentBlue} style={{ marginRight: SPACING.xs }} />
             <Text style={styles.statusText}>{status}</Text>
           </View>
           <ScrollView
@@ -190,7 +291,7 @@ export default function InventoryScreen() {
           >
             {typeOptions.map((t) => {
               const active = typeFilter === t;
-              const accent = t === 'all' ? '#7ec8ff' : typeColor(t);
+              const accent = t === 'all' ? PALETTE.accentBlue : typeColor(t);
               return (
                 <TouchableOpacity
                   key={t}
@@ -210,72 +311,28 @@ export default function InventoryScreen() {
           </ScrollView>
         </View>
 
-        {/* Item list — fills remaining space */}
+        {/* Grouped item list — fills remaining space */}
         <ScrollView style={styles.listScroll} contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-          {visibleRows.length === 0 ? (
+          {grouped.length === 0 ? (
             <View style={styles.emptyCard}>
-              <Ionicons name="cube-outline" size={28} color="rgba(120,195,255,0.3)" style={{ marginBottom: 8 }} />
-              <Text style={styles.emptyTitle}>NO ITEMS</Text>
-              <Text style={styles.emptySub}>Nothing in this category yet.</Text>
+              <Ionicons name="cube-outline" size={28} color={PALETTE.panelBorderSoft} style={{ marginBottom: SPACING.sm }} />
+              <Text style={styles.emptyTitle}>STORAGE EMPTY</Text>
+              <Text style={styles.emptySub}>Programs you collect or buy land here. Visit the shop or marketplace to fill it up.</Text>
             </View>
           ) : (
-            visibleRows.map((row) => {
-              const accent = typeColor(row.type);
-              const isDecor = row.type === 'decor';
-              const isEquipped = isDecor && equipped.has(row.id);
-              const isBusy = busyId === row.id;
-              const actionLabel = isDecor
-                ? (isEquipped ? 'REMOVE FROM ROOM' : `PLACE IN ${(row.layer || 'ROOM').toUpperCase()}`)
-                : 'USE ITEM';
-              const onAction = isDecor
-                ? () => toggleDecorPlacement(row)
-                : () => consumeInventoryItem(row.id);
-              return (
-                <View key={row.id} style={styles.rowCard}>
-                  {/* Type accent bar */}
-                  <View style={[styles.accentBar, { backgroundColor: accent }]} />
-
-                  <View style={styles.rowInner}>
-                    {/* Top row: name + qty */}
-                    <View style={styles.rowTop}>
-                      <Text style={styles.rowName}>{row.name}</Text>
-                      <View style={[styles.qtyBadge, { borderColor: `${accent}66` }]}>
-                        <Text style={[styles.qtyText, { color: accent }]}>×{row.quantity}</Text>
-                      </View>
-                    </View>
-
-                    {/* Type badge + equipped tag */}
-                    <View style={styles.badgeRow}>
-                      <Text style={[styles.typeBadge, { color: accent }]}>
-                        {TYPE_LABEL[row.type] || row.type.toUpperCase()}
-                      </Text>
-                      {isEquipped ? (
-                        <Text style={styles.equippedTag}>● EQUIPPED</Text>
-                      ) : null}
-                    </View>
-
-                    {/* Description */}
-                    <Text style={styles.rowDesc}>{row.description}</Text>
-
-                    {/* Action */}
-                    <TouchableOpacity
-                      style={[
-                        styles.actionBtn,
-                        { borderColor: `${accent}55`, backgroundColor: `${accent}14` },
-                        isBusy && styles.actionBtnDisabled,
-                      ]}
-                      onPress={onAction}
-                      disabled={isBusy}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.actionText, { color: accent }]}>
-                        {isBusy ? '...' : actionLabel}
-                      </Text>
-                    </TouchableOpacity>
+            grouped.map(({ cat, items }) => (
+              <View key={cat} style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <View style={[styles.sectionAccent, { backgroundColor: CATEGORY_ACCENT[cat] }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.sectionTitle}>{CATEGORY_LABEL[cat]}</Text>
+                    <Text style={styles.sectionHint}>{CATEGORY_HINT[cat]}</Text>
                   </View>
+                  <Text style={styles.sectionCount}>{items.length}</Text>
                 </View>
-              );
-            })
+                {items.map(renderRow)}
+              </View>
+            ))
           )}
           <View style={{ height: 90 }} />
         </ScrollView>
@@ -287,95 +344,108 @@ export default function InventoryScreen() {
 
 const styles = StyleSheet.create({
   bg:   { flex: 1 },
-  safe: { flex: 1, paddingHorizontal: 14 },
+  safe: { flex: 1, paddingHorizontal: SPACING.md },
 
   topBar: {
-    gap: 4,
-    paddingTop: 8,
-    paddingBottom: 6,
+    gap: SPACING.xs,
+    paddingTop: SPACING.sm,
+    paddingBottom: SPACING.xs + 2,
   },
   titleRow: { alignItems: 'center', marginBottom: 2 },
-  title:    { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: 3 },
-  subtitle: { color: 'rgba(120,195,255,0.6)', fontSize: 8.5, fontWeight: '700', letterSpacing: 2, marginTop: 1 },
+  title:    { ...TYPE.hero, color: PALETTE.textHi },
+  subtitle: { ...TYPE.micro, color: PALETTE.textLo, marginTop: 1 },
 
   statusBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(4,12,40,0.7)',
-    borderRadius: 7,
+    backgroundColor: PALETTE.statusBg,
+    borderRadius: RADIUS.sm + 1,
     borderWidth: 1,
-    borderColor: 'rgba(74,158,255,0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    borderColor: PALETTE.statusBorder,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
   },
-  statusText: { color: 'rgba(160,210,255,0.7)', fontSize: 9.5, fontFamily: 'monospace' },
+  statusText: { ...TYPE.caption, color: PALETTE.statusText, fontFamily: 'monospace' },
 
-  filterRow: { gap: 5, paddingVertical: 4, paddingRight: 8, alignItems: 'center' },
+  filterRow: { gap: 5, paddingVertical: SPACING.xs, paddingRight: SPACING.sm, alignItems: 'center' },
   filterChip: {
-    borderRadius: 6,
+    borderRadius: RADIUS.sm,
     borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.2)',
-    backgroundColor: 'rgba(8,18,62,0.6)',
-    paddingHorizontal: 7,
+    borderColor: PALETTE.chipBorder,
+    backgroundColor: PALETTE.chipBg,
+    paddingHorizontal: SPACING.sm - 1,
     paddingVertical: 3,
   },
-  filterText: {
-    color: 'rgba(160,210,255,0.5)',
-    fontSize: 8.5,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-  },
+  filterText: { ...TYPE.micro, color: PALETTE.chipText },
 
   listScroll: { flex: 1 },
-  list: { gap: 10, paddingTop: 4 },
+  list: { gap: SPACING.md, paddingTop: SPACING.xs },
+
+  section: { gap: SPACING.sm },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.xs,
+    paddingTop: SPACING.xs,
+  },
+  sectionAccent: {
+    width: 3,
+    height: 22,
+    borderRadius: 2,
+  },
+  sectionTitle: { ...TYPE.label, color: PALETTE.textHi },
+  sectionHint:  { ...TYPE.micro, color: PALETTE.textMid, marginTop: 1, fontWeight: '600' as const, letterSpacing: 0 },
+  sectionCount: { ...TYPE.label, color: PALETTE.textLo },
 
   emptyCard: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.15)',
-    backgroundColor: 'rgba(8,18,62,0.7)',
+    borderColor: PALETTE.panelBorderSoft,
+    backgroundColor: PALETTE.panelBgSoft,
     paddingVertical: 40,
-    marginTop: 20,
+    paddingHorizontal: SPACING.lg,
+    marginTop: SPACING.lg,
   },
-  emptyTitle: { color: 'rgba(220,240,255,0.5)', fontSize: 13, fontWeight: '900', letterSpacing: 2 },
-  emptySub:   { color: 'rgba(160,210,255,0.35)', fontSize: 10, marginTop: 4 },
+  emptyTitle: { ...TYPE.title, color: PALETTE.textLo, letterSpacing: 2 },
+  emptySub:   { ...TYPE.body, color: PALETTE.textMid, marginTop: SPACING.xs, textAlign: 'center' },
 
   rowCard: {
     flexDirection: 'row',
-    borderRadius: 12,
+    borderRadius: RADIUS.md + 2,
     borderWidth: 1,
-    borderColor: 'rgba(120,195,255,0.18)',
-    backgroundColor: 'rgba(6,14,50,0.88)',
+    borderColor: PALETTE.panelBorder,
+    backgroundColor: PALETTE.panelBg,
     overflow: 'hidden',
   },
   accentBar: { width: 4, borderRadius: 0 },
-  rowInner:  { flex: 1, paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
+  rowInner:  { flex: 1, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2, gap: SPACING.xs },
 
   rowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  rowName: { color: '#fff', fontSize: 14, fontWeight: '900', letterSpacing: 0.5, flex: 1 },
+  rowName: { ...TYPE.title, color: PALETTE.textHi, flex: 1 },
   qtyBadge: {
     borderWidth: 1,
-    borderRadius: 6,
+    borderRadius: RADIUS.sm,
     paddingHorizontal: 7,
     paddingVertical: 2,
     backgroundColor: 'rgba(0,0,0,0.3)',
   },
-  qtyText: { fontSize: 11, fontWeight: '900' },
+  qtyText: { fontSize: 11, fontWeight: '900' as const },
 
-  badgeRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  typeBadge:   { fontSize: 9, fontWeight: '800', letterSpacing: 1.2, opacity: 0.85 },
-  equippedTag: { color: '#9bffbf', fontSize: 9, fontWeight: '900', letterSpacing: 1.1 },
-  rowDesc:     { color: 'rgba(200,230,255,0.65)', fontSize: 11, lineHeight: 15 },
+  badgeRow:    { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.sm },
+  typeBadge:   { ...TYPE.micro, opacity: 0.85 },
+  equippedTag: { ...TYPE.micro, color: '#9bffbf', fontWeight: '900' as const },
+  rowDesc:     { ...TYPE.body, color: PALETTE.textMid, lineHeight: 15 },
 
   actionBtn: {
-    marginTop: 6,
-    borderRadius: 8,
+    marginTop: SPACING.xs + 2,
+    borderRadius: RADIUS.md - 2,
     borderWidth: 1,
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
   },
   actionBtnDisabled: { opacity: 0.55 },
-  actionText: { fontSize: 11, fontWeight: '900', letterSpacing: 1.2 },
+  actionText: { ...TYPE.body, fontWeight: '900' as const, letterSpacing: 1.2 },
 });

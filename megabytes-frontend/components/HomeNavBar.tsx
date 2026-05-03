@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { playSfx } from '../services/sfx';
+import { PALETTE, RADIUS, SPACING, TYPE } from '../constants/theme';
 
 const NAV_GATE_MS = 1500;
 
@@ -38,93 +39,101 @@ export default function HomeNavBar() {
   }
 
   return (
-    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-      {LEFT_TABS.map(tab => (
-        <TouchableOpacity
-          key={tab.key}
-          style={styles.tab}
-          onPress={() => gate(() => router.push(tab.route as any))}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name={tab.icon as any}
-            size={18}
-            color={isActive(tab.route) ? '#7ec8ff' : 'rgba(255,255,255,0.4)'}
-          />
-          <Text style={[styles.label, isActive(tab.route) && styles.labelActive]}>
-            {tab.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
+    <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, SPACING.sm) }]}>
+      {LEFT_TABS.map(tab => {
+        const active = isActive(tab.route);
+        return (
+          <TouchableOpacity
+            key={tab.key}
+            style={styles.tab}
+            onPress={() => gate(() => router.push(tab.route as any))}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={tab.icon as any}
+              size={ICON_SIZE}
+              color={active ? PALETTE.navActive : PALETTE.navInactive}
+            />
+            <Text style={[styles.label, active && styles.labelActive]}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
 
       <TouchableOpacity
         style={styles.homeBtn}
         onPress={() => gate(() => router.replace('/(tabs)' as any))}
         activeOpacity={0.8}
       >
-        <Ionicons name="home" size={22} color="#0a1840" />
+        <Ionicons name="home" size={ICON_SIZE_HOME} color={PALETTE.accentDark} />
       </TouchableOpacity>
 
-      {RIGHT_TABS.map(tab => (
-        <TouchableOpacity
-          key={tab.key}
-          style={styles.tab}
-          onPress={() => gate(() => router.push(tab.route as any))}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name={tab.icon as any}
-            size={18}
-            color={isActive(tab.route) ? '#7ec8ff' : 'rgba(255,255,255,0.4)'}
-          />
-          <Text style={[styles.label, isActive(tab.route) && styles.labelActive]}>
-            {tab.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
+      {RIGHT_TABS.map(tab => {
+        const active = isActive(tab.route);
+        return (
+          <TouchableOpacity
+            key={tab.key}
+            style={styles.tab}
+            onPress={() => gate(() => router.push(tab.route as any))}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={tab.icon as any}
+              size={ICON_SIZE}
+              color={active ? PALETTE.navActive : PALETTE.navInactive}
+            />
+            <Text style={[styles.label, active && styles.labelActive]}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
 
+const ICON_SIZE = 18;
+const ICON_SIZE_HOME = 22;
+
+const HOME_BTN_SIZE = 54;
 const styles = StyleSheet.create({
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(5,12,40,0.97)',
+    backgroundColor: PALETTE.navBg,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(80,160,255,0.2)',
-    paddingHorizontal: 12,
-    paddingTop: 10,
+    borderTopColor: PALETTE.navBorder,
+    paddingHorizontal: SPACING.md,
+    paddingTop: SPACING.sm,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
-    paddingVertical: 4,
+    gap: SPACING.xs,
+    paddingVertical: SPACING.xs,
   },
   label: {
-    fontSize: 8,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    color: 'rgba(255,255,255,0.4)',
+    ...TYPE.micro,
+    color: PALETTE.navInactive,
   },
   labelActive: {
-    color: '#7ec8ff',
+    color: PALETTE.navActive,
   },
   homeBtn: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#7ec8ff',
+    width: HOME_BTN_SIZE,
+    height: HOME_BTN_SIZE,
+    borderRadius: HOME_BTN_SIZE / 2,
+    backgroundColor: PALETTE.accentBlue,
     alignItems: 'center',
     justifyContent: 'center',
-    marginHorizontal: 10,
-    marginTop: -20,
-    shadowColor: '#7ec8ff',
+    marginHorizontal: SPACING.sm,
+    marginTop: -SPACING.xl,
+    shadowColor: PALETTE.accentBlue,
     shadowOpacity: 0.5,
-    shadowRadius: 10,
+    shadowRadius: RADIUS.md,
     shadowOffset: { width: 0, height: 0 },
     elevation: 10,
   },

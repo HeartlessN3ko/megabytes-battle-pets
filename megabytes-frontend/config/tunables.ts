@@ -31,8 +31,8 @@ const home = {
    *  (sensitivity-dominant, 0.4–1.6). High-expression bytes hold thoughts
    *  longer; stoic bytes cycle faster. Clamp keeps the timing chain sane. */
   IDLE_THOUGHT_CYCLE_MS: 30_000,
-  IDLE_THOUGHT_CYCLE_MIN_MS: 22_000,
-  IDLE_THOUGHT_CYCLE_MAX_MS: 45_000,
+  IDLE_THOUGHT_CYCLE_MIN_MS: 28_000,
+  IDLE_THOUGHT_CYCLE_MAX_MS: 60_000,
 
   /** Random idle sprite variant (wink / lookUp / etc.) cadence range. */
   IDLE_VARIANT_MIN_DELAY_MS: 8_000,

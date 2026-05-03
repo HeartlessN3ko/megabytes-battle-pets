@@ -913,6 +913,7 @@ export default function HomeScreen() {
       trainingSessionsToday: Number(byteData?.byte?.trainingSessionsToday || 0),
       idleTicks: idleThoughtTicks,
       tone: byteData?.personalityModifiers?.tone || 'neutral',
+      state: byteData?.behaviorState?.state || 'idle',
       behaviorState: byteData?.behaviorState || null,
     });
     if (clutter >= 3) return `${thought} Home is ${clutterLabel.toLowerCase()}.`;

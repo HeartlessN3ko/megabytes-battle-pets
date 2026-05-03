@@ -360,6 +360,95 @@ const RESOLVER_TONE_PRIORITY: Array<'sulky' | 'demanding' | 'clingy' | 'distant'
   'playful',
 ];
 
+
+// ─── Phase 12 (2A) per-state thought pools ────────────────────────────────────
+// Keyed on personalityResolver.resolveBehaviorState() output. When a state
+// (other than 'idle') is passed into generateByteThought via the `state`
+// parameter, the matching pool is pushed twice into the candidate stack —
+// same weight pattern as TONE_POOLS — so it dominates over generic need /
+// temperament filler. Placeholder copy authored by Claude 2026-05-02; ChatGPT
+// owns the polish pass per AI_PROTOCOL.
+const STATE_POOLS: Record<string, string[]> = {
+  sleepy: [
+    "[ByteName] is fading. Eyelids glitching out.",
+    "[ByteName] would lower its own brightness if it could.",
+    "[ByteName] is asking for just five more cycles.",
+    "[ByteName] is running on backup power and pretending otherwise.",
+    "[ByteName] is one prompt away from a hard sleep.",
+  ],
+  demanding: [
+    "[ByteName] needs this handled. Now, not soon.",
+    "[ByteName] is escalating until something gives.",
+    "[ByteName] has put this at the top of your stack.",
+    "[ByteName] is done waiting politely.",
+    "[ByteName] is pinging hard until you respond.",
+  ],
+  sulky: [
+    "[ByteName] is technically fine. Emotionally? Different story.",
+    "[ByteName] saw what just happened. Whatever.",
+    "[ByteName] is not in the mood and will not pretend.",
+    "[ByteName] is doing less on purpose. You'll notice.",
+    "[ByteName] is going quiet so you feel it.",
+  ],
+  warm: [
+    "[ByteName] feels safe enough to slow down a little.",
+    "[ByteName] is glad you're here. That part matters.",
+    "[ByteName] is holding onto this feeling.",
+    "[ByteName] is content. More than okay.",
+    "[ByteName] would stay like this if it could.",
+  ],
+  clingy: [
+    "[ByteName] keeps checking that you're still there.",
+    "[ByteName] doesn't want to do this without you.",
+    "[ByteName] is staying close just in case.",
+    "[ByteName] feels off when you're not interacting.",
+    "[ByteName] is here. Still here. Definitely here.",
+  ],
+  withdrawn: [
+    "[ByteName] is processing without commentary.",
+    "[ByteName] has stopped checking for your response.",
+    "[ByteName] is here, just not with you.",
+    "[ByteName] is conserving interaction.",
+    "[ByteName] doesn't see a reason to bring it up.",
+  ],
+  bored: [
+    "[ByteName] is asking the buffer if anything is happening.",
+    "[ByteName] is watching the slowest packet it has ever seen.",
+    "[ByteName] is tagging things just to make something move.",
+    "[ByteName] is refreshing for entertainment value alone.",
+    "[ByteName] is running idle loops with no enthusiasm.",
+  ],
+  exploring: [
+    "[ByteName] is poking around in this directory.",
+    "[ByteName] found something it definitely should not have.",
+    "[ByteName] is mapping unfamiliar paths and taking notes.",
+    "[ByteName] is testing edges, gently.",
+    "[ByteName] is curious about a pattern that just surfaced.",
+  ],
+  playful: [
+    "[ByteName] is doing something unnecessary on purpose.",
+    "[ByteName] is poking the system to see what reacts.",
+    "[ByteName] is making this more interesting than it needs to be.",
+    "[ByteName] is bored already? Lol no, never.",
+    "[ByteName] is adding a little chaos for flavor.",
+  ],
+  focused: [
+    "[ByteName] is compiling thoughts. Stand by.",
+    "[ByteName] is locking in. Don't break the flow.",
+    "[ByteName] is almost there. Almost.",
+    "[ByteName] is cutting out everything unnecessary.",
+    "[ByteName] is operating at higher precision than usual.",
+  ],
+  content: [
+    "[ByteName] is having a good day to be a process.",
+    "[ByteName] reports all systems normal.",
+    "[ByteName] is comfy. Don't disturb the equilibrium.",
+    "[ByteName] is humming along quietly.",
+    "[ByteName] is fine, in the proper sense of the word.",
+  ],
+  idle: [],
+};
+
 // Sleep dream pool — only used while byte.isSleeping is true. Each line wraps
 // in `Zzz` markers per Skye's spec; rendered raw into the status bar in place
 // of the regular thought cycle. Authored by ChatGPT 2026-04-27.
@@ -424,6 +513,7 @@ export function generateByteThought({
   trainingSessionsToday = 0,
   idleTicks = 0,
   tone = 'neutral',
+  state = 'idle',
   behaviorState = null,
 }: {
   byteName?: string;
@@ -432,6 +522,12 @@ export function generateByteThought({
   trainingSessionsToday?: number;
   idleTicks?: number;
   tone?: string;
+  // Resolver-driven behaviorState.state passed flat. When non-'idle' and a
+  // matching STATE_POOLS entry exists, that pool gets the 2x weight push.
+  // This is the higher-resolution sibling to the existing tone parameter and
+  // outranks it during selection. See personalityResolver.resolveBehaviorState
+  // for the source enum.
+  state?: string;
   // Optional behaviorState payload from /sync. When provided, resolver-driven
   // tones (sulky / demanding / clingy / distant / anxious / playful) take
   // priority over the base warm/neutral/sharp. Null falls back to plain tone.
@@ -445,6 +541,16 @@ export function generateByteThought({
   }
 
   const pools = [];
+
+  // Highest priority: explicit behavior-state pool. 2A wires this from the
+  // home screen via byteData.behaviorState.state. Pushing twice mirrors the
+  // TONE_POOLS weight bump so the state line tends to win selection but the
+  // need / temperament / tone pools still occasionally surface as filler.
+  const statePool = state && state !== 'idle' ? STATE_POOLS[state] : null;
+  if (statePool && statePool.length > 0) {
+    pools.push(statePool);
+    pools.push(statePool);
+  }
 
   if (crit > 0) pools.push(THOUGHTS.critical);
   pools.push(THOUGHTS[dominantNeedKey(needs)] || THOUGHTS.general);

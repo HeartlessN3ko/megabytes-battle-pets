@@ -31,6 +31,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 SHRINK_THRESHOLD = 0.70
 SKIP_RE = re.compile(r'(^|/)(node_modules|\.git|build|dist|coverage|\.next|\.expo)(/|$)')
@@ -95,10 +96,13 @@ def check_trailing_nulls(path, content):
 def check_js_parse(path, content):
     if not shutil.which('node'):
         return None  # no node available, skip
-    # Write to a temp file because node --check expects a path
-    tmp = f'/tmp/precommit_{os.getpid()}_{os.path.basename(path)}'
+    # Write to a temp file because node --check expects a path. tempfile.mkstemp()
+    # routes through the OS temp dir (TMPDIR/TMP/TEMP) so this works on Windows
+    # without requiring a hand-created /tmp/.
+    suffix = os.path.splitext(path)[1] or '.js'
+    fd, tmp = tempfile.mkstemp(prefix=f'precommit_{os.getpid()}_', suffix=suffix)
     try:
-        with open(tmp, 'wb') as f:
+        with os.fdopen(fd, 'wb') as f:
             f.write(content)
         res = run(['node', '--check', tmp])
         if res.returncode != 0:

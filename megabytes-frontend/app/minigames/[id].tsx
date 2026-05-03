@@ -36,8 +36,14 @@ const CHOMP_BYTE_SWEEP_VARIANCE = 0.6; // speed modulation depth (0 = constant s
 const CHOMP_BYTE_SWEEP_MOD_PERIOD_MS = 1800; // period of the speed-shifting sine
 const CHOMP_BYTE_SCALE = 0.5; // byte sprite scale — smaller = more sweep room
 const CHOMP_BYTE_HIT_TOLERANCE_PX = 36; // horizontal hit window at arrival (shrunk with byte)
+const CHOMP_PERFECT_TOLERANCE_PX = 12; // tighter inner window — bullseye = "perfect"
 const CHOMP_FOOD_SIZE_PX = 38; // food glyph box
 const CHOMP_LAUNCHER_PAD_SIZE_PX = 56; // pad ring around launcher
+// 2F — combo system. Consecutive perfects build a multiplier; one non-perfect
+// catch (good but outside the inner window, or bad/miss) resets to 1.0x. Pure
+// visual celebration — need-fill and XP math are untouched.
+const CHOMP_COMBO_MULTIPLIERS = [1.0, 1.25, 1.5, 1.75, 2.0]; // index = combo count, capped at length-1
+const CHOMP_COMBO_MILESTONES = new Set<number>([3, 5, 7]); // ramp flash + burst + fanfare
 // Emoji placeholders until PixelLab food + Byte chomp sprites ship.
 const CHOMP_GOOD_FOOD = ['🍎', '🥦', '🍖'];
 const CHOMP_BAD_FOOD = ['🧪', '☠️'];
@@ -301,6 +307,11 @@ function LegacyMiniGameRunner() {
   const [, setChompGoodSpawned] = useState(0);
   const [chompReaction, setChompReaction] = useState<'none' | 'good' | 'bad' | 'miss'>('none');
   const [chompFlash, setChompFlash] = useState(false);
+  const [chompFlashKind, setChompFlashKind] = useState<'soft' | 'big'>('soft');
+  const [chompCombo, setChompCombo] = useState(0); // current consecutive-perfect streak
+  const chompComboRef = useRef(0);
+  const chompMaxComboRef = useRef(0);
+  const chompPerfectCountRef = useRef(0);
   const [chompTick, setChompTick] = useState(0); // forces re-render so drift/bob animates
   const chompFoodsRef = useRef<ChompFood[]>([]);
   const chompSpawnCountRef = useRef(0);
@@ -458,6 +469,11 @@ function LegacyMiniGameRunner() {
     chompGoodSpawnedRef.current = 0;
     setChompReaction('none');
     setChompFlash(false);
+    setChompFlashKind('soft');
+    setChompCombo(0);
+    chompComboRef.current = 0;
+    chompMaxComboRef.current = 0;
+    chompPerfectCountRef.current = 0;
     setChompTick(0);
     chompNextIdRef.current = 0;
     chompRoundStartRef.current = Date.now();
@@ -737,6 +753,11 @@ function LegacyMiniGameRunner() {
         economy.byteBits > 0 ? `ByteBits +${economy.byteBits}` : '',
         economy.energyCost > 0 ? `Energy -${economy.energyCost}` : '',
         game.id.startsWith('training-') ? 'Training cooldown 10s' : '',
+        // 2F — CHOMP-specific summary lines. Reads chompMaxComboRef + perfect
+        // count refs, set during the resolve loop. Appears alongside the
+        // existing reward popup, not in place of it.
+        game.id === 'feed-upload' && chompMaxComboRef.current > 0 ? `Max combo: ${chompMaxComboRef.current}x` : '',
+        game.id === 'feed-upload' ? `Perfect catches: ${chompPerfectCountRef.current}` : '',
       ].filter(Boolean));
       setResultBits(economy.byteBits);
       setResultSkill(economy.statGain);
@@ -819,10 +840,30 @@ function LegacyMiniGameRunner() {
     chompReactionTimerRef.current = setTimeout(() => setChompReaction('none'), CHOMP_REACTION_MS);
   }, []);
 
-  const triggerChompFlash = useCallback(() => {
+  const triggerChompFlash = useCallback((kind: 'soft' | 'big' = 'soft') => {
+    setChompFlashKind(kind);
     setChompFlash(true);
     if (chompFlashTimerRef.current) clearTimeout(chompFlashTimerRef.current);
-    chompFlashTimerRef.current = setTimeout(() => setChompFlash(false), 260);
+    chompFlashTimerRef.current = setTimeout(() => setChompFlash(false), kind === 'big' ? 440 : 240);
+  }, []);
+
+  // 2F — fire layered "munch stack" SFX. Base chomp on every catch, higher-pitch
+  // overlay on perfect, fanfare on combo milestone hits. Pure additive: existing
+  // SFX cadence in the resolve loop is preserved; this stacks on top.
+  const playChompMunchStack = useCallback((tier: 'good' | 'perfect' | 'milestone') => {
+    if (tier === 'good') {
+      void playSfx('chirp1', 0.34);
+      return;
+    }
+    if (tier === 'perfect') {
+      void playSfx('chirp1', 0.45);
+      void playSfx('chirp2', 0.55);
+      return;
+    }
+    // milestone — perfect stack + fanfare
+    void playSfx('chirp1', 0.5);
+    void playSfx('chirp2', 0.6);
+    void playSfx('confetti', 0.7);
   }, []);
 
   // VFX spawn helpers — all refs, piggyback on chompTick re-render.
@@ -943,6 +984,7 @@ function LegacyMiniGameRunner() {
           const inBite = Math.abs(byteX - foodX) <= CHOMP_BYTE_HIT_TOLERANCE_PX;
           // Byte row Y for VFX spawn — approximate top strip.
           const byteRowY = h * 0.22;
+          const inPerfect = inBite && Math.abs(byteX - foodX) <= CHOMP_PERFECT_TOLERANCE_PX;
           if (food.kind === 'good' && inBite) {
             food.resolution = 'good';
             chompGoodCaughtRef.current += 1;
@@ -951,14 +993,38 @@ function LegacyMiniGameRunner() {
             playGameSfx('minigame_feed_upload', 0.82, 70);
             playGameSfx('minigame_score_good', 0.72, 80);
             spawnChompBurst(byteX, byteRowY);
+            if (inPerfect) {
+              // 2F — perfect hit. Combo + layered SFX + flash. Milestone hits
+              // (3 / 5 / 7) ramp the flash and add a fanfare.
+              chompComboRef.current += 1;
+              const combo = chompComboRef.current;
+              if (combo > chompMaxComboRef.current) chompMaxComboRef.current = combo;
+              chompPerfectCountRef.current += 1;
+              setChompCombo(combo);
+              const isMilestone = CHOMP_COMBO_MILESTONES.has(combo);
+              triggerChompFlash(isMilestone ? 'big' : 'soft');
+              playChompMunchStack(isMilestone ? 'milestone' : 'perfect');
+              if (isMilestone) {
+                // Extra burst rings on milestone — doubles the celebration weight.
+                spawnChompBurst(byteX, byteRowY);
+                spawnChompBurst(byteX, byteRowY);
+              }
+            } else {
+              // Good catch but outside the bullseye — combo breaks.
+              chompComboRef.current = 0;
+              setChompCombo(0);
+              playChompMunchStack('good');
+            }
           } else if (food.kind === 'bad' && inBite) {
             food.resolution = 'bad';
             chompBadEatenRef.current += 1;
             setChompBadEaten(chompBadEatenRef.current);
             triggerChompReaction('bad');
-            triggerChompFlash();
+            triggerChompFlash('soft');
             triggerChompShake();
             playGameSfx('minigame_feed_upload', 0.95, 50);
+            chompComboRef.current = 0;
+            setChompCombo(0);
           } else {
             food.resolution = 'miss';
             if (food.kind === 'good') {
@@ -972,6 +1038,8 @@ function LegacyMiniGameRunner() {
               spawnChompCheck(w / 2, 28);
             }
             triggerChompReaction('miss');
+            chompComboRef.current = 0;
+            setChompCombo(0);
           }
           // Live score update — only good catches drive the SCORE badge (monotonic).
           // Bad-eaten penalty still applies to the FINAL grade in finishRound; it doesn't erase mid-round progress.
@@ -1041,7 +1109,7 @@ function LegacyMiniGameRunner() {
     }, 33);
 
     return () => clearInterval(tick);
-  }, [running, game?.id, chompByteXAt, finishRound, playGameSfx, triggerChompFlash, triggerChompReaction, spawnChompBurst, spawnChompCheck, triggerChompShake]);
+  }, [running, game?.id, chompByteXAt, finishRound, playGameSfx, triggerChompFlash, triggerChompReaction, spawnChompBurst, spawnChompCheck, triggerChompShake, playChompMunchStack]);
 
   // Deep-clean helpers — burst particles, byte reaction flash, grime cluster spawner.
   const addScrubBurst = useCallback((x: number, y: number) => {
@@ -1395,6 +1463,14 @@ function LegacyMiniGameRunner() {
             <Text style={styles.scoreLabel}>SCORE</Text>
             <Text style={[styles.scoreValue, { color: gradeColor }]}>{score}</Text>
           </View>
+          {game.id === 'feed-upload' && chompCombo > 0 ? (
+            <View style={[styles.chompComboBadge, CHOMP_COMBO_MILESTONES.has(chompCombo) && styles.chompComboBadgeMilestone]}>
+              <Text style={styles.chompComboLabel}>COMBO</Text>
+              <Text style={styles.chompComboValue}>
+                {(CHOMP_COMBO_MULTIPLIERS[Math.min(chompCombo, CHOMP_COMBO_MULTIPLIERS.length - 1)] ?? 2.0).toFixed(2)}x
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.playWrap}>
@@ -1654,7 +1730,12 @@ function LegacyMiniGameRunner() {
                 });
               })()}
 
-              {chompFlash ? <View pointerEvents="none" style={styles.chompFlash} /> : null}
+              {chompFlash ? (
+                <View
+                  pointerEvents="none"
+                  style={[styles.chompFlash, chompFlashKind === 'big' && styles.chompFlashBig]}
+                />
+              ) : null}
 
               <View pointerEvents="none" style={styles.chompHud}>
                 <Text style={styles.chompHudText}>
@@ -2095,6 +2176,37 @@ const styles = StyleSheet.create({
   chompFlash: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,70,70,0.35)',
+  },
+  chompFlashBig: {
+    backgroundColor: 'rgba(255,222,120,0.55)',
+  },
+  chompComboBadge: {
+    borderRadius: 10,
+    borderWidth: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+    backgroundColor: 'rgba(255,224,140,0.16)',
+    borderColor: 'rgba(255,224,140,0.7)',
+  },
+  chompComboBadgeMilestone: {
+    backgroundColor: 'rgba(255,224,140,0.32)',
+    borderColor: '#ffe28a',
+  },
+  chompComboLabel: {
+    color: 'rgba(255,238,180,0.8)',
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  chompComboValue: {
+    color: '#ffe28a',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    marginTop: 1,
   },
   chompHud: {
     position: 'absolute',

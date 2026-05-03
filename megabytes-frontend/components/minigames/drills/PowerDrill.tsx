@@ -25,6 +25,7 @@ import {
   setPendingMiniGameResult,
 } from '../../../services/minigameRuntime';
 import { MiniGameDef } from '../../../services/minigames';
+import { playSfx } from '../../../services/sfx';
 import {
   SweetSpotGrade,
   SweetSpotTimer,
@@ -34,6 +35,14 @@ import {
 const ROUNDS = 5;
 const ROUND_TOLERANCES = [0.10, 0.09, 0.08, 0.06, 0.04];
 const ROUND_SWEEP_MS = [1300, 1200, 1050, 900, 800];
+// 2H — endgame perfect-window contraction. Rounds 4-5 pull the perfect
+// threshold from the SweetSpotTimer default (0.85) to 0.92 — about a 10%
+// tighter sweet-spot for the player who is already deep in the drill.
+const ROUND_PERFECT_THRESHOLDS = [0.85, 0.85, 0.85, 0.92, 0.92];
+// 2H — cross-round combo. Consecutive perfect rounds build a multiplier;
+// any non-perfect round resets to 0. Pure visual celebration (no stat math).
+const COMBO_MULTIPLIERS = [1.0, 1.25, 1.5, 1.75, 2.0];
+const COMBO_MILESTONES = new Set<number>([2, 3, 4]);
 const FEEDBACK_MS = 700;
 
 const ACCENT = '#d3a3ff';
@@ -57,7 +66,44 @@ export function PowerDrill({ game }: { game: MiniGameDef }) {
   const [results, setResults] = useState<RoundResult[]>([]);
   const [phase, setPhase] = useState<Phase>('play');
   const [lastResult, setLastResult] = useState<RoundResult | null>(null);
+  // 2H — combo state. comboRef is the live counter; combo state mirrors it
+  // for render. maxComboRef tracks peak streak for the end summary.
+  const [combo, setCombo] = useState(0);
+  const comboRef = useRef(0);
+  const maxComboRef = useRef(0);
+  // Brief celebration overlay on perfect impact. Kind controls intensity.
+  const [flashKind, setFlashKind] = useState<'none' | 'perfect' | 'milestone'>('none');
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const submittingRef = useRef(false);
+
+  const triggerFlash = useCallback((kind: 'perfect' | 'milestone') => {
+    setFlashKind(kind);
+    if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashKind('none'), kind === 'milestone' ? 480 : 280);
+  }, []);
+
+  // 2H — layered impact SFX. Base thud on every release, higher-pitch crack
+  // on perfect, fanfare on cross-round combo milestones. Uses existing keys.
+  const playPowerStack = useCallback((tier: 'thud' | 'perfect' | 'milestone') => {
+    if (tier === 'thud') {
+      void playSfx('training_power_hit', 0.55);
+      return;
+    }
+    if (tier === 'perfect') {
+      void playSfx('training_power_hit', 0.65);
+      void playSfx('chirp2', 0.55);
+      return;
+    }
+    void playSfx('training_power_hit', 0.7);
+    void playSfx('chirp2', 0.6);
+    void playSfx('confetti', 0.7);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    };
+  }, []);
 
   const handleTap = useCallback(() => {
     if (phase !== 'play') return;
@@ -67,7 +113,22 @@ export function PowerDrill({ game }: { game: MiniGameDef }) {
     setLastResult(rr);
     setResults((prev) => [...prev, rr]);
     setPhase('feedback');
-  }, [phase, round]);
+
+    // Combo + SFX + VFX. Combo only ratchets on perfect; good/fail breaks it.
+    if (rr.grade === 'perfect') {
+      comboRef.current += 1;
+      const next = comboRef.current;
+      if (next > maxComboRef.current) maxComboRef.current = next;
+      setCombo(next);
+      const isMilestone = COMBO_MILESTONES.has(next);
+      triggerFlash(isMilestone ? 'milestone' : 'perfect');
+      playPowerStack(isMilestone ? 'milestone' : 'perfect');
+    } else {
+      comboRef.current = 0;
+      setCombo(0);
+      playPowerStack('thud');
+    }
+  }, [phase, round, triggerFlash, playPowerStack]);
 
   // Advance from feedback → next play / settle.
   useEffect(() => {
@@ -128,6 +189,7 @@ export function PowerDrill({ game }: { game: MiniGameDef }) {
 
   const tolerance = ROUND_TOLERANCES[Math.min(round, ROUND_TOLERANCES.length - 1)];
   const sweepMs = ROUND_SWEEP_MS[Math.min(round, ROUND_SWEEP_MS.length - 1)];
+  const perfectThreshold = ROUND_PERFECT_THRESHOLDS[Math.min(round, ROUND_PERFECT_THRESHOLDS.length - 1)];
 
   const feedbackText = useMemo(() => {
     if (phase !== 'feedback' || !lastResult) return null;
@@ -143,12 +205,31 @@ export function PowerDrill({ game }: { game: MiniGameDef }) {
         onPress={handleTap}
         disabled={phase !== 'play'}
       >
+        {flashKind !== 'none' ? (
+          <View
+            pointerEvents="none"
+            style={[
+              styles.flashOverlay,
+              flashKind === 'milestone' ? styles.flashOverlayMilestone : styles.flashOverlayPerfect,
+            ]}
+          />
+        ) : null}
         <View style={styles.header}>
           <Text style={styles.title}>POWER DRILL</Text>
           <Text style={styles.subtitle}>Tap when the marker hits the band.</Text>
-          <Text style={styles.round}>
-            Round {Math.min(round + 1, ROUNDS)} / {ROUNDS}
-          </Text>
+          <View style={styles.metaRow}>
+            <Text style={styles.round}>
+              Round {Math.min(round + 1, ROUNDS)} / {ROUNDS}
+            </Text>
+            {combo > 0 ? (
+              <View style={[styles.comboBadge, COMBO_MILESTONES.has(combo) && styles.comboBadgeMilestone]}>
+                <Text style={styles.comboLabel}>COMBO</Text>
+                <Text style={styles.comboValue}>
+                  {(COMBO_MULTIPLIERS[Math.min(combo, COMBO_MULTIPLIERS.length - 1)] ?? 2.0).toFixed(2)}x
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
         <View style={styles.timerWrap}>
@@ -157,6 +238,7 @@ export function PowerDrill({ game }: { game: MiniGameDef }) {
             tolerance={tolerance}
             sweepMs={sweepMs}
             paused={phase !== 'play'}
+            perfectThreshold={perfectThreshold}
             accent={ACCENT}
           />
           <View style={styles.scoreRow}>
@@ -188,6 +270,7 @@ export function PowerDrill({ game }: { game: MiniGameDef }) {
           <ResultPanel
             game={game}
             results={results}
+            maxCombo={maxComboRef.current}
             onExit={() => router.replace('/rooms/training-center')}
           />
         )}
@@ -230,10 +313,12 @@ function skillForGrade(grade: SweetSpotGrade): number {
 function ResultPanel({
   game,
   results,
+  maxCombo,
   onExit,
 }: {
   game: MiniGameDef;
   results: RoundResult[];
+  maxCombo: number;
   onExit: () => void;
 }) {
   const finalGrade = aggregateGrade(results);
@@ -245,9 +330,28 @@ function ResultPanel({
   return (
     <View style={styles.resultPanel}>
       <Text style={styles.resultTitle}>{heading}</Text>
+      {/* 2H — round-by-round grade strip. Mirrors the in-play pip row but
+          larger and labeled with the round number for the recap. */}
+      <View style={styles.roundStrip}>
+        {results.map((r) => {
+          const color =
+            r.grade === 'perfect' ? ACCENT_PERFECT : r.grade === 'good' ? ACCENT_GOOD : ACCENT_FAIL;
+          return (
+            <View key={r.index} style={[styles.roundChip, { borderColor: `${color}88`, backgroundColor: `${color}22` }]}>
+              <Text style={[styles.roundChipNum, { color }]}>{r.index + 1}</Text>
+              <Text style={[styles.roundChipGrade, { color }]}>
+                {r.grade === 'perfect' ? '!' : r.grade === 'good' ? '~' : 'x'}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
       <Text style={styles.resultLine}>
         Impact / Solid / Whiff: {perfects} / {goods} / {whiffs}
       </Text>
+      {maxCombo > 0 ? (
+        <Text style={styles.resultLine}>Max perfect combo: {maxCombo}x</Text>
+      ) : null}
       <Text style={styles.resultLine}>
         +{skillForGrade(finalGrade)} {game.stat ?? 'Power'}
       </Text>
@@ -291,4 +395,70 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   exitText: { color: '#0a0e1a', fontWeight: '900', letterSpacing: 1 },
+  // 2H additions — combo badge, milestone styling, flash overlay, recap strip.
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  comboBadge: {
+    borderRadius: 10,
+    borderWidth: 2,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,224,140,0.16)',
+    borderColor: 'rgba(255,224,140,0.7)',
+  },
+  comboBadgeMilestone: {
+    backgroundColor: 'rgba(255,224,140,0.32)',
+    borderColor: '#ffe28a',
+  },
+  comboLabel: {
+    color: 'rgba(255,238,180,0.8)',
+    fontSize: 8.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+  },
+  comboValue: {
+    color: '#ffe28a',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+    marginTop: 1,
+  },
+  flashOverlay: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  flashOverlayPerfect: {
+    backgroundColor: 'rgba(255,247,214,0.25)',
+  },
+  flashOverlayMilestone: {
+    backgroundColor: 'rgba(255,224,140,0.45)',
+  },
+  roundStrip: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  roundChip: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  roundChipNum: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1,
+    opacity: 0.8,
+  },
+  roundChipGrade: {
+    fontSize: 18,
+    fontWeight: '900',
+    marginTop: 1,
+  },
 });

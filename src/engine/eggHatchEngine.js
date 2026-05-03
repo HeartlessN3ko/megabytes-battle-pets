@@ -2,7 +2,6 @@
 // Egg hatching: animal assignment + temperament calculation.
 // Single source of truth for hatch-time behavior → trait mapping.
 
-const { getTemperamentPassive } = require('../data/effectsRegistry');
 const { ANIMAL_BIAS, SHAPE_BIAS } = require('./evolutionStatEngine');
 const personalityEngine = require('./personalityEngine');
 

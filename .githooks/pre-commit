@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# pre-commit — integrity check for the MEGA-BYTES repo.
+# Catches the Cowork Edit-tool truncation pattern (trailing nulls,
+# mid-file parse breaks, drastic shrinkage) before bytes hit the index.
+#
+# Install once per clone:
+#   git config core.hooksPath .githooks
+#
+# To bypass for a known-good shrinkage commit:
+#   ALLOW_SHRINK=1 git commit ...
+#
+# To bypass entirely (last resort):
+#   git commit --no-verify ...
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+SCRIPT="$REPO_ROOT/scripts/precommit_integrity.py"
+
+if [ ! -f "$SCRIPT" ]; then
+  echo "[pre-commit] integrity script missing at $SCRIPT — skipping"
+  exit 0
+fi
+
+# Prefer python3, fall back to python.
+if command -v python3 >/dev/null 2>&1; then
+  PY=python3
+elif command -v python >/dev/null 2>&1; then
+  PY=python
+else
+  echo "[pre-commit] no python interpreter found — skipping"
+  exit 0
+fi
+
+cd "$REPO_ROOT"
+exec "$PY" "$SCRIPT"

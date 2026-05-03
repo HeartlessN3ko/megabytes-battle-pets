@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "seed:catalog": "node scripts/seedCatalog.js",
     "smoke:lifecycle": "node scripts/smokeLifecycle.js",
+    "smoke:careloop": "node scripts/smokeCareLoop.js",
     "lint": "eslint src/ scripts/ --ext .js"
   },
   "dependencies": {

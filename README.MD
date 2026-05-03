@@ -1,3 +1,38 @@
+# MEGA-BYTES Backend
+
+Node.js + Express + MongoDB Atlas. Source of truth for byte state.
+
+## Setup
+
+One-time per fresh clone, from this directory:
+
+```
+npm install
+git config core.hooksPath .githooks
+```
+
+The `core.hooksPath` line wires up `.githooks/pre-commit` (runs `scripts/precommit_integrity.py` to reject trailing-null truncation, JS/JSON parse breaks, and large file shrinkage). The config is per-clone — git does not propagate it. Skip the install and the hook is silently inactive.
+
+## Run
+
+```
+npm run dev      # nodemon, hot reload on src/ changes
+npm start        # production entry, no reload
+```
+
+Create a `.env` with `MONGO_URI`, `JWT_SECRET`, and (for dev menu access) `DEV_MODE=1` plus optional `DEV_MODE_KEY`.
+
+## Smokes
+
+```
+npm run smoke:lifecycle    # death → legacy egg pipeline
+npm run smoke:careloop     # v1 care loop end-to-end (hatch, decay, feed, lights, lifespan transitions, corruption + clinic-repair, forced old-age death)
+```
+
+Both target `127.0.0.1:5000` and require the backend running with `DEV_MODE=1` (and matching `DEV_MODE_KEY` if set on the server, with `DEV_KEY` on the client side). Run before every push.
+
+---
+
 # **MEGA-BYTES: Battle Pets**
 
 ### *Mobile | Auto-Battle Pet Sim | Revenue Share Team*

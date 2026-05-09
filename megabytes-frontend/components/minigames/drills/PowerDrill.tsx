@@ -1,5 +1,6 @@
 /**
- * PowerDrill
+ * [EXPANSION 1] PowerDrill — gated out of v1. Stats + training drills moved to
+ * EX1 alongside battle. File preserved on disk; not imported by v1 active code.
  *
  * Charge-and-impact training drill. The player taps to commit a "strike" when
  * a power gauge crosses the impact band. Five rounds, escalating compression:

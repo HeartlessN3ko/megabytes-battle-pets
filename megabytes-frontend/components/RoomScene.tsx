@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { Animated, Dimensions, Image, ImageBackground, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Dimensions, ImageBackground, Modal, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import HomeNavBar from './HomeNavBar';
 import { useEvolution } from '../context/EvolutionContext';
@@ -10,8 +10,9 @@ import { useByteRoaming } from '../hooks/useByteRoaming';
 import { consumeItem, getByte, getInventory, getShopItems } from '../services/api';
 import { getByteMotionProfile } from '../services/byteMotion';
 import { initSfx, playSfx } from '../services/sfx';
-import { getStageSprite, type LifespanStage, type SpriteKey } from '../services/byteSprites';
+import { getStageSprite, normalizeStage, type LifespanStage, type SpriteKey } from '../services/byteSprites';
 import { StatRadar, type StatRadarStat } from './StatRadar';
+import { AgedByteRender } from './AgedByteRender';
 
 const { width, height } = Dimensions.get('window');
 
@@ -184,7 +185,9 @@ export default function RoomScene({
 
   // Sprite state machine — priority order matches home (minus emotion/idle-variant).
   // Stage-aware: pulls from lifespan-stage sprite map with adult fallback.
-  const lifespanStage: LifespanStage = (byteData?.byte?.lifespanStage as LifespanStage) || 'adult';
+  // normalizeStage maps legacy 5-stage values to the new 3-stage enum.
+  const lifespanStage: LifespanStage = normalizeStage(byteData?.byte?.lifespanStage);
+  const isOld = Boolean(byteData?.byte?.isOld);
   let petSprite: any;
   if (isSleeping || (needs.Bandwidth ?? 100) < 12) {
     petSprite = getStageSprite(lifespanStage, 'sleeping');
@@ -644,7 +647,13 @@ export default function RoomScene({
                 { transform: [{ translateX: roamX }] },
               ]}
             >
-              <Image source={petSprite} style={styles.petSprite} resizeMode="contain" />
+              <AgedByteRender
+                source={petSprite}
+                isOld={isOld}
+                width={styles.petSprite.width as number}
+                height={styles.petSprite.height as number}
+                imageStyle={styles.petSprite}
+              />
             </Animated.View>
           ) : null}
         </View>

@@ -1,5 +1,6 @@
 /**
- * AccuracyDrill
+ * [EXPANSION 1] AccuracyDrill — gated out of v1. File preserved on disk; not
+ * imported by v1 active code.
  *
  * Lock-on training drill. The player taps to stop a moving cursor inside an
  * off-center target zone. Five rounds, tightening tolerance + faster sweep

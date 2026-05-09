@@ -184,12 +184,11 @@ export default function DevMenuScreen() {
             <Text style={styles.section}>LIFESPAN STAGE</Text>
             <View style={styles.row}>
               <Btn k="stage-baby"  label="BABY"  onPress={() => run('stage-baby',  'Stage Baby',  () => devSetLifespanStage('baby'))} />
-              <Btn k="stage-child" label="CHILD" onPress={() => run('stage-child', 'Stage Child', () => devSetLifespanStage('child'))} />
-              <Btn k="stage-teen"  label="TEEN"  onPress={() => run('stage-teen',  'Stage Teen',  () => devSetLifespanStage('teen'))} />
+              <Btn k="stage-kid"   label="KID"   onPress={() => run('stage-kid',   'Stage Kid',   () => devSetLifespanStage('kid'))} />
+              <Btn k="stage-adult" label="ADULT" onPress={() => run('stage-adult', 'Stage Adult', () => devSetLifespanStage('adult'))} />
             </View>
             <View style={[styles.row, { marginTop: 6 }]}>
-              <Btn k="stage-adult" label="ADULT" onPress={() => run('stage-adult', 'Stage Adult', () => devSetLifespanStage('adult'))} />
-              <Btn k="stage-elder" label="ELDER" onPress={() => run('stage-elder', 'Stage Elder', () => devSetLifespanStage('elder'))} />
+              <Btn k="stage-old"   label="OLD"   onPress={() => run('stage-old',   'Old Overlay', () => devSetLifespanStage('old'))} />
             </View>
           </View>
 

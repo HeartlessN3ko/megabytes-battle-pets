@@ -150,19 +150,38 @@ const byteRender = {
   /** Sprite container width as fraction of screen width (the visual base
    *  size before stage and stat multipliers). */
   FOOTPRINT_WIDTH_FRACTION: 0.3,
-  /** Per-stage native scale. Most stages render at 1.0 (sprite art carries
-   *  size); elder withers slightly per Skye 2026-04-26. */
+  /** Per-stage native scale. All stages render at 1.0 — visual size
+   *  differentiation comes from sprite art itself (smaller baby art, etc.).
+   *  Old-overlay scale lives in `oldOverlay.SCALE` below. */
   STAGE_BASE_SCALE: {
     baby:  1.00,
-    child: 1.00,
-    teen:  1.00,
+    kid:   1.00,
     adult: 1.00,
-    elder: 0.95,
   } as const,
-  /** Strength stat → render scale. Multiplier = clamp(0.7, 1.4, 1 + (Strength - 10) × 0.015). */
+  /** [EXPANSION 1] Strength stat -> render scale. Stats are EX1; these
+   *  values are dormant in v1 but kept for forward-compat. */
   STRENGTH_MULT_PER_POINT: 0.015,
   STRENGTH_MULT_MIN: 0.7,
   STRENGTH_MULT_MAX: 1.4,
+} as const;
+
+// ─── Old overlay (visual treatment for adult bytes at level >= 41) ─────────
+// Frontend reads `byte.isOld` from the API and applies a desaturation +
+// darken layer over the adult sprite. Free of new art. Tunables here let
+// Skye dial the strength without touching code.
+const oldOverlay = {
+  /** Render scale for old adults. Slight wither (-5%) gives the
+   *  "softer/diminished" wind-down read without needing new sprite art. */
+  SCALE: 0.95,
+  /** Tint color of the overlay layer (RGB string). Default mid-gray reads
+   *  as desaturation when stacked at low alpha over the colorful sprite. */
+  TINT_COLOR: '#888888',
+  /** Tint opacity 0-100. 25% lands the "muted/aged" feel without washing
+   *  out the byte. Bump higher for more decline, lower for subtler. */
+  TINT_OPACITY: 25,
+  /** Animation tick multiplier when isOld. Stacked with STAGE_ANIM_TICK
+   *  on the backend; frontend can mirror this when tying anim cadence. */
+  ANIM_TICK_MULT: 1.15,
 } as const;
 
 // ─── Byte movement (useByteRoaming defaults) ────────────────────────────────
@@ -327,6 +346,7 @@ export const TUNABLES = {
   fakeNeed,
   extraClutter,
   byteRender,
+  oldOverlay,
   byteRoaming,
   needRequest,
   emote,

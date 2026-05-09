@@ -1,3 +1,5 @@
+// 'training-center' kept in the union for [EXPANSION 1] forward-compat —
+// training is gated out of v1, but training-center.tsx still compiles.
 export type MiniGameRoomId = 'kitchen' | 'bathroom' | 'play-room' | 'training-center';
 
 export type MiniGameResultPayload = {
@@ -36,6 +38,9 @@ export function consumePendingMiniGameResult(room: MiniGameRoomId): MiniGameResu
   return next;
 }
 
+// [EXPANSION 1] Training fatigue/cooldown helpers below are dead in v1 —
+// nothing active calls them. Preserved so the gated training-center.tsx
+// and drills still compile. Restore call sites when EX1 unfreezes.
 export function recordTrainingUsage(energyCost: number, cooldownMs = 10000) {
   const now = Date.now();
   applyFatigueDecay(now);

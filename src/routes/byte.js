@@ -360,9 +360,15 @@ function getSleepRecoveryMinutes(byte, req, now = new Date()) {
 }
 
 function computeLiveByteSnapshot(byte, req) {
-  // Backfill lifespanStage for bytes that pre-date the field (one-time per byte).
-  if (!byte.lifespanStage) {
+  // Backfill / heal lifespanStage. Catches:
+  //   - bytes pre-dating the field (null)
+  //   - legacy 5-stage values (child / teen / elder) from before 2026-05-09
+  // Both routes auto-migrate on the next /sync.
+  const normalized = lifespanEngine.normalizeStage(byte.lifespanStage);
+  if (!normalized) {
     byte.lifespanStage = lifespanEngine.getStageForLevel(byte.level || 1);
+  } else if (normalized !== byte.lifespanStage) {
+    byte.lifespanStage = normalized;
   }
   const decayOpts = getDecayOptions(req, byte);
   const now = new Date();
@@ -407,16 +413,8 @@ function computeLiveByteSnapshot(byte, req) {
     needs: lightsAdjustedNeeds,
     lastNeedsUpdate,
     corruption,
-    computedStats: statEngine.applyNeedModifiers(
-      statEngine.applyEvolutionBiases(byte.stats.toObject(), {
-        shape:       byte.shape       || null,
-        animal:      byte.animal      || null,
-        element:     byte.element     || null,
-        feature:     byte.feature     || null,
-        branch:      byte.branch      || null,
-      }),
-      needs
-    ),
+    // [EXPANSION 1] computedStats removed from sync response — stats are EX1.
+    // Frontend home screen falls back to baseStats when computedStats is absent.
     corruptionTier: corruptionEngine.getCorruptionTier(corruption),
     carePattern,
     passiveXPGain,
@@ -1074,8 +1072,17 @@ router.patch('/:id/care', async (req, res) => {
   }
 });
 
-// PATCH /api/byte/:id/train
+// [EXPANSION 1] PATCH /api/byte/:id/train — gated out of v1.
+// Stats + training drills moved to EX1 alongside battle. Endpoint returns 410
+// in v1; the original handler body is preserved below the gate so EX1 unfreeze
+// is a single line change (delete the gate). Frontend `trainStat` API helper
+// + drill components are also EX1-banner-gated.
 router.patch('/:id/train', async (req, res) => {
+  return res.status(410).json({
+    error: 'Training is unavailable in v1 — stats + training drills moved to Expansion 1.',
+    expansion: 1,
+  });
+  // eslint-disable-next-line no-unreachable
   try {
     const { stat, result } = req.body;
     const byte = await Byte.findById(req.params.id);
@@ -1239,8 +1246,15 @@ router.post('/:id/evolve', async (req, res) => {
   }
 });
 
-// GET /api/byte/:id/stats
+// [EXPANSION 1] GET /api/byte/:id/stats — gated out of v1.
+// Returns 410 in v1; original handler body preserved below the gate for clean
+// reactivation. Stats live on the schema but are not surfaced.
 router.get('/:id/stats', async (req, res) => {
+  return res.status(410).json({
+    error: 'Stats endpoint is unavailable in v1 — moved to Expansion 1.',
+    expansion: 1,
+  });
+  // eslint-disable-next-line no-unreachable
   try {
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
@@ -2020,29 +2034,39 @@ router.post('/:id/dev/corruption', requireDevMode, async (req, res) => {
   }
 });
 
-// POST /:id/dev/lifespan-stage  body: { stage: 'baby'|'child'|'teen'|'adult'|'elder' }
-// Sets byte.lifespanStage AND syncs byte.level to the midpoint of that stage so
-// the next applyLifespanTransition doesn't snap it back. Used for sprite-set
-// preview in the dev menu.
+// POST /:id/dev/lifespan-stage  body: { stage: 'baby'|'kid'|'adult'|'old' }
+// Sets byte.lifespanStage AND syncs byte.level to the midpoint of that stage
+// so the next applyLifespanTransition doesn't snap it back. 'old' is the
+// special handle that bumps level into the OLD_OVERLAY_LEVEL window so the
+// derived isOld flag flips on (stage stays 'adult'). Legacy values
+// (child/teen/elder) are accepted via lifespanEngine.normalizeStage so old
+// dev-menu builds still work.
 router.post('/:id/dev/lifespan-stage', requireDevMode, async (req, res) => {
   try {
     const { stage } = req.body || {};
-    const VALID = ['baby', 'child', 'teen', 'adult', 'elder'];
-    if (!VALID.includes(stage)) {
+    const VALID = ['baby', 'kid', 'adult', 'old'];
+    const normalized = stage === 'old' ? 'old' : (lifespanEngine.normalizeStage(stage) || stage);
+    if (!VALID.includes(normalized)) {
       return res.status(400).json({ error: `stage must be one of ${VALID.join(', ')}` });
     }
     const byte = await Byte.findById(req.params.id);
     if (!byte) return res.status(404).json({ error: 'Not found' });
 
     // Midpoint of each stage's level range — keeps lifespanEngine in sync.
-    const STAGE_MIDPOINT = { baby: 3, child: 10, teen: 20, adult: 33, elder: 45 };
-    byte.level = STAGE_MIDPOINT[stage];
+    // 'old' bumps to a level inside the OLD_OVERLAY_LEVEL band (defaults to
+    // 45 — solidly old, well below DEATH_LEVEL=50).
+    const STAGE_MIDPOINT = { baby: 3, kid: 10, adult: 32, old: 45 };
+    byte.level = STAGE_MIDPOINT[normalized];
     byte.xp = 0;
-    byte.lifespanStage = stage;
+    byte.lifespanStage = normalized === 'old' ? 'adult' : normalized;
     byte.isEgg = false;  // can't be in egg state if forcing a stage
     await byte.save();
 
-    res.json({ lifespanStage: byte.lifespanStage, level: byte.level });
+    res.json({
+      lifespanStage: byte.lifespanStage,
+      level: byte.level,
+      isOld: byte.isOld,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

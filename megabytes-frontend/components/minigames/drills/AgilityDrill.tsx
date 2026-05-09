@@ -1,5 +1,6 @@
 /**
- * AgilityDrill
+ * [EXPANSION 1] AgilityDrill — gated out of v1. File preserved on disk; not
+ * imported by v1 active code.
  *
  * Reaction-target training drill. A pulse marker spawns at a random spot on
  * the play surface and stays visible for a shrinking window. Player taps it

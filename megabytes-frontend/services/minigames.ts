@@ -5,6 +5,9 @@ export type MiniGameId =
   | 'stabilize-signal'
   | 'sync-link'
   | 'emote-align'
+  // [EXPANSION 1] Training drill IDs preserved in the type union for forward-compat
+  // when EX1 unfreezes. Catalog entries below are commented out so v1 cannot
+  // surface them. Stats + training drills moved to EX1 alongside battle.
   | 'training-power'
   | 'training-agility'
   | 'training-accuracy'
@@ -43,13 +46,14 @@ export const MINI_GAME_DEFS: MiniGameDef[] = [
   { id: 'sync-link', title: 'SYNC LINK', subtitle: 'Match social nodes', kind: 'match', room: 'play-room', accent: '#8bf2cb' },
   { id: 'emote-align', title: 'EMOTE ALIGN', subtitle: 'Repeat emote pattern', kind: 'sequence', room: 'play-room', accent: '#ff9b9b' },
 
-  { id: 'training-power', title: 'POWER DRILL', subtitle: 'Charge + impact taps', kind: 'tap-target', room: 'training-center', stat: 'Power', accent: '#d3a3ff' },
-  { id: 'training-agility', title: 'AGILITY DRILL', subtitle: 'Quick reaction targets', kind: 'tap-target', room: 'training-center', stat: 'Speed', accent: '#8ce6ff' },
-  { id: 'training-accuracy', title: 'ACCURACY DRILL', subtitle: 'Stop in target zone', kind: 'timing', room: 'training-center', stat: 'Accuracy', accent: '#ffe08b' },
-  { id: 'training-defense', title: 'DEFENSE DRILL', subtitle: 'Merge fragments', kind: 'match', room: 'training-center', stat: 'Defense', accent: '#9df4a6' },
-  { id: 'training-special', title: 'SPECIAL DRILL', subtitle: 'Solve pattern puzzle', kind: 'sequence', room: 'training-center', stat: 'Special', accent: '#9fb0ff' },
-  { id: 'training-stamina', title: 'STAMINA DRILL', subtitle: 'Rapid tap endurance', kind: 'rapid-tap', room: 'training-center', stat: 'Stamina', accent: '#ffb88a' },
-  { id: 'training-speed', title: 'SPEED DRILL', subtitle: 'Tap order 1 -> 6', kind: 'ordered-sequence', room: 'training-center', stat: 'Speed', accent: '#7fdcff' },
+  // [EXPANSION 1] Training drill catalog entries hidden. Re-enable when EX1 unfreezes.
+  // { id: 'training-power', title: 'POWER DRILL', subtitle: 'Charge + impact taps', kind: 'tap-target', room: 'training-center', stat: 'Power', accent: '#d3a3ff' },
+  // { id: 'training-agility', title: 'AGILITY DRILL', subtitle: 'Quick reaction targets', kind: 'tap-target', room: 'training-center', stat: 'Speed', accent: '#8ce6ff' },
+  // { id: 'training-accuracy', title: 'ACCURACY DRILL', subtitle: 'Stop in target zone', kind: 'timing', room: 'training-center', stat: 'Accuracy', accent: '#ffe08b' },
+  // { id: 'training-defense', title: 'DEFENSE DRILL', subtitle: 'Merge fragments', kind: 'match', room: 'training-center', stat: 'Defense', accent: '#9df4a6' },
+  // { id: 'training-special', title: 'SPECIAL DRILL', subtitle: 'Solve pattern puzzle', kind: 'sequence', room: 'training-center', stat: 'Special', accent: '#9fb0ff' },
+  // { id: 'training-stamina', title: 'STAMINA DRILL', subtitle: 'Rapid tap endurance', kind: 'rapid-tap', room: 'training-center', stat: 'Stamina', accent: '#ffb88a' },
+  // { id: 'training-speed', title: 'SPEED DRILL', subtitle: 'Tap order 1 -> 6', kind: 'ordered-sequence', room: 'training-center', stat: 'Speed', accent: '#7fdcff' },
 ];
 
 export function getMiniGameById(id: string | undefined | null): MiniGameDef | null {

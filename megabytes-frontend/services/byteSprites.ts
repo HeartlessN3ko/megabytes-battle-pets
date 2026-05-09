@@ -1,15 +1,16 @@
 /**
  * Byte sprite resolver — v1 lifespan-stage aware.
- * Per-stage sprite maps (baby/child/teen/adult/elder) with adult fallback.
- * v1 ships with adult sprites only (the current Circle library); other stages
- * inherit until Skye produces stage-specific art and we add their entries.
+ * Per-stage sprite maps (baby/kid/adult) with adult fallback. "Old" is not
+ * a stage; it's a derived overlay (isOld) applied visually on the adult sprite.
+ * v1 ships with adult sprites only (the current Circle library); kid + baby
+ * inherit until Skye produces stage-specific art.
  *
  * Asset path convention (per Skye, 2026-04-26):
  *   Stage-specific: assets/bytes/Circle/{stage}/Circle-{action}.gif
  *   Flat (current):  assets/bytes/Circle/Circle-{action}.gif
  */
 
-export type LifespanStage = 'baby' | 'child' | 'teen' | 'adult' | 'elder';
+export type LifespanStage = 'baby' | 'kid' | 'adult';
 
 export type SpriteKey =
   | 'egg' | 'base' | 'idle' | 'idleHappy' | 'blinkBounce' | 'lowBounce'
@@ -66,24 +67,38 @@ const ADULT: Record<SpriteKey, any> = {
 // Per-stage overrides. Empty entries fall through via STAGE_INHERITS chain
 // to ADULT. Path/filename shape is whatever Skye ships — the require points
 // at the actual file. Current convention: `circle-baby/Circlebaby-{action}.gif`.
-// Child automatically picks up baby art via STAGE_INHERITS.
+// Kid automatically picks up baby art via STAGE_INHERITS until kid art ships.
 const STAGE_OVERRIDES: Record<LifespanStage, Partial<Record<SpriteKey, any>>> = {
   baby: {
     idle: require('../assets/bytes/Circle/circle-baby/Circlebaby-idle.gif'),
   },
-  child: {},
-  teen:  {},
+  kid:   {},
   adult: {},
-  elder: {},
 };
 
-// Stage sprite inheritance chain (per Skye 2026-04-26):
-//   - child inherits baby's overrides (same art, sized up via STAGE_BASE_SCALE)
-//   - teen / elder fall through to adult (no override needed)
+// Stage sprite inheritance chain (2026-05-09 simplification):
+//   - kid inherits baby's overrides (same art, sized up via STAGE_BASE_SCALE)
+//   - adult is the canonical sprite set (no override needed; falls through to ADULT)
 // To resolve a sprite: stage's own overrides → inherited stage's overrides → ADULT.
 const STAGE_INHERITS: Partial<Record<LifespanStage, LifespanStage>> = {
-  child: 'baby',
+  kid: 'baby',
 };
+
+// Legacy stage map. Backend self-heals on /sync, but during the migration
+// window (and for cached responses) the frontend may still see legacy
+// values. Normalize on read so STAGE_OVERRIDES + TUNABLES.byteRender don't
+// blow up on lookup.
+const LEGACY_STAGE_MAP: Record<string, LifespanStage> = {
+  child: 'kid',
+  teen:  'kid',
+  elder: 'adult',
+};
+
+export function normalizeStage(raw: string | null | undefined): LifespanStage {
+  if (!raw) return 'adult';
+  if (raw === 'baby' || raw === 'kid' || raw === 'adult') return raw;
+  return LEGACY_STAGE_MAP[raw] || 'adult';
+}
 
 /**
  * Get the sprite for a given lifespan stage + key.

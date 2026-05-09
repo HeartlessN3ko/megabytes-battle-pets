@@ -49,7 +49,8 @@ import { useActionGate } from '../../hooks/useActionGate';
 import { useByteRoaming } from '../../hooks/useByteRoaming';
 import { generateByteThought, generateSleepDream } from '../../services/byteThoughts';
 import { getByteMotionProfile } from '../../services/byteMotion';
-import { getStageSprite, type LifespanStage } from '../../services/byteSprites';
+import { getStageSprite, normalizeStage, type LifespanStage } from '../../services/byteSprites';
+import { AgedByteRender } from '../../components/AgedByteRender';
 import {
   TUNABLES,
   clutterSpawnProbability,
@@ -152,7 +153,8 @@ const UTILITY_BAR = [
 const ROOM_MENU = [
   { key: 'kitchen',   title: 'KITCHEN',      subtitle: 'Feed and meals',        icon: 'restaurant-outline',      route: '/rooms/kitchen',          color: '#ffcb58' },
   { key: 'bathroom',  title: 'BATHROOM',     subtitle: 'Clean and wash',        icon: 'water-outline',           route: '/rooms/bathroom',         color: '#56d9ff' },
-  { key: 'training',  title: 'TRAINING',     subtitle: 'Stat drills',           icon: 'barbell-outline',         route: '/rooms/training-center',  color: '#d48fff' },
+  // [EXPANSION 1] TRAINING entry hidden — stats + training drills moved to EX1 alongside battle.
+  // { key: 'training',  title: 'TRAINING',     subtitle: 'Stat drills',           icon: 'barbell-outline',         route: '/rooms/training-center',  color: '#d48fff' },
   { key: 'clinic',    title: 'CLINIC',       subtitle: 'Recovery support',      icon: 'medkit-outline',          route: '/rooms/clinic',           color: '#8deac7' },
   { key: 'play',      title: 'PLAY ROOM',    subtitle: 'Mood support',          icon: 'game-controller-outline', route: '/rooms/play-room',        color: '#ff8dd2' },
   { key: 'market',    title: 'MARKETPLACE',  subtitle: 'Auctions and buy-now',  icon: 'pricetags-outline',       route: '/(tabs)/marketplace',     color: '#5bdd7e' },
@@ -733,7 +735,11 @@ export default function HomeScreen() {
 
   // v1 lifespan-stage-aware sprite resolution. Adult sprites are the
   // current shipped set; other stages fall back to adult until art ships.
-  const lifespanStage: LifespanStage = (byteData?.byte?.lifespanStage as LifespanStage) || 'adult';
+  // normalizeStage maps legacy values (child/teen/elder) to the new enum
+  // so STAGE_OVERRIDES + TUNABLES.byteRender don't blow up during the
+  // migration window when the backend may still return legacy strings.
+  const lifespanStage: LifespanStage = normalizeStage(byteData?.byte?.lifespanStage);
+  const isOld = Boolean(byteData?.byte?.isOld);
 
   // Stat-driven render scale: stage base × Strength modifier. Mirror of
   // backend lifespanEngine.STAGE_BASE_SCALE — values now live in
@@ -910,7 +916,7 @@ export default function HomeScreen() {
       byteName: byteData?.byte?.name || 'BYTE',
       needs,
       temperament: byteData?.byte?.temperament || null,
-      trainingSessionsToday: Number(byteData?.byte?.trainingSessionsToday || 0),
+      // [EXPANSION 1] trainingSessionsToday removed — training is EX1.
       idleTicks: idleThoughtTicks,
       tone: byteData?.personalityModifiers?.tone || 'neutral',
       state: byteData?.behaviorState?.state || 'idle',
@@ -918,7 +924,7 @@ export default function HomeScreen() {
     });
     if (clutter >= 3) return `${thought} Home is ${clutterLabel.toLowerCase()}.`;
     return thought;
-  }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.byte?.trainingSessionsToday, byteData?.personalityModifiers?.tone, byteData?.behaviorState, clutter, clutterLabel, idleThoughtTicks, isSleeping, needs]);
+  }, [byteData?.byte?.name, byteData?.byte?.temperament, byteData?.personalityModifiers?.tone, byteData?.behaviorState, clutter, clutterLabel, idleThoughtTicks, isSleeping, needs]);
 
   useEffect(() => { thoughtRef.current = randomThought; }, [randomThought]);
 
@@ -1797,7 +1803,13 @@ export default function HomeScreen() {
               style={{ width: byteFootprint, height: byteFootprint }}
               collapsable={false}
             >
-              <Image source={petSprite} style={[styles.byteSprite, { width: byteFootprint, height: byteFootprint }]} resizeMode="contain" />
+              <AgedByteRender
+                source={petSprite}
+                isOld={isOld}
+                width={byteFootprint}
+                height={byteFootprint}
+                imageStyle={styles.byteSprite}
+              />
             </View>
             <CorruptionAura corruption={corruptionValue} size={byteFootprint * 0.5} containerSize={byteFootprint} />
             <SleepZsOverlay visible={isSleeping} />

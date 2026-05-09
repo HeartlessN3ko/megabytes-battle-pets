@@ -20,12 +20,13 @@ const lifespanEngine = require('./lifespanEngine');
 // ─────────────────────────────────────────────────────────────────
 // Eligibility — midway through a stage, stage not yet entered
 // ─────────────────────────────────────────────────────────────────
+// 2026-05-09: collapsed 5 -> 3 stages. One pageant per stage. Adult midway
+// lands at ~32 (mid of 16-49) — well before the OLD_OVERLAY_LEVEL=41 line so
+// the player gets the adult pageant before old overlay kicks in.
 const STAGE_MIDWAY_LEVEL = {
   baby:  3,
-  child: 10,
-  teen:  20,
-  adult: 33,
-  elder: 45,
+  kid:   10,
+  adult: 32,
 };
 
 function isEligible(byte) {
@@ -48,7 +49,10 @@ function isEligible(byte) {
 // Arbitrary stats (0-100 each)
 // ─────────────────────────────────────────────────────────────────
 const STAT_KEYS = ['Power', 'Speed', 'Defense', 'Special', 'Stamina', 'Accuracy'];
-const STAGE_CUTENESS_BOOST = { baby: 20, child: 10, teen: 0, adult: 0, elder: 5 };
+// Babies get the biggest cuteness boost. Kid is mid. Adult neutral. Old
+// adults get a small bump (the wisdom-tier softness). Computed off byte.isOld.
+const STAGE_CUTENESS_BOOST = { baby: 20, kid: 10, adult: 0 };
+const OLD_CUTENESS_BOOST = 5;
 
 function clamp01_100(v) { return Math.max(0, Math.min(100, Math.round(v))); }
 
@@ -59,9 +63,10 @@ function readStats(byte) {
 function cuteness(byte) {
   const affection = Number(byte.affection ?? 50);
   const corruption = Number(byte.corruption ?? 0);
-  const stage = byte.lifespanStage || 'adult';
+  const stage = lifespanEngine.normalizeStage(byte.lifespanStage) || 'adult';
   const stageBoost = STAGE_CUTENESS_BOOST[stage] || 0;
-  return clamp01_100(affection * 0.7 + (100 - corruption) * 0.2 + stageBoost);
+  const oldBoost = lifespanEngine.isOldFromLevel(byte.level || 1) ? OLD_CUTENESS_BOOST : 0;
+  return clamp01_100(affection * 0.7 + (100 - corruption) * 0.2 + stageBoost + oldBoost);
 }
 
 function talent(byte) {

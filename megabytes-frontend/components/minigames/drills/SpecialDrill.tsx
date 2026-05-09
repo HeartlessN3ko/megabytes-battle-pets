@@ -1,5 +1,6 @@
 /**
- * SpecialDrill
+ * [EXPANSION 1] SpecialDrill — gated out of v1. File preserved on disk; not
+ * imported by v1 active code.
  *
  * Pattern-recall training drill (Simon-says style). Four colored cells
  * arranged in a 2x2 grid. Each round the drill flashes a sequence of

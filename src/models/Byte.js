@@ -2,6 +2,10 @@ const mongoose = require('mongoose');
 
 // --- Sub-schemas ---
 
+// [EXPANSION 1] StatsSchema — schema fields preserved on every byte doc, but
+// not read or written by v1 routes. Stats + training drills moved to EX1
+// alongside battle. Hatch still seeds biased values (statEngine.applyEvolutionBiases
+// in routes/byte.js) so EX1 unfreeze inherits coherent stats without a migration.
 const StatsSchema = new mongoose.Schema({
   Power:    { type: Number, default: 10, min: 0, max: 100 },
   Speed:    { type: Number, default: 10, min: 0, max: 100 },
@@ -104,13 +108,19 @@ const ByteSchema = new mongoose.Schema({
 
   // v1 lifespan progression. Driven by level via lifespanEngine.getStageForLevel().
   // Source of truth for stage-gated UI, sprite scale, decay multipliers.
-  lifespanStage: { type: String, enum: ['baby','child','teen','adult','elder'], default: 'baby' },
+  // 2026-05-09: enum collapsed from 5 -> 3 stages. "Old" is a derived overlay
+  // flag (isOld virtual below), not its own enum value. Legacy values
+  // (child/teen/elder) are healed by lifespanEngine.normalizeStage in the
+  // /sync backfill — old byte docs auto-migrate on next read.
+  lifespanStage: { type: String, enum: ['baby','kid','adult'], default: 'baby' },
 
   // Pageants entered this byte's life — one per lifespan stage. Frontend
   // checks (stage NOT in this array) to surface the "enter" button.
   pageantsEntered: { type: [String], default: [] },
 
-  // Stats
+  // [EXPANSION 1] Stats — persisted but not surfaced in v1 (stats + training
+  // drills moved to EX1 alongside battle). Hatch seeds biased values; v1 sync
+  // does not return computedStats.
   stats: { type: StatsSchema, default: () => ({ Power: 10, Speed: 10, Defense: 10, Stamina: 10, Special: 10, Accuracy: 10 }) },
 
   // Needs
@@ -192,12 +202,14 @@ const ByteSchema = new mongoose.Schema({
     swipeProgress:  { type: Number, default: 0 },
   }],
 
-  // Training tracking
+  // [EXPANSION 1] Training tracking — fields preserved, no v1 route reads or
+  // writes them (PATCH /:id/train returns 410 in v1).
   trainingSessionsToday: { type: Number, default: 0 },
   lastTrainingReset:     { type: Date, default: Date.now },
 
   // Legacy inheritance (from parent byte)
   inheritedMove:      { type: String, default: null },
+  // [EXPANSION 1] inheritedStatBonus — applied to stats, both EX1.
   inheritedStatBonus: { type: StatsSchema, default: null },
 
   // Is this an egg?
@@ -286,10 +298,23 @@ const ByteSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
-// Virtual: maxHP from formula — base_hp + (Stamina * 10)
+// [EXPANSION 1] maxHP virtual — derives from Stamina, both EX1. Not read in v1.
 ByteSchema.virtual('maxHP').get(function () {
   const BASE_HP = 50;
   return BASE_HP + (this.stats.Stamina * 10);
 });
+
+// v1 lifespan virtual: true when level >= OLD_OVERLAY_LEVEL (default 41).
+// Frontend reads this to apply the desaturation+darken overlay on the adult
+// sprite. Derived, not persisted, so a level retune flips it automatically.
+const { OLD_OVERLAY_LEVEL } = require('../engine/lifespanEngine');
+ByteSchema.virtual('isOld').get(function () {
+  return Number(this.level || 1) >= OLD_OVERLAY_LEVEL;
+});
+
+// Surface virtuals in JSON responses so /sync, /:id, etc. include isOld
+// (and maxHP, which is harmless dormant info in v1).
+ByteSchema.set('toJSON', { virtuals: true });
+ByteSchema.set('toObject', { virtuals: true });
 
 module.exports = mongoose.model('Byte', ByteSchema);

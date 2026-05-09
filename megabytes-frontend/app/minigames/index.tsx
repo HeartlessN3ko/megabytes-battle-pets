@@ -43,7 +43,8 @@ export default function MiniGameHubScreen() {
             </View>
             <Text style={styles.cardSub}>{game.subtitle}</Text>
             <View style={styles.cardFooter}>
-              <Text style={styles.cardMeta}>{game.room === 'training-center' ? 'Training drill' : `Room: ${game.room}`}</Text>
+              {/* [EXPANSION 1] training-drill label removed — training is EX1. */}
+              <Text style={styles.cardMeta}>{`Room: ${game.room}`}</Text>
               <Text style={styles.cardLaunch}>OPEN</Text>
             </View>
           </TouchableOpacity>

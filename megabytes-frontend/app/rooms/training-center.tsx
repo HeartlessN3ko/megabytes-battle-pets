@@ -1,3 +1,7 @@
+// [EXPANSION 1] TRAINING CENTER ROOM — gated out of v1.
+// Stats + training drills moved to EX1 alongside battle. The home-screen
+// ROOM_MENU entry is hidden, so this file is unreachable through normal
+// nav. Code preserved for restoration when EX1 unfreezes; do not delete.
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -5,8 +9,10 @@ import { enterRoom, getByte } from '../../services/api';
 import RoomScene, { RoomAction, RoomResultWindow } from '../../components/RoomScene';
 import { consumePendingMiniGameResult, getTrainingCooldownRemainingMs, getTrainingFatigue } from '../../services/minigameRuntime';
 
-// v1 lifespan-stage gate: training is only available to teen + adult.
-// Baby and child are too young; elder bytes have stopped training.
+// [EXPANSION 1] Local LifespanStage type kept on the legacy 5-stage shape
+// because this room is gated out of v1 — restoring it is part of the EX1
+// unfreeze, at which point the type and gating logic get rewritten against
+// the current 3-stage enum (baby/kid/adult + old overlay).
 type LifespanStage = 'baby' | 'child' | 'teen' | 'adult' | 'elder';
 const TRAINING_AVAILABLE_STAGES: LifespanStage[] = ['teen', 'adult'];
 

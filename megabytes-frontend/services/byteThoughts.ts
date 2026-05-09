@@ -510,7 +510,7 @@ export function generateByteThought({
   byteName,
   needs,
   temperament,
-  trainingSessionsToday = 0,
+  // [EXPANSION 1] trainingSessionsToday param removed — training is EX1.
   idleTicks = 0,
   tone = 'neutral',
   state = 'idle',
@@ -519,7 +519,6 @@ export function generateByteThought({
   byteName?: string;
   needs?: any;
   temperament?: string | null;
-  trainingSessionsToday?: number;
   idleTicks?: number;
   tone?: string;
   // Resolver-driven behaviorState.state passed flat. When non-'idle' and a
@@ -555,7 +554,7 @@ export function generateByteThought({
   if (crit > 0) pools.push(THOUGHTS.critical);
   pools.push(THOUGHTS[dominantNeedKey(needs)] || THOUGHTS.general);
 
-  if (trainingSessionsToday >= 5) pools.push(THOUGHTS.training);
+  // [EXPANSION 1] training-fatigue thought pool gated — training is EX1.
   if (idleTicks > 2) pools.push(THOUGHTS.meta);
 
   const temperamentPool = TEMPERAMENT_HOOKS[String(temperament || '')];

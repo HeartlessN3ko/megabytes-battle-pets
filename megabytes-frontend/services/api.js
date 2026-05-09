@@ -127,6 +127,8 @@ export const syncByte = () =>
 export const careAction = (action, grade = 'good', extra = {}) =>
   request('PATCH', `/api/byte/${activeIds().byteId}/care`, { action: action.toLowerCase(), grade, ...extra });
 
+// [EXPANSION 1] trainStat — backend PATCH /:id/train returns 410 in v1.
+// Drills still import this so they compile; restore active wiring when EX1 unfreezes.
 export const trainStat = (stat, result) =>
   request('PATCH', `/api/byte/${activeIds().byteId}/train`, { stat, result });
 export const praiseByte = () => request('POST', `/api/byte/${activeIds().byteId}/praise`);

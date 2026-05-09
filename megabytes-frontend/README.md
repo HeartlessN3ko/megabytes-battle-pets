@@ -1,50 +1,77 @@
-# Welcome to your Expo app 👋
+# megabytes-frontend
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+React Native + Expo. Part of the MEGA-BYTES monorepo. Canonical onboarding docs live in `../AI documents/` (start with `CLAUDE.md`).
 
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Dev
 
 ```bash
-npm run reset-project
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+`npm run smoke:frontend` runs the frontend smoke test.
 
-## Learn more
+## Standalone builds (EAS)
 
-To learn more about developing your project with Expo, look at the following resources:
+Expo Go disconnects after ~8 hours and does not persist state overnight, which makes the 72-hour care loop impossible to playtest. Real devices need a standalone build via [EAS Build](https://docs.expo.dev/eas/).
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### One-time setup (per machine / per Expo account)
 
-## Join the community
+```powershell
+npm install -g eas-cli
+eas login
+cd V:\Voidworks\Megabytes\megabytes-frontend
+eas init                # creates extra.eas.projectId in app.json
+```
 
-Join our community of developers creating universal apps.
+`eas init` is interactive and links the project to the logged-in Expo account. Run it once. After it succeeds, `app.json` will have `extra.eas.projectId` populated.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### Bundle identifiers
+
+Set in `app.json` (already present):
+
+- `android.package`: `com.voidworks.megabytes`
+- `ios.bundleIdentifier`: `com.voidworks.megabytes`
+
+These are **permanent** once the app is published to a store. Change them now if a different reverse-DNS scheme is wanted (e.g. `com.voidworksinteractive.megabytes`).
+
+### Profiles (defined in `eas.json`)
+
+| Profile | Output | Use |
+|---------|--------|-----|
+| `development` | dev-client APK / IPA | local dev with native modules; pairs with `npx expo start --dev-client` |
+| `preview` | release APK (Android) / ad-hoc IPA (iOS) | sideloadable testing build for Skye's phone |
+| `preview-sim` | iOS simulator build | desktop iOS testing only |
+| `production` | AAB (Android) / archive (iOS) | store submission |
+
+### Build for Skye's phone
+
+**Android (sideload-friendly, no developer account needed):**
+
+```powershell
+eas build --profile preview --platform android
+```
+
+When the build finishes, EAS prints a URL and a QR. Scan the QR on the device, tap install, allow installs from this source, done. The artifact is also downloadable from `expo.dev` under the project's Builds tab.
+
+**iOS (requires Apple Developer account or device UDID registration via EAS):**
+
+```powershell
+eas build --profile preview --platform ios
+```
+
+EAS will walk through provisioning. Without an Apple Developer account, route through Android instead.
+
+### Build limits
+
+Free EAS tier has a monthly build cap. Don't burn builds on cosmetic iteration. Build, test for a week, iterate in the dev preview / Expo Go between builds, then build again.
+
+### After install — verification checklist
+
+1. App icon shows as a normal installed app, not as an Expo Go entry.
+2. Force-close the app. Reopen. Byte state, needs, corruption all persist.
+3. Leave installed overnight. In the morning the byte has aged correctly per real elapsed wall-clock time.
+
+## Versioning
+
+`app.json` `expo.version` is bumped on every push that touches frontend code. See `../AI documents/CLAUDE.md` Build versioning section for the rules.

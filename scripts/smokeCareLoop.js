@@ -130,16 +130,21 @@ async function run() {
   assert('lightsOn=false in response', lightsRes.body?.lightsOn === false);
   assert('isSleeping field on response', lightsRes.body?.isSleeping !== undefined);
 
-  // [8] Lifespan jumps: teen → elder, verify ageDeathPending --------------
+  // [8] Lifespan jumps: kid -> adult -> old overlay ----------------------
   head();
   console.log('[8] Lifespan stage transitions');
-  const teenRes = await req('POST', `/api/byte/${byteId}/dev/lifespan-stage`, { stage: 'teen' });
-  assert('teen stage set', teenRes.body?.lifespanStage === 'teen', JSON.stringify(teenRes.body));
-  const elderRes = await req('POST', `/api/byte/${byteId}/dev/lifespan-stage`, { stage: 'elder' });
-  assert('elder stage set', elderRes.body?.lifespanStage === 'elder', JSON.stringify(elderRes.body));
+  const kidRes = await req('POST', `/api/byte/${byteId}/dev/lifespan-stage`, { stage: 'kid' });
+  assert('kid stage set', kidRes.body?.lifespanStage === 'kid', JSON.stringify(kidRes.body));
+  const adultRes = await req('POST', `/api/byte/${byteId}/dev/lifespan-stage`, { stage: 'adult' });
+  assert('adult stage set', adultRes.body?.lifespanStage === 'adult', JSON.stringify(adultRes.body));
+  const oldRes = await req('POST', `/api/byte/${byteId}/dev/lifespan-stage`, { stage: 'old' });
+  assert('old overlay: stage stays adult', oldRes.body?.lifespanStage === 'adult', JSON.stringify(oldRes.body));
+  assert('old overlay: isOld true', oldRes.body?.isOld === true, JSON.stringify(oldRes.body));
   const sync3 = await req('POST', `/api/byte/${byteId}/sync`, { localHour: 14 });
-  assert('sync at elder 200', sync3.status === 200);
-  assert('elder lifespanStage on sync response', (sync3.body?.byte || sync3.body)?.lifespanStage === 'elder');
+  assert('sync at old-adult 200', sync3.status === 200);
+  const sync3Byte = sync3.body?.byte || sync3.body;
+  assert('adult lifespanStage on sync response', sync3Byte?.lifespanStage === 'adult');
+  assert('isOld true on sync response', sync3Byte?.isOld === true);
 
   // [9] Corruption set + clinic repair ------------------------------------
   head();

@@ -1,5 +1,6 @@
 /**
- * StaminaDrill
+ * [EXPANSION 1] StaminaDrill — gated out of v1. File preserved on disk; not
+ * imported by v1 active code.
  *
  * Rapid-tap endurance drill. The player taps a target as fast as possible
  * during a fixed window. Three rounds, escalating tap-count goals. No

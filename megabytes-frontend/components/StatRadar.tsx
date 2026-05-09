@@ -7,7 +7,7 @@
  * box so labels stay crisp at any size.
  *
  * Used by:
- *  - training-center room (6 stats: Power / Speed / Accuracy / Defense / Special / Stamina)
+ *  - [EXPANSION 1] training-center room (6 stats: Power / Speed / Accuracy / Defense / Special / Stamina) — gated out of v1.
  */
 
 import React from 'react';

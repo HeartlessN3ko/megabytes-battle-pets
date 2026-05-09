@@ -1,5 +1,6 @@
 /**
- * SweetSpotTimer
+ * [EXPANSION 1] SweetSpotTimer — used only by Power/Accuracy drills, both EX1.
+ * File preserved on disk for forward-compat.
  *
  * Reusable primitive for sweet-spot timing minigames. A marker traverses a
  * horizontal track. The wrapping drill commits via the ref's commit() method;

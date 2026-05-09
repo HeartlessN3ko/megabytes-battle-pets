@@ -3,18 +3,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image, ImageBackground, PanResponder, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { careAction, earnCurrency, getByte, trainStat, syncByte } from '../../services/api';
+import { careAction, earnCurrency, getByte } from '../../services/api';
 import { markHomeClutterCleared } from '../../services/homeRuntimeState';
 import { MiniGameDef, getMiniGameById } from '../../services/minigames';
-import { MiniGameRoomId, recordTrainingUsage, setPendingMiniGameResult } from '../../services/minigameRuntime';
+import { MiniGameRoomId, setPendingMiniGameResult } from '../../services/minigameRuntime';
 import { initSfx, playSfx, startLoopSfx, stopLoopSfx, type SfxKey } from '../../services/sfx';
-import { PowerDrill } from '../../components/minigames/drills/PowerDrill';
-import { AccuracyDrill } from '../../components/minigames/drills/AccuracyDrill';
-import { StaminaDrill } from '../../components/minigames/drills/StaminaDrill';
-import { SpeedDrill } from '../../components/minigames/drills/SpeedDrill';
-import { AgilityDrill } from '../../components/minigames/drills/AgilityDrill';
-import { SpecialDrill } from '../../components/minigames/drills/SpecialDrill';
-import { DefenseDrill } from '../../components/minigames/drills/DefenseDrill';
+// [EXPANSION 1] Training drill imports removed — components preserved at
+// components/minigames/drills/* with EX1 banners. Re-import when EX1 unfreezes.
 
 type Grade = 'fail' | 'good' | 'perfect';
 type Variant = 'quick' | 'long';
@@ -56,8 +51,9 @@ const CHOMP_SPRITE_CHOMP_BAD = require('../../assets/bytes/Circle/Circle-x-eyes.
 const CHOMP_SPRITE_MISS = require('../../assets/bytes/Circle/Circle-looklowerleft-right.gif');
 const NEED_RESULT_ORDER = ['Hunger', 'Bandwidth', 'Hygiene', 'Fun', 'Social', 'Mood'];
 
-function familyLabelFor(game: MiniGameDef) {
-  return game.id.startsWith('training-') ? 'TRAINING SIMULATION' : 'CARE SIMULATION';
+function familyLabelFor(_game: MiniGameDef) {
+  // [EXPANSION 1] TRAINING SIMULATION label removed — training is EX1.
+  return 'CARE SIMULATION';
 }
 
 function gradeForQuality(q: number): Grade {
@@ -79,24 +75,19 @@ function resolveRoomPath(room: string | undefined) {
   if (room === 'kitchen') return '/rooms/kitchen';
   if (room === 'bathroom') return '/rooms/bathroom';
   if (room === 'play-room') return '/rooms/play-room';
-  if (room === 'training-center') return '/rooms/training-center';
+  // [EXPANSION 1] training-center route removed — restore when EX1 unfreezes.
   return null;
 }
 
 function calcEconomy(def: MiniGameDef, grade: Grade, variant: Variant, quality: number) {
-  const training = def.id.startsWith('training-');
-  // Energy-costly games: training (Bandwidth -12 on backend) + play-room games (Bandwidth -4 via careAction('play')).
+  // [EXPANSION 1] Training payout/energy/statGain branches removed — training is EX1.
+  // Energy-costly games in v1: play-room games only (Bandwidth -4 via careAction('play')).
   const isPlayGame = def.id === 'engage-simulation' || def.id === 'sync-link' || def.id === 'emote-align';
-  // 2026-04-17: payouts doubled — prev 3/18 care, 4/26 training felt punitive for the effort.
-  const baseBits = training ? (variant === 'long' ? 55 : 10) : (variant === 'long' ? 40 : 8);
+  const baseBits = variant === 'long' ? 40 : 8;
   const qualityScale = grade === 'perfect' ? 1.35 : grade === 'good' ? 1 : 0.35;
   const byteBits = Math.max(1, Math.round(baseBits * qualityScale * clamp(0.7 + quality * 0.4, 0.7, 1.2)));
-  // No energy penalty for feed/clean/rest/recovery. Only play + training cost energy.
-  const energyCost = training
-    ? (variant === 'long' ? 18 : 11)
-    : isPlayGame ? (variant === 'long' ? 10 : 6) : 0;
-  // Display matches backend TRAINING_GAIN * ~1.0 avg dailyMult * ~0.9 needMult → +3/+2/+1.
-  const statGain = training && def.stat ? `${def.stat} +${grade === 'perfect' ? 3 : grade === 'good' ? 2 : 1}` : null;
+  const energyCost = isPlayGame ? (variant === 'long' ? 10 : 6) : 0;
+  const statGain = null;
   return { byteBits, energyCost, statGain };
 }
 
@@ -106,9 +97,7 @@ function startCueFor(game: MiniGameDef): SfxKey {
   if (game.id === 'stabilize-signal') return 'minigame_signal_trace';
   if (game.id === 'sync-link') return 'minigame_sync_connect';
   if (game.id === 'emote-align') return 'minigame_emote_match';
-  if (game.id === 'training-accuracy') return 'training_accuracy_lock';
-  if (game.id === 'training-defense') return 'training_defense_merge';
-  if (game.id === 'training-special') return 'training_special_charge';
+  // [EXPANSION 1] training-* start cues removed — training is EX1.
   if (game.kind === 'tap-target' || game.kind === 'rapid-tap') return 'minigame_target_spawn';
   return 'minigame_score_tick';
 }
@@ -119,13 +108,7 @@ function successCueFor(game: MiniGameDef): SfxKey {
   if (game.id === 'stabilize-signal') return 'minigame_signal_trace';
   if (game.id === 'sync-link') return 'minigame_sync_connect';
   if (game.id === 'emote-align') return 'minigame_emote_match';
-  if (game.id === 'training-power') return 'training_power_hit';
-  if (game.id === 'training-agility') return 'training_agility_ping';
-  if (game.id === 'training-accuracy') return 'training_accuracy_lock';
-  if (game.id === 'training-defense') return 'training_defense_merge';
-  if (game.id === 'training-special') return 'training_special_charge';
-  if (game.id === 'training-stamina') return 'training_stamina_mash';
-  if (game.id === 'training-speed') return 'training_speed_step';
+  // [EXPANSION 1] training-* success cues removed — training is EX1.
   return 'minigame_target_hit';
 }
 
@@ -233,36 +216,10 @@ function buildTracePatterns(variant: Variant) {
 // hands them off by id and falls through to LegacyMiniGameRunner for
 // everything else.
 export default function MiniGameRunnerScreen() {
-  const params = useLocalSearchParams<{ id?: string; variant?: string; room?: string }>();
-  const rawId = typeof params.id === 'string' ? params.id : '';
-  if (rawId === 'training-power') {
-    const game = getMiniGameById(rawId);
-    if (game) return <PowerDrill game={game} />;
-  }
-  if (rawId === 'training-accuracy') {
-    const game = getMiniGameById(rawId);
-    if (game) return <AccuracyDrill game={game} />;
-  }
-  if (rawId === 'training-stamina') {
-    const game = getMiniGameById(rawId);
-    if (game) return <StaminaDrill game={game} />;
-  }
-  if (rawId === 'training-speed') {
-    const game = getMiniGameById(rawId);
-    if (game) return <SpeedDrill game={game} />;
-  }
-  if (rawId === 'training-agility') {
-    const game = getMiniGameById(rawId);
-    if (game) return <AgilityDrill game={game} />;
-  }
-  if (rawId === 'training-special') {
-    const game = getMiniGameById(rawId);
-    if (game) return <SpecialDrill game={game} />;
-  }
-  if (rawId === 'training-defense') {
-    const game = getMiniGameById(rawId);
-    if (game) return <DefenseDrill game={game} />;
-  }
+  // [EXPANSION 1] training-* dispatch branches removed — drill components
+  // preserved at components/minigames/drills/* with EX1 banners. Restore the
+  // 7 if-blocks (PowerDrill, AccuracyDrill, StaminaDrill, SpeedDrill,
+  // AgilityDrill, SpecialDrill, DefenseDrill) when EX1 unfreezes.
   return <LegacyMiniGameRunner />;
 }
 
@@ -737,25 +694,11 @@ function LegacyMiniGameRunner() {
           } else {
             effectLines = ['Sync offline — effect will apply on reconnect.'];
           }
-        } else if (game.id.startsWith('training-') && game.stat) {
-          const trainResult = await trainStat(game.stat, grade).catch((err: any) => {
-            console.error(`trainStat failed for ${game.stat}:`, err?.message);
-            return null;
-          });
-          if (trainResult) {
-            const gain = Math.max(0, Number(trainResult?.gain || 0));
-            effectLines = gain > 0 ? [`${game.stat} +${gain}`] : [`${game.stat} +0`];
-            await syncByte().catch(() => null); // REFRESH byte data after training so stats persist
-          } else {
-            effectLines = ['Sync offline — training will apply on reconnect.'];
-          }
         }
+        // [EXPANSION 1] training-* trainStat branch + recordTrainingUsage call removed.
       }
 
       const economy = calcEconomy(game, grade, variant, quality);
-      if (game.id.startsWith('training-')) {
-        recordTrainingUsage(economy.energyCost, 10000);
-      }
       if (economy.byteBits > 0) {
         await earnCurrency(economy.byteBits, `minigame:${game.id}`).catch(() => {});
       }
@@ -769,7 +712,7 @@ function LegacyMiniGameRunner() {
       setResultMeta([
         economy.byteBits > 0 ? `ByteBits +${economy.byteBits}` : '',
         economy.energyCost > 0 ? `Energy -${economy.energyCost}` : '',
-        game.id.startsWith('training-') ? 'Training cooldown 10s' : '',
+        // [EXPANSION 1] Training cooldown line removed — training is EX1.
         // 2F — CHOMP-specific summary lines. Reads chompMaxComboRef + perfect
         // count refs, set during the resolve loop. Appears alongside the
         // existing reward popup, not in place of it.
@@ -786,21 +729,7 @@ function LegacyMiniGameRunner() {
       setResultSummary(feedBlockedMessage || resultSummaryFor(game, grade, effectLines));
       setStatus('Result ready. Return to room to continue.');
 
-      // Set pending result for room UI
-      if (game.id.startsWith('training-')) {
-        setPendingMiniGameResult({
-          room: 'training-center',
-          gameId: game.id,
-          title: game.title,
-          grade,
-          quality,
-          byteBits: economy.byteBits,
-          skillGain: economy.statGain,
-          energyCost: economy.energyCost,
-          cooldownSeconds: 10,
-          summary: effectLines.length > 0 ? effectLines.join(' • ') : `${game.title} complete.`,
-        });
-      }
+      // [EXPANSION 1] Training-center pending-result handoff removed — training is EX1.
     } catch {
       stopLoopSfx('minigame_process_loop');
       setStatus('Sync failed right now. You can cancel and retry.');

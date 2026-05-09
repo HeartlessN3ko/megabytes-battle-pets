@@ -1,5 +1,6 @@
 /**
- * DefenseDrill
+ * [EXPANSION 1] DefenseDrill — gated out of v1. File preserved on disk; not
+ * imported by v1 active code.
  *
  * Fragment-merge training drill. A 3x2 board of typed fragments. The player
  * taps two tiles; if they share a type they merge (both clear) and refill

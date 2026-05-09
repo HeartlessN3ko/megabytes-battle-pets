@@ -1,5 +1,6 @@
 /**
- * SpeedDrill
+ * [EXPANSION 1] SpeedDrill — gated out of v1. File preserved on disk; not
+ * imported by v1 active code.
  *
  * Ordered-sequence training drill. Six numbered cells appear in a 3x2 grid;
  * the digits 1-6 are randomly assigned to the slots. The player taps them

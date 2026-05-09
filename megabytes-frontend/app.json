@@ -2,16 +2,18 @@
   "expo": {
     "name": "megabytes-frontend",
     "slug": "megabytes-frontend",
-    "version": "3.18.10",
+    "version": "3.20.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "megabytesfrontend",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.voidworks.megabytes"
     },
     "android": {
+      "package": "com.voidworks.megabytes",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

@@ -1,5 +1,13 @@
 /**
- * STAT ENGINE
+ * [EXPANSION 1] STAT ENGINE — gated out of v1.
+ * Stats + training drills moved to EX1 alongside battle. v1 routes no longer
+ * import this module; sync no longer returns `computedStats`. The PATCH /train
+ * and GET /stats endpoints return 410. `applyEvolutionBiases` is still called
+ * by `routes/byte.js` POST /hatch to seed the persisted stats subdoc — those
+ * values lie dormant in v1 and become meaningful when EX1 unfreezes. The local
+ * `xpRequired(level)` here is battle-XP (used by routes/battle.js); v1 lifespan
+ * XP lives in `engine/xpEngine.js xpRequiredForLevel`.
+ *
  * Handles need → stat modifier calculation and all battle formulas.
  * Updated with new need state thresholds (85/60/30).
  */

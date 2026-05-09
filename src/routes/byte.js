@@ -29,6 +29,7 @@ const { MOVE_CATALOG_MAP } = require('../data/moveCatalog');
 const { EFFECTS_REGISTRY } = require('../data/effectsRegistry');
 const { getActiveDecorEffects } = require('../data/decorCatalog');
 const activityCatalog = require('../data/activityCatalog');
+const gameBalance     = require('../config/gameBalance');
 const { optionalAuth, requireDevMode } = require('../middleware/auth');
 
 const router = express.Router();
@@ -2265,6 +2266,84 @@ router.post('/:id/hazard/:hazardId/clear', async (req, res) => {
       reward,
       hazard: cleared ? null : h,
       hazards: byte.hazards || [],
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /:id/arcade-reward  body: { outcome: 'win'|'lose'|'tie', game: 'connect4'|'minesweeper'|'hangman'|'simon'|'rps' }
+// Server-authoritative reward apply for the v1 ARCADE room. Mood + affection
+// always pay; bits cap at gameBalance.ARCADE.DAILY_BIT_CAP per byte/day.
+// Reset rolls when arcadeBitsResetAt <= now.
+router.post('/:id/arcade-reward', async (req, res) => {
+  try {
+    const { outcome, game } = req.body || {};
+    if (!gameBalance.ARCADE_OUTCOMES.includes(outcome)) {
+      return res.status(400).json({ error: `outcome must be one of ${gameBalance.ARCADE_OUTCOMES.join(', ')}` });
+    }
+    if (!gameBalance.ARCADE_GAMES.includes(game)) {
+      return res.status(400).json({ error: `game must be one of ${gameBalance.ARCADE_GAMES.join(', ')}` });
+    }
+    if (outcome === 'tie' && game !== 'connect4') {
+      return res.status(400).json({ error: 'tie outcome only valid for connect4' });
+    }
+
+    const byte = await Byte.findById(req.params.id);
+    if (!byte) return res.status(404).json({ error: 'Not found' });
+
+    const now = new Date();
+    if (!byte.arcadeBitsResetAt || byte.arcadeBitsResetAt <= now) {
+      byte.arcadeBitsEarnedToday = 0;
+      byte.arcadeBitsResetAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    }
+
+    const r = gameBalance.arcadeReward(outcome);
+    const cap = gameBalance.ARCADE.DAILY_BIT_CAP;
+    const remaining = Math.max(0, cap - (byte.arcadeBitsEarnedToday || 0));
+    const paidBits = Math.min(remaining, r.bits);
+
+    // Mood is a need (0-100, higher = better). Bump and clamp.
+    const prevMood = Number(byte.needs?.Mood ?? 50);
+    const nextMood = Math.max(0, Math.min(100, prevMood + r.mood));
+    byte.needs = byte.needs || {};
+    byte.needs.Mood = nextMood;
+
+    // Affection 0-100; clamp.
+    const prevAff = Number(byte.affection ?? 50);
+    byte.affection = Math.max(0, Math.min(100, prevAff + r.affection));
+
+    byte.arcadeBitsEarnedToday = (byte.arcadeBitsEarnedToday || 0) + paidBits;
+
+    // Credit player byteBits (single shared currency) when paidBits > 0.
+    if (paidBits > 0) {
+      try {
+        const player = await Player.findById(byte.playerId);
+        if (player) {
+          player.byteBits = Math.max(0, (player.byteBits || 0) + paidBits);
+          await player.save();
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[arcade-reward] byteBits credit failed:', e?.message || e);
+      }
+    }
+
+    byte.markModified('needs');
+    await byte.save();
+
+    res.json({
+      ok: true,
+      applied: {
+        mood: r.mood,
+        affection: r.affection,
+        bits: paidBits,
+      },
+      requested: r,
+      capRemaining: Math.max(0, cap - byte.arcadeBitsEarnedToday),
+      capTotal: cap,
+      arcadeBitsEarnedToday: byte.arcadeBitsEarnedToday,
+      arcadeBitsResetAt: byte.arcadeBitsResetAt,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

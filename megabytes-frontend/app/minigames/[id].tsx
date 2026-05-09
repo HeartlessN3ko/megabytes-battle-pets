@@ -10,6 +10,11 @@ import { MiniGameRoomId, setPendingMiniGameResult } from '../../services/minigam
 import { initSfx, playSfx, startLoopSfx, stopLoopSfx, type SfxKey } from '../../services/sfx';
 // [EXPANSION 1] Training drill imports removed — components preserved at
 // components/minigames/drills/* with EX1 banners. Re-import when EX1 unfreezes.
+import { ArcadeConnect4 } from '../../components/minigames/arcade/Connect4';
+import { ArcadeMinesweeper } from '../../components/minigames/arcade/Minesweeper';
+import { ArcadeHangman } from '../../components/minigames/arcade/Hangman';
+import { ArcadeSimon } from '../../components/minigames/arcade/SimonSays';
+import { ArcadeRPS } from '../../components/minigames/arcade/ArcadeRPS';
 
 type Grade = 'fail' | 'good' | 'perfect';
 type Variant = 'quick' | 'long';
@@ -75,6 +80,7 @@ function resolveRoomPath(room: string | undefined) {
   if (room === 'kitchen') return '/rooms/kitchen';
   if (room === 'bathroom') return '/rooms/bathroom';
   if (room === 'play-room') return '/rooms/play-room';
+  if (room === 'arcade') return '/rooms/arcade';
   // [EXPANSION 1] training-center route removed — restore when EX1 unfreezes.
   return null;
 }
@@ -216,6 +222,18 @@ function buildTracePatterns(variant: Variant) {
 // hands them off by id and falls through to LegacyMiniGameRunner for
 // everything else.
 export default function MiniGameRunnerScreen() {
+  const params = useLocalSearchParams<{ id?: string; variant?: string; room?: string }>();
+  const rawId = typeof params.id === 'string' ? params.id : '';
+
+  // ARCADE — 5 self-contained components. Each handles its own play surface,
+  // result modal, reward apply (via services/api.arcadeReward) and back-to-room
+  // exit. Dispatcher just mounts the right component for the id.
+  if (rawId === 'arcade-connect4') return <ArcadeConnect4 />;
+  if (rawId === 'arcade-minesweeper') return <ArcadeMinesweeper />;
+  if (rawId === 'arcade-hangman') return <ArcadeHangman />;
+  if (rawId === 'arcade-simon') return <ArcadeSimon />;
+  if (rawId === 'arcade-rps') return <ArcadeRPS />;
+
   // [EXPANSION 1] training-* dispatch branches removed — drill components
   // preserved at components/minigames/drills/* with EX1 banners. Restore the
   // 7 if-blocks (PowerDrill, AccuracyDrill, StaminaDrill, SpeedDrill,

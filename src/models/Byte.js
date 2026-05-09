@@ -207,6 +207,12 @@ const ByteSchema = new mongoose.Schema({
   trainingSessionsToday: { type: Number, default: 0 },
   lastTrainingReset:     { type: Date, default: Date.now },
 
+  // ARCADE daily bit cap. Mood + affection from arcade plays always pay;
+  // bits cap at gameBalance.ARCADE.DAILY_BIT_CAP per byte and reset at the
+  // first /arcade-reward request after `arcadeBitsResetAt`.
+  arcadeBitsEarnedToday: { type: Number, default: 0 },
+  arcadeBitsResetAt:     { type: Date, default: () => new Date(Date.now() + 24 * 60 * 60 * 1000) },
+
   // Legacy inheritance (from parent byte)
   inheritedMove:      { type: String, default: null },
   // [EXPANSION 1] inheritedStatBonus — applied to stats, both EX1.

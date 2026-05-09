@@ -14,7 +14,13 @@ export type MiniGameId =
   | 'training-defense'
   | 'training-special'
   | 'training-stamina'
-  | 'training-speed';
+  | 'training-speed'
+  // ARCADE — v1 entertainment surface, takes the slot the hidden training-center vacated.
+  | 'arcade-connect4'
+  | 'arcade-minesweeper'
+  | 'arcade-hangman'
+  | 'arcade-simon'
+  | 'arcade-rps';
 
 export type MiniGameKind =
   | 'tap-target'
@@ -24,14 +30,19 @@ export type MiniGameKind =
   | 'sequence'
   | 'timing'
   | 'rapid-tap'
-  | 'ordered-sequence';
+  | 'ordered-sequence'
+  | 'turn-based-grid'
+  | 'grid-reveal'
+  | 'word-guess'
+  | 'sequence-recall'
+  | 'rps';
 
 export type MiniGameDef = {
   id: MiniGameId;
   title: string;
   subtitle: string;
   kind: MiniGameKind;
-  room: 'kitchen' | 'bathroom' | 'play-room' | 'training-center' | 'all';
+  room: 'kitchen' | 'bathroom' | 'play-room' | 'training-center' | 'arcade' | 'all';
   stat?: 'Power' | 'Speed' | 'Defense' | 'Special' | 'Stamina' | 'Accuracy' | 'Agility';
   accent: string;
 };
@@ -54,6 +65,13 @@ export const MINI_GAME_DEFS: MiniGameDef[] = [
   // { id: 'training-special', title: 'SPECIAL DRILL', subtitle: 'Solve pattern puzzle', kind: 'sequence', room: 'training-center', stat: 'Special', accent: '#9fb0ff' },
   // { id: 'training-stamina', title: 'STAMINA DRILL', subtitle: 'Rapid tap endurance', kind: 'rapid-tap', room: 'training-center', stat: 'Stamina', accent: '#ffb88a' },
   // { id: 'training-speed', title: 'SPEED DRILL', subtitle: 'Tap order 1 -> 6', kind: 'ordered-sequence', room: 'training-center', stat: 'Speed', accent: '#7fdcff' },
+
+  // ARCADE — 5 reskinned classics in the v1 arcade room.
+  { id: 'arcade-connect4',    title: 'CONNECT 4',  subtitle: 'Drop discs, win the line',     kind: 'turn-based-grid', room: 'arcade', accent: '#ff7a7a' },
+  { id: 'arcade-minesweeper', title: 'BYTE HUNT',  subtitle: 'Find your bytes, dodge virus', kind: 'grid-reveal',     room: 'arcade', accent: '#9df4a6' },
+  { id: 'arcade-hangman',     title: 'DECODE',     subtitle: 'Recover the corrupted file',   kind: 'word-guess',      room: 'arcade', accent: '#ffe08b' },
+  { id: 'arcade-simon',       title: 'ECHO',       subtitle: 'Repeat the byte',              kind: 'sequence-recall', room: 'arcade', accent: '#9fb0ff' },
+  { id: 'arcade-rps',         title: 'RPS',        subtitle: 'Rock, Paper, Scissors',        kind: 'rps',             room: 'arcade', accent: '#d3a3ff' },
 ];
 
 export function getMiniGameById(id: string | undefined | null): MiniGameDef | null {

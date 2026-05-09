@@ -1,6 +1,6 @@
 // 'training-center' kept in the union for [EXPANSION 1] forward-compat —
 // training is gated out of v1, but training-center.tsx still compiles.
-export type MiniGameRoomId = 'kitchen' | 'bathroom' | 'play-room' | 'training-center';
+export type MiniGameRoomId = 'kitchen' | 'bathroom' | 'play-room' | 'training-center' | 'arcade';
 
 export type MiniGameResultPayload = {
   room: MiniGameRoomId;

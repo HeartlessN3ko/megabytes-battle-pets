@@ -131,6 +131,11 @@ export const careAction = (action, grade = 'good', extra = {}) =>
 // Drills still import this so they compile; restore active wiring when EX1 unfreezes.
 export const trainStat = (stat, result) =>
   request('PATCH', `/api/byte/${activeIds().byteId}/train`, { stat, result });
+
+// ARCADE reward apply — server-authoritative. Backend computes reward from
+// gameBalance.ARCADE based on outcome + game and enforces DAILY_BIT_CAP.
+export const arcadeReward = (outcome, game) =>
+  request('POST', `/api/byte/${activeIds().byteId}/arcade-reward`, { outcome, game });
 export const praiseByte = () => request('POST', `/api/byte/${activeIds().byteId}/praise`);
 export const scoldByte = () => request('POST', `/api/byte/${activeIds().byteId}/scold`);
 export const interactByte = () => request('POST', `/api/byte/${activeIds().byteId}/interact`);

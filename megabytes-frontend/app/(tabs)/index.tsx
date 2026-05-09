@@ -154,7 +154,8 @@ const ROOM_MENU = [
   { key: 'kitchen',   title: 'KITCHEN',      subtitle: 'Feed and meals',        icon: 'restaurant-outline',      route: '/rooms/kitchen',          color: '#ffcb58' },
   { key: 'bathroom',  title: 'BATHROOM',     subtitle: 'Clean and wash',        icon: 'water-outline',           route: '/rooms/bathroom',         color: '#56d9ff' },
   // [EXPANSION 1] TRAINING entry hidden — stats + training drills moved to EX1 alongside battle.
-  // { key: 'training',  title: 'TRAINING',     subtitle: 'Stat drills',           icon: 'barbell-outline',         route: '/rooms/training-center',  color: '#d48fff' },
+  // ARCADE replaces the parked training slot in v1: 5 reskinned classics (Connect 4 / Byte Hunt / Decode / Echo / RPS).
+  { key: 'arcade',    title: 'ARCADE',       subtitle: 'Play with your byte',   icon: 'game-controller-outline', route: '/rooms/arcade',           color: '#d48fff' },
   { key: 'clinic',    title: 'CLINIC',       subtitle: 'Recovery support',      icon: 'medkit-outline',          route: '/rooms/clinic',           color: '#8deac7' },
   { key: 'play',      title: 'PLAY ROOM',    subtitle: 'Mood support',          icon: 'game-controller-outline', route: '/rooms/play-room',        color: '#ff8dd2' },
   { key: 'market',    title: 'MARKETPLACE',  subtitle: 'Auctions and buy-now',  icon: 'pricetags-outline',       route: '/(tabs)/marketplace',     color: '#5bdd7e' },

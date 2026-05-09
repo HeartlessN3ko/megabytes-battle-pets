@@ -336,6 +336,54 @@ const testCandidates = {
   hazardWarning: 'warning',        // 'warning' | null
 } as const;
 
+// ─── Arcade ────────────────────────────────────────────────────────────────
+// Reward tiers + per-game tunables for the v1 ARCADE room (Connect 4, Byte
+// Hunt / Minesweeper, Decode / Hangman, Echo / Simon Says, RPS).
+// Server-authoritative: backend `gameBalance.ARCADE` mirrors WIN/LOSE/TIE
+// values + DAILY_BIT_CAP and is the source of truth on reward apply. Values
+// here are for client-side preview only.
+const arcade = {
+  WIN_MOOD:       18,
+  WIN_AFFECTION:  6,
+  WIN_BITS:       20,
+
+  LOSE_MOOD:      6,
+  LOSE_AFFECTION: 2,
+  LOSE_BITS:      5,
+
+  TIE_MOOD:       12,  // Connect 4 only
+  TIE_AFFECTION:  4,
+  TIE_BITS:       12,
+
+  DAILY_BIT_CAP:  100,
+
+  // Connect 4
+  C4_COLS: 7,
+  C4_ROWS: 6,
+
+  // Minesweeper / BYTE HUNT
+  MINESWEEPER_COLS:    6,
+  MINESWEEPER_ROWS:    6,
+  MINESWEEPER_VIRUSES: 6,
+
+  // Simon Says / ECHO
+  SIMON_SEQUENCE_LENGTHS: [3, 5, 7] as readonly number[],
+  SIMON_FLASH_DURATION_MS: 600,
+  SIMON_FLASH_GAP_MS:      250,
+  SIMON_INPUT_TIMEOUT_MS:  4500,
+  SIMON_EMOJI_POOL: ['🍔', '🛁', '💤', '🎮', '❤️', '⭐'] as readonly string[],
+
+  // Hangman / DECODE
+  HANGMAN_MAX_WRONG: 6,
+
+  // Personality thresholds for byte AI difficulty in Connect 4.
+  // curiosity >= HARD_THRESHOLD → minimax depth 5
+  // impulse   >= EASY_THRESHOLD → random legal column
+  // else                       → minimax depth 3
+  C4_HARD_THRESHOLD: 65,
+  C4_EASY_THRESHOLD: 65,
+} as const;
+
 // ─── Public export ──────────────────────────────────────────────────────────
 export const TUNABLES = {
   home,
@@ -354,6 +402,7 @@ export const TUNABLES = {
   wakeReaction,
   lifespan,
   testCandidates,
+  arcade,
 } as const;
 
 // ─── Derived helpers ────────────────────────────────────────────────────────

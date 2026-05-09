@@ -199,6 +199,39 @@ function cooldownMinutes(action) {
   return h * 60;
 }
 
+// ─────────────────────────────────────────────────────────────────
+// ARCADE
+// ─────────────────────────────────────────────────────────────────
+// Per-play reward tiers for the 5 ARCADE minigames (Connect 4, Byte Hunt /
+// Minesweeper, Decode / Hangman, Echo / Simon, RPS). Mood + affection always
+// pay; bits cap at DAILY_BIT_CAP per byte and reset at local midnight.
+// Server-side validation: route handler trusts only `outcome` + `game` from
+// the client; reward values come from this table.
+const ARCADE = {
+  WIN_MOOD:       18,
+  WIN_AFFECTION:  6,
+  WIN_BITS:       20,
+
+  LOSE_MOOD:      6,
+  LOSE_AFFECTION: 2,
+  LOSE_BITS:      5,
+
+  TIE_MOOD:       12,  // Connect 4 only
+  TIE_AFFECTION:  4,
+  TIE_BITS:       12,
+
+  DAILY_BIT_CAP:  100, // Per-byte, resets at local midnight
+};
+
+const ARCADE_GAMES = ['connect4', 'minesweeper', 'hangman', 'simon', 'rps'];
+const ARCADE_OUTCOMES = ['win', 'lose', 'tie'];
+
+function arcadeReward(outcome) {
+  if (outcome === 'win') return { mood: ARCADE.WIN_MOOD, affection: ARCADE.WIN_AFFECTION, bits: ARCADE.WIN_BITS };
+  if (outcome === 'tie') return { mood: ARCADE.TIE_MOOD, affection: ARCADE.TIE_AFFECTION, bits: ARCADE.TIE_BITS };
+  return { mood: ARCADE.LOSE_MOOD, affection: ARCADE.LOSE_AFFECTION, bits: ARCADE.LOSE_BITS };
+}
+
 module.exports = {
   // Raw tunables (edit these)
   NEED_DECAY_HOURS,
@@ -211,6 +244,9 @@ module.exports = {
   ROOM_CARE_FLAT_PERCENT,
   MINIGAME_GAIN_HOURS,
   ACTION_COOLDOWN_HOURS,
+  ARCADE,
+  ARCADE_GAMES,
+  ARCADE_OUTCOMES,
 
   // Helpers (engines call these)
   decayRatePerMinute,
@@ -219,4 +255,5 @@ module.exports = {
   minigameRestorePoints,
   corruptionRatePerMinute,
   cooldownMinutes,
+  arcadeReward,
 };

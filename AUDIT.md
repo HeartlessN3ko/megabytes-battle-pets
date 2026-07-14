@@ -17,6 +17,28 @@ Each item lists the file(s) involved and a concrete fix so any future session ca
 
 ---
 
+## Status ledger (updated 2026-07-14, fix pass 1)
+
+| Item | Status |
+|---|---|
+| P0.4 earn validation (stopgap) | ✅ fixed — positive-int + cap check (`economy.js`) |
+| P0.5 negative-spend mint | ✅ fixed — amount validation |
+| P0.6 currency races (spend, shop buys) | ✅ fixed — atomic conditional `$inc`; marketplace bid still TODO |
+| P0.2 ownership checks | ⏳ open (needs account system to be meaningful) |
+| P0.3 auth default | ⏳ open — deliberately deferred until app login flow exists (flipping now would brick the client) |
+| P0.1 app account system | ⏳ open |
+| P1.1 error leakage | 🔶 partial — register/login sanitized; global error middleware still TODO |
+| P1.2 input validation | 🔶 partial — register validated; schema layer still TODO |
+| P1.3 login enumeration + limiter | ✅ fixed |
+| P1.4 null-deref 500s | ✅ fixed (player + economy routes) |
+| P1.6 dev surface | 🔶 partial — force-death now dev-gated; app dev-menu exclusion TODO |
+| P1.7 DNS/LAN artifacts | ⏳ open |
+| P1.8/P1.9 marketplace settlement | ✅ fixed — 5-min server timer (`services/marketplaceSettlement.js`) |
+| P2.1 tests / P2.2 CI | ⏳ open |
+| P2.5 lifecycle | ✅ fixed — DB-before-listen, SIGTERM shutdown |
+
+---
+
 ## P0 — Launch blockers
 
 ### P0.1 — The app has no account system (biggest migration gap)

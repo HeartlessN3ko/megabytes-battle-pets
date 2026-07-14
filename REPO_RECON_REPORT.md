@@ -165,25 +165,25 @@ Economy client-trusted `amount` + negative-spend mint + non-atomic currency (P0.
 
 | # | Location | Problem | Fix |
 |---|---|---|---|
-| C1 | `src/routes/decor.js:57,105` | `byte.playerId` undefined → all equips 403 | → `byte.ownerId` |
-| C2 | `src/routes/byte.js:2321` | Arcade bits never credited, swallowed | → `byte.ownerId`; surface credit failure |
-| C3 | `src/routes/campaign.js` (route order) | `/leaderboard` shadowed by `/:byteId` → 500; called by `api.js:243` | Declare static routes first |
-| C4 | `src/routes/byte.js:1635,~1706` | Client `force:true` kills any byte | Dev-gate force; server-verify oldage; ownership check |
-| C5 | `achievements/campaign/communityEvent/onboarding.js` | No auth middleware at all | `router.use(optionalAuth)` + ownership |
+| C1 |  `src/routes/decor.js:57,105` | `byte.playerId` undefined → all equips 403 | → `byte.ownerId` |
+| C2 |  `src/routes/byte.js:2321` | Arcade bits never credited, swallowed | → `byte.ownerId`; surface credit failure |
+| C3 |  `src/routes/campaign.js` (route order) | `/leaderboard` shadowed by `/:byteId` → 500; called by `api.js:243` | Declare static routes first |
+| C4 |  `src/routes/byte.js:1635,~1706` | Client `force:true` kills any byte | Dev-gate force; server-verify oldage; ownership check |
+| C5 |  `achievements/campaign/communityEvent/onboarding.js` | No auth middleware at all | `router.use(optionalAuth)` + ownership |
 | C6 | `src/routes/communityEvent.js:78,91,107` | Contribution no-op; item rewards vanish | Finish or hide feature; grant items via inbox pipeline |
 | C7 | `src/routes/campaign.js:99–137` | Rewards always 0; any nodeId completable | Validate node; compute rewards from node config |
-| C8 | `megabytes-frontend` (28 tsc errors) | See §2.8 list | Fix all; add tsc to CI |
-| D1 | `README.MD:23` | `MONGO_URI` ≠ code's `MONGODB_URI` | Correct README; complete `.env.example`/`render.yaml` |
-| D2 | `WIRING_GUIDE.md` | Describes nonexistent engines/routes; says to remove a live import | Delete or rewrite |
+| C8 |  `megabytes-frontend` (28 tsc errors) | See §2.8 list | Fix all; add tsc to CI |
+| D1 |  `README.MD:23` | `MONGO_URI` ≠ code's `MONGODB_URI` | Correct README; complete `.env.example`/`render.yaml` |
+| D2 |  `WIRING_GUIDE.md` | Describes nonexistent engines/routes; says to remove a live import | Delete or rewrite |
 | D3 | `pageant.js:9`, `megabytes-frontend/README.md:3` | Reference docs not in repo (`docs/CLAUDE.md`, `AI documents/`) | Commit docs or fix refs |
-| D4 | `megabytes-frontend/package.json` | `smoke:frontend` is PowerShell-only | Point at `scripts/smokeFrontend.js` |
+| D4 |  `megabytes-frontend/package.json` | `smoke:frontend` is PowerShell-only | Point at `scripts/smokeFrontend.js` |
 | D5 | `app.json` 3.21.0 vs `package.json` 1.0.0 | Version drift | Pick one source |
 | D6 | `eas.json` | No iOS production block | Add it (see AUDIT iOS section) |
-| W1 | `src/models/Effect.js` | Orphaned | Delete |
-| W2 | Expo template components (§4.1 list) | Orphaned | Delete (keep `.ios.tsx`/`.web.ts` variants) |
-| W3 | backend `package.json` | `typescript` prod dep unused | Remove |
-| W4 | 4 files with BOM (§4.4) | Tooling noise | Strip |
-| W5 | `needTickService.stop` | Exported, never called | Wire into SIGTERM handler |
+| W1 |  `src/models/Effect.js` | Orphaned | Delete |
+| W2 |  Expo template components (§4.1 list) | Orphaned | Delete (keep `.ios.tsx`/`.web.ts` variants) |
+| W3 |  backend `package.json` | `typescript` prod dep unused | Remove |
+| W4 |  4 files with BOM (§4.4) | Tooling noise | Strip |
+| W5 |  `needTickService.stop` | Exported, never called | Wire into SIGTERM handler |
 
 ---
 
@@ -195,3 +195,9 @@ Economy client-trusted `amount` + negative-spend mint + non-atomic currency (P0.
 4. **C8 typecheck burn-down**, then CI gate.
 5. **C6/C7** when campaign/community events come off the back burner — or client-hide them for launch.
 6. **Dead-weight sweep (W1–W5)** as a single cleanup commit.
+
+---
+
+## Fix-pass outcomes (2026-07-14)
+
+Fixed in this branch: C1, C2, C3, C4, C5, C8 (tsc now 0 errors), D1, D2, D4, W1–W5, plus marketplace timer settlement and server lifecycle. Still open: C6/C7 (community events + campaign completion are feature work), D3 (design docs not yet committed), D5/D6 (version alignment, eas iOS block), P0.1/P0.2/P0.3 (account system and ownership enforcement — blocked on client login flow).

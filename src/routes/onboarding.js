@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const Onboarding = require('../models/Onboarding');
 const onboardingStages = require('../services/onboardingStages');
+const { optionalAuth } = require('../middleware/auth');
+
+router.use(optionalAuth);
 
 // GET /api/onboarding/:playerId - get current progress
 router.get('/:playerId', async (req, res) => {

@@ -4,6 +4,9 @@ const Achievement = require('../models/Achievement');
 const Player = require('../models/Player');
 const Byte = require('../models/Byte');
 const { checkAndUnlockAchievements } = require('../services/achievementChecker');
+const { optionalAuth } = require('../middleware/auth');
+
+router.use(optionalAuth);
 
 // GET /api/achievements - get all achievements
 router.get('/', async (req, res) => {

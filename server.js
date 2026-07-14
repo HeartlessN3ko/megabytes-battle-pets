@@ -12,9 +12,6 @@ const app = express();
 // Trust Render's proxy so rate-limit keys by real client IP, not proxy IP
 app.set('trust proxy', 1);
 
-// Connect to MongoDB Atlas
-connectDB();
-
 // Middleware
 app.use(helmet());
 app.use(cors());
@@ -42,7 +39,27 @@ app.use('/api/achievements', require('./src/routes/achievements'));
 app.use('/api/community-event', require('./src/routes/communityEvent'));
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`MEGA-BYTES backend running on port ${PORT}`);
-  needTickService.start(); // Begin need_tick job (1-min interval)
+
+// Connect to Mongo BEFORE accepting traffic — previously the server listened
+// immediately and early requests 500'd during cold start.
+connectDB().then(() => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`MEGA-BYTES backend running on port ${PORT}`);
+    needTickService.start(); // Begin need_tick job (1-min interval)
+  });
+
+  // Graceful shutdown: stop the tick job, drain connections, close Mongo.
+  // Render sends SIGTERM on every deploy; without this, deploys hard-kill
+  // mid-tick.
+  const shutdown = (signal) => {
+    console.log(`${signal} received — shutting down`);
+    needTickService.stop();
+    server.close(() => {
+      require('mongoose').connection.close(false).finally(() => process.exit(0));
+    });
+    // Failsafe if connections refuse to drain
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT',  () => shutdown('SIGINT'));
 });

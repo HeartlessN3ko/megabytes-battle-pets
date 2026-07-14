@@ -1,8 +1,10 @@
 const express = require('express');
 const Campaign = require('../models/Campaign');
 const Byte = require('../models/Byte');
+const { optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
+router.use(optionalAuth);
 
 // --- GET /api/campaign/leaderboard ---
 // Get campaign leaderboard (highest node reached).

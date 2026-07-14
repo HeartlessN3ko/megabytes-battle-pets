@@ -475,12 +475,12 @@ export function generateSleepDream(byteName?: string): string {
   return replaceName(pick(SLEEP_DREAMS), name);
 }
 
-function pick(list) {
+function pick<T>(list: T[]): T | null {
   if (!Array.isArray(list) || list.length === 0) return null;
   return list[Math.floor(Math.random() * list.length)];
 }
 
-function replaceName(template, name) {
+function replaceName(template: string | null, name: string) {
   // Case-insensitive so a future typo in copy ([bytename] / [BYTENAME] /
   // etc.) still gets replaced and never leaks the literal placeholder to
   // the player. All current entries use [ByteName] exactly; this guard is
@@ -488,8 +488,8 @@ function replaceName(template, name) {
   return String(template || '').replace(/\[ByteName\]/gi, name || 'BYTE');
 }
 
-function dominantNeedKey(needs = {}) {
-  const entries = [
+function dominantNeedKey(needs: Record<string, number> = {}) {
+  const entries: [string, number][] = [
     ['hunger', Number(needs.Hunger || 0)],
     ['bandwidth', Number(needs.Bandwidth || 0)],
     ['hygiene', Number(needs.Hygiene || 0)],
@@ -500,7 +500,7 @@ function dominantNeedKey(needs = {}) {
   return entries[0][0];
 }
 
-function criticalNeeds(needs = {}) {
+function criticalNeeds(needs: Record<string, number> = {}) {
   return ['Hunger', 'Bandwidth', 'Hygiene', 'Social', 'Fun', 'Mood'].filter((k) => Number(needs[k] || 0) < 25).length;
 }
 
@@ -552,12 +552,12 @@ export function generateByteThought({
   }
 
   if (crit > 0) pools.push(THOUGHTS.critical);
-  pools.push(THOUGHTS[dominantNeedKey(needs)] || THOUGHTS.general);
+  pools.push((THOUGHTS as Record<string, string[]>)[dominantNeedKey(needs)] || THOUGHTS.general);
 
   // [EXPANSION 1] training-fatigue thought pool gated — training is EX1.
   if (idleTicks > 2) pools.push(THOUGHTS.meta);
 
-  const temperamentPool = TEMPERAMENT_HOOKS[String(temperament || '')];
+  const temperamentPool = (TEMPERAMENT_HOOKS as Record<string, string[]>)[String(temperament || '')];
   if (temperamentPool) pools.push(temperamentPool);
 
   // Phase 8 → Phase 11 — pick a single resolver-driven tone. Priority:

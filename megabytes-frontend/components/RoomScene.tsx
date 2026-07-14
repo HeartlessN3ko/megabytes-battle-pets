@@ -135,12 +135,12 @@ export default function RoomScene({
   const [installText, setInstallText] = useState('Select a program package to execute.');
   const [installPercent, setInstallPercent] = useState(0);
   const [itemResultWindow, setItemResultWindow] = useState<RoomResultWindow | null>(null);
-  const [runtimeStage, setRuntimeStage] = useState(stage);
+  const [runtimeStage, setRuntimeStage] = useState<number>(stage);
   const [byteData, setByteData] = useState<any>(null);
   const [processOpen, setProcessOpen] = useState(false);
   const [processLabel, setProcessLabel] = useState('Running task...');
   const [processPercent, setProcessPercent] = useState(0);
-  const [sceneEffect, setSceneEffect] = useState<RoomAction['sceneEffect']>(null);
+  const [sceneEffect, setSceneEffect] = useState<RoomAction['sceneEffect'] | null>(null);
   const [sceneEffectVisible, setSceneEffectVisible] = useState(false);
 
   const recommendedTypes = useMemo(() => {
@@ -346,7 +346,7 @@ export default function RoomScene({
 
       qtyMap.forEach((qty, id) => {
         if (qty <= 0) return;
-        const c = catalogMap.get(id) || {};
+        const c: any = catalogMap.get(id) || {};
         rows.push({
           id,
           name: c.name || id,

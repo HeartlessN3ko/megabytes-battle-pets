@@ -176,6 +176,7 @@ function AchievementCard({ achievement, unlocked }: { achievement: AchievementIt
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: 'rgba(5,12,40,0.98)' },
+  bottomSpacer: { height: 40 },
   container: { flex: 1, paddingHorizontal: 14 },
 
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(80,160,255,0.15)' },

@@ -2,8 +2,7 @@
 // Tracks the evolution stage globally.
 // Stage 0 = egg, 1 = stage1, 2 = stage2
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { getByte, evolveByte } from '../services/api';
 
 type Stage = 0 | 1 | 2;

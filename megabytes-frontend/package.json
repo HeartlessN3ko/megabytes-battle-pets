@@ -9,7 +9,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "smoke:frontend": "powershell -ExecutionPolicy Bypass -File ./scripts/runSmokeFrontend.ps1"
+    "smoke:frontend": "node ./scripts/smokeFrontend.js",
+    "smoke:frontend:win": "powershell -ExecutionPolicy Bypass -File ./scripts/runSmokeFrontend.ps1"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

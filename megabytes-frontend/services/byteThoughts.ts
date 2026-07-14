@@ -1,4 +1,4 @@
-﻿const RARE_THOUGHT_CHANCE = 0.08;
+const RARE_THOUGHT_CHANCE = 0.08;
 
 const RARE_POOL = [
   '[ByteName] is pretending to understand what is happening and somehow it works.',

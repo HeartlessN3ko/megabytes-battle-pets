@@ -6,6 +6,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const connectDB = require('./src/config/db');
 const needTickService = require('./src/services/needTickService');
+const marketplaceSettlement = require('./src/services/marketplaceSettlement');
 
 const app = express();
 
@@ -52,6 +53,7 @@ connectDB().then(() => {
   const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`MEGA-BYTES backend running on port ${PORT}`);
     needTickService.start(); // Begin need_tick job (1-min interval)
+    marketplaceSettlement.start(); // Settle expired auctions every 5 min
   });
 
   // Graceful shutdown: stop the tick job, drain connections, close Mongo.
@@ -60,6 +62,7 @@ connectDB().then(() => {
   const shutdown = (signal) => {
     console.log(`${signal} received — shutting down`);
     needTickService.stop();
+    marketplaceSettlement.stop();
     server.close(() => {
       require('mongoose').connection.close(false).finally(() => process.exit(0));
     });

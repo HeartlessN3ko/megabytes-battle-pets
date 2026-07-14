@@ -1,17 +1,13 @@
 const express = require('express');
 const MarketplaceListing = require('../models/MarketplaceListing');
 const Player = require('../models/Player');
-const InboxMessage = require('../models/InboxMessage');
 const { SHOP_ITEMS } = require('../data/shopCatalog');
 const { DECOR_CATALOG } = require('../data/decorCatalog');
 const { optionalAuth } = require('../middleware/auth');
-const { generateMarketplaceEmail } = require('../services/marketplaceEmailFT');
+const { ensureMarketDelivery, settleExpiredOpenListings } = require('../services/marketplaceSettlement');
 
 const router = express.Router();
 router.use(optionalAuth);
-
-// Marketplace delivery timer (24 hours after purchase/auction win)
-const DELIVERY_DELAY_MS = 24 * 60 * 60 * 1000;
 
 function listingPayload(listing) {
   const now = Date.now();
@@ -49,60 +45,6 @@ function listingPayload(listing) {
     endsAt: listing.endsAt,
     createdAt: listing.createdAt,
   };
-}
-
-/**
- * Dual-stage marketplace delivery:
- *   1. Immediate "order_confirmed" email (no readyAt, no attachment — notification only).
- *   2. Delayed "delivered" email with readyAt = now + 24h carrying the item.
- * Deduped per stage via `kind` + `metadata.listingId`.
- */
-async function ensureMarketDelivery({ playerId, listing, acquiredBy }) {
-  if (!playerId || !listing?._id) return false;
-  const listingId = String(listing._id);
-
-  const [hasConfirmation, hasDelivery] = await Promise.all([
-    InboxMessage.findOne({ playerId, kind: 'market_confirmation', 'metadata.listingId': listingId }).select('_id'),
-    InboxMessage.findOne({ playerId, kind: 'market_delivery',     'metadata.listingId': listingId }).select('_id'),
-  ]);
-  if (hasConfirmation && hasDelivery) return false;
-
-  const subjectPrefix = acquiredBy === 'auction_win' ? 'Auction won' : 'Order';
-  const now = Date.now();
-  const delayMs = DELIVERY_DELAY_MS;
-
-  const writes = [];
-
-  // Stage 1: immediate confirmation (no attachment — it's a notification)
-  if (!hasConfirmation) {
-    const confirmFt = generateMarketplaceEmail('order_confirmed', listing.itemName);
-    writes.push(InboxMessage.create({
-      playerId,
-      kind: 'market_confirmation',
-      subject: `${subjectPrefix}: ${listing.itemName} — confirmed`,
-      body: confirmFt.body,
-      attachments: [],
-      metadata: { listingId, acquiredBy, stage: 'confirmation' },
-      readyAt: null,
-    }));
-  }
-
-  // Stage 2: delayed delivery (carries the item)
-  if (!hasDelivery) {
-    const deliveryFt = generateMarketplaceEmail('delivered', listing.itemName);
-    writes.push(InboxMessage.create({
-      playerId,
-      kind: 'market_delivery',
-      subject: `${subjectPrefix}: ${listing.itemName} — delivery`,
-      body: deliveryFt.body,
-      attachments: [{ type: 'item', itemId: listing.itemId, itemName: listing.itemName, quantity: listing.quantity }],
-      metadata: { listingId, acquiredBy, stage: 'delivered' },
-      readyAt: new Date(now + delayMs),
-    }));
-  }
-
-  await Promise.all(writes);
-  return true;
 }
 
 async function ensureSeedListings() {
@@ -177,21 +119,6 @@ async function ensureDecorListings() {
     }));
 
   if (docs.length > 0) await MarketplaceListing.insertMany(docs);
-}
-
-async function settleExpiredOpenListings() {
-  const now = new Date();
-  const expired = await MarketplaceListing.find({ status: 'open', endsAt: { $lte: now } });
-  if (expired.length === 0) return;
-
-  for (const listing of expired) {
-    listing.status = listing.highestBidder ? 'sold' : 'expired';
-    if (listing.highestBidder) {
-      listing.soldToPlayer = listing.highestBidder;
-      await ensureMarketDelivery({ playerId: listing.highestBidder, listing, acquiredBy: 'auction_win' });
-    }
-    await listing.save();
-  }
 }
 
 router.get('/listings', async (req, res) => {

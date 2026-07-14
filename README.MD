@@ -20,7 +20,7 @@ npm run dev      # nodemon, hot reload on src/ changes
 npm start        # production entry, no reload
 ```
 
-Create a `.env` with `MONGO_URI`, `JWT_SECRET`, and (for dev menu access) `DEV_MODE=1` plus optional `DEV_MODE_KEY`.
+Create a `.env` with `MONGODB_URI`, `JWT_SECRET`, and (for dev menu access) `DEV_MODE=1` plus optional `DEV_MODE_KEY`. See `.env.example` for the full list.
 
 ## Smokes
 

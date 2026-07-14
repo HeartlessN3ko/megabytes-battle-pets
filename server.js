@@ -22,6 +22,12 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 2000 }));
 
+// Strict limiter on credential endpoints — the global 2000/15min budget is
+// no protection against password brute-force or registration spam.
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+app.use('/api/player/login', authLimiter);
+app.use('/api/player/register', authLimiter);
+
 // Routes
 app.use('/api/player',   require('./src/routes/player'));
 app.use('/api/byte',     require('./src/routes/byte'));

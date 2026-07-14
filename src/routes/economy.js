@@ -94,6 +94,7 @@ router.get('/daily-status/:playerId', async (req, res) => {
   try {
     const player = await Player.findById(req.params.playerId)
       .select('dailyIncome minigamePlaysToday lastDailyReset');
+    if (!player) return res.status(404).json({ error: 'Not found' });
     res.json({
       dailyIncome:       player.dailyIncome,
       hardCap:           economyEngine.DAILY_INCOME.hard_cap,

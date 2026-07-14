@@ -58,7 +58,9 @@ export function AgedByteRender({
       {isOld ? (
         <Image
           source={source}
-          pointerEvents="none"
+          // RN's Image typings omit pointerEvents even though the native view
+          // honors it — cast keeps the overlay tap-through without a wrapper.
+          {...({ pointerEvents: 'none' } as any)}
           style={[
             StyleSheet.absoluteFillObject,
             {

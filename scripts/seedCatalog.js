@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 const mongoose = require('mongoose');
 const Item = require('../src/models/Item');
 const Room = require('../src/models/Room');

@@ -25,10 +25,20 @@ router.get('/balance/:playerId', async (req, res) => {
   }
 });
 
+// Currency amounts must be positive integers. Negative or non-numeric
+// amounts previously passed straight into arithmetic — a negative /spend
+// amount minted currency.
+function isValidAmount(amount) {
+  return Number.isInteger(amount) && amount > 0;
+}
+
 // POST /api/economy/earn
 router.post('/earn', async (req, res) => {
   try {
     const { playerId, amount, source } = req.body;
+    if (!isValidAmount(amount) || amount > economyEngine.DAILY_INCOME.hard_cap) {
+      return res.status(400).json({ error: 'amount must be a positive integer within the daily cap' });
+    }
     const player = await Player.findById(playerId);
     if (!player) return res.status(404).json({ error: 'Not found' });
 
@@ -53,16 +63,26 @@ router.post('/earn', async (req, res) => {
 router.post('/spend', async (req, res) => {
   try {
     const { playerId, amount } = req.body;
-    const player = await Player.findById(playerId);
-    if (!player) return res.status(404).json({ error: 'Not found' });
-    if (player.byteBits < amount) return res.status(400).json({ error: 'Insufficient byte.bits' });
+    if (!isValidAmount(amount)) {
+      return res.status(400).json({ error: 'amount must be a positive integer' });
+    }
 
-    player.byteBits -= amount;
+    // Atomic conditional deduction — two concurrent spends can't both pass
+    // a stale balance check (previous read-modify-write allowed double-spend).
+    const player = await Player.findOneAndUpdate(
+      { _id: playerId, byteBits: { $gte: amount } },
+      { $inc: { byteBits: -amount } },
+      { new: true }
+    );
+    if (!player) {
+      const exists = await Player.exists({ _id: playerId });
+      if (!exists) return res.status(404).json({ error: 'Not found' });
+      return res.status(400).json({ error: 'Insufficient byte.bits' });
+    }
 
     // Economy softlock: if balance hits 0, grant minigame access guarantee
     const softlockTriggered = player.byteBits === 0;
 
-    await player.save();
     res.json({ byteBits: player.byteBits, softlockTriggered });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -74,6 +94,7 @@ router.get('/daily-status/:playerId', async (req, res) => {
   try {
     const player = await Player.findById(req.params.playerId)
       .select('dailyIncome minigamePlaysToday lastDailyReset');
+    if (!player) return res.status(404).json({ error: 'Not found' });
     res.json({
       dailyIncome:       player.dailyIncome,
       hardCap:           economyEngine.DAILY_INCOME.hard_cap,

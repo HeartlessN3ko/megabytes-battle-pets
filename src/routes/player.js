@@ -10,11 +10,24 @@ const router = express.Router();
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
+    if (typeof username !== 'string' || username.trim().length < 3 || username.trim().length > 24) {
+      return res.status(400).json({ error: 'username must be 3-24 characters' });
+    }
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'valid email required' });
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'password must be at least 8 characters' });
+    }
     const passwordHash = await bcrypt.hash(password, 10);
-    const player = await Player.create({ username, email, passwordHash });
+    const player = await Player.create({ username: username.trim(), email, passwordHash });
     res.status(201).json({ id: player._id, username: player.username });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    // Duplicate username/email — don't leak Mongo internals
+    if (err && err.code === 11000) {
+      return res.status(409).json({ error: 'username or email already in use' });
+    }
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -23,7 +36,9 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     const player = await Player.findOne({ email });
-    if (!player) return res.status(404).json({ error: 'Player not found' });
+    // Same status + message whether the email exists or the password is
+    // wrong — prevents probing which emails are registered.
+    if (!player) return res.status(401).json({ error: 'Invalid credentials' });
     const valid = await bcrypt.compare(password, player.passwordHash);
     if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
     const token = jwt.sign({ id: player._id }, process.env.JWT_SECRET, { expiresIn: '30d' });
@@ -52,6 +67,7 @@ router.patch('/:id/settings', optionalAuth, async (req, res) => {
       { $set: { settings: req.body } },
       { new: true }
     ).select('settings');
+    if (!player) return res.status(404).json({ error: 'Not found' });
     res.json(player.settings);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -62,6 +78,7 @@ router.patch('/:id/settings', optionalAuth, async (req, res) => {
 router.get('/:id/currency', optionalAuth, async (req, res) => {
   try {
     const player = await Player.findById(req.params.id).select('byteBits dailyIncome');
+    if (!player) return res.status(404).json({ error: 'Not found' });
     res.json({ byteBits: player.byteBits, dailyIncome: player.dailyIncome });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -73,6 +90,7 @@ router.get('/:id/inventory', optionalAuth, async (req, res) => {
   try {
     const player = await Player.findById(req.params.id)
       .select('unlockedRooms unlockedItems itemInventory unlockedMoves activePassiveRooms');
+    if (!player) return res.status(404).json({ error: 'Not found' });
     res.json(player);
   } catch (err) {
     res.status(500).json({ error: err.message });

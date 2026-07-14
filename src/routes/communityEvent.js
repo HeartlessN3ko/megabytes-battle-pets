@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const CommunityEvent = require('../models/CommunityEvent');
 const Player = require('../models/Player');
+const { optionalAuth } = require('../middleware/auth');
+
+router.use(optionalAuth);
 
 // GET /api/community-event/current - get current active event
 router.get('/current', async (req, res) => {

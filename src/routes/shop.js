@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const Player = require('../models/Player');
 const Item = require('../models/Item');
 const Room = require('../models/Room');
@@ -87,17 +87,26 @@ router.get('/rooms', async (req, res) => {
 router.post('/buy/item', async (req, res) => {
   try {
     const { playerId, itemId } = req.body;
-    const player = await Player.findById(playerId);
-    if (!player) return res.status(404).json({ error: 'Player not found' });
 
     let item = await Item.findOne({ id: itemId });
     if (!item) item = findCatalogItem(itemId);
     if (!item) return res.status(404).json({ error: 'Item not found' });
 
     const cost = Number(item.cost || 0);
-    if (player.byteBits < cost) return res.status(400).json({ error: 'Insufficient byte.bits' });
 
-    player.byteBits -= cost;
+    // Atomic conditional deduction — concurrent buys can't double-spend a
+    // stale balance read. Inventory changes apply to the post-charge doc.
+    const player = await Player.findOneAndUpdate(
+      { _id: playerId, byteBits: { $gte: cost } },
+      { $inc: { byteBits: -cost } },
+      { new: true }
+    );
+    if (!player) {
+      const exists = await Player.exists({ _id: playerId });
+      if (!exists) return res.status(404).json({ error: 'Player not found' });
+      return res.status(400).json({ error: 'Insufficient byte.bits' });
+    }
+
     const currentQty = getInventoryCount(player, itemId);
     setInventoryCount(player, itemId, currentQty + 1);
     player.unlockedItems.addToSet(itemId);
@@ -117,20 +126,26 @@ router.post('/buy/item', async (req, res) => {
 router.post('/buy/room', async (req, res) => {
   try {
     const { playerId, roomId } = req.body;
-    const player = await Player.findById(playerId);
-    if (!player) return res.status(404).json({ error: 'Player not found' });
 
     let room = await Room.findOne({ id: roomId });
     if (!room) room = SHOP_ROOMS.find((r) => r.id === roomId);
     if (!room) return res.status(404).json({ error: 'Room not found' });
 
     const unlockCost = Number(room.unlockCost || 0);
-    if (player.byteBits < unlockCost) return res.status(400).json({ error: 'Insufficient byte.bits' });
-    if (player.unlockedRooms.includes(roomId)) return res.status(400).json({ error: 'Already unlocked' });
 
-    player.byteBits -= unlockCost;
-    player.unlockedRooms.push(roomId);
-    await player.save();
+    // Single atomic op: charge + unlock only when affordable AND not
+    // already unlocked, so a double-tap can't charge twice.
+    const player = await Player.findOneAndUpdate(
+      { _id: playerId, byteBits: { $gte: unlockCost }, unlockedRooms: { $ne: roomId } },
+      { $inc: { byteBits: -unlockCost }, $push: { unlockedRooms: roomId } },
+      { new: true }
+    );
+    if (!player) {
+      const existing = await Player.findById(playerId).select('byteBits unlockedRooms');
+      if (!existing) return res.status(404).json({ error: 'Player not found' });
+      if (existing.unlockedRooms.includes(roomId)) return res.status(400).json({ error: 'Already unlocked' });
+      return res.status(400).json({ error: 'Insufficient byte.bits' });
+    }
 
     res.json({ unlocked: roomId, byteBitsRemaining: player.byteBits });
   } catch (err) {

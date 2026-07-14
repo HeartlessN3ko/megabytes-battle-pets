@@ -1,8 +1,28 @@
 const express = require('express');
 const Campaign = require('../models/Campaign');
 const Byte = require('../models/Byte');
+const { optionalAuth } = require('../middleware/auth');
 
 const router = express.Router();
+router.use(optionalAuth);
+
+// --- GET /api/campaign/leaderboard ---
+// Get campaign leaderboard (highest node reached).
+// Must be declared BEFORE '/:byteId' or Express matches 'leaderboard' as a
+// byteId and the query throws a CastError.
+router.get('/leaderboard', async (req, res) => {
+  try {
+    const campaigns = await Campaign.find()
+      .sort({ highestNodeReached: -1, nodesCompleted: -1 })
+      .limit(100)
+      .populate('byteId', 'name level')
+      .populate('playerId', 'name');
+
+    res.json({ leaderboard: campaigns });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // --- GET /api/campaign/:byteId ---
 // Get current campaign progress for a byte
@@ -137,22 +157,6 @@ router.post('/:byteId/node/:nodeId/complete', async (req, res) => {
       reward: { xp: 0, byteBits: 0, items: [] }, // TODO: calculate reward
       nextNode: nodeNumber + 1,
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// --- GET /api/campaign/leaderboard ---
-// Get campaign leaderboard (highest node reached)
-router.get('/leaderboard', async (req, res) => {
-  try {
-    const campaigns = await Campaign.find()
-      .sort({ highestNodeReached: -1, nodesCompleted: -1 })
-      .limit(100)
-      .populate('byteId', 'name level')
-      .populate('playerId', 'name');
-
-    res.json({ leaderboard: campaigns });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

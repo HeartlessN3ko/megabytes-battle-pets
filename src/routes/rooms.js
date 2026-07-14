@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const Room = require('../models/Room');
 const Player = require('../models/Player');
 const behaviorTracker = require('../engine/behaviorTracker');

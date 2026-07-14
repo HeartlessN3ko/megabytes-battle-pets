@@ -3,7 +3,10 @@
 ## 1. Required env vars
 
 - `MONGODB_URI` (required)
+- `JWT_SECRET` (required — login token signing)
 - `NODE_ENV=production`
+- `AUTH_REQUIRED=true` once the app ships with a login flow (leave unset during solo-dev testing)
+- `DEV_MODE` / `DEV_MODE_KEY` — do **not** set on a public deploy
 
 `PORT` is optional on Render (Render injects it automatically).
 

@@ -1,7 +1,7 @@
 {
   "name": "megabytes-backend",
   "version": "1.0.0",
-  "description": "MEGA-BYTES: Battle Pets — Backend API",
+  "description": "MEGA-BYTES: Battle Pets \u2014 Backend API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -19,8 +19,7 @@
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.0.0",
-    "typescript": "^6.0.3"
+    "mongoose": "^8.0.0"
   },
   "devDependencies": {
     "eslint": "^8.57.0",

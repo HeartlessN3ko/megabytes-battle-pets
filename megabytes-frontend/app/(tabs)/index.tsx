@@ -519,7 +519,7 @@ export default function HomeScreen() {
   const [statusText,    setStatusText]    = useState('BYTE is scanning the network.');
   const [transitionBusy, setTransitionBusy] = useState(false);
   const [clutter,       setClutter]       = useState(0);
-  const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: string; size: number; front: boolean; kind: 'trash' | 'poop'; cleanStage?: number }[]>([]);
+  const [clutterNodes,  setClutterNodes]  = useState<{ id: string; sprite: any; left: number; bottom: `${number}%`; size: number; front: boolean; kind: 'trash' | 'poop'; cleanStage?: number }[]>([]);
   const [idleThoughtTicks, setIdleThoughtTicks] = useState(0);
   // Personality misbehavior — fake need signal. Misbehaving bytes occasionally
   // surface a need-emote bubble for a need that isn't actually low. Sets a
@@ -828,7 +828,7 @@ export default function HomeScreen() {
     const leftPct = zone.leftMin + Math.random() * (zone.leftMax - zone.leftMin);
     const left    = ((width - size) * leftPct) / 100;
     // Percentage so clutter stays on the byte's floor plane (byte is `bottom: '20%'`).
-    const bottom: string = `${zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin)}%`;
+    const bottom: `${number}%` = `${zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin)}%`;
     return {
       id: `clutter-${Date.now()}-${index}-${Math.random()}`,
       // Poop sprites are now staged via cleanStage (POOP_SPRITES lookup at render time).
@@ -1184,7 +1184,7 @@ export default function HomeScreen() {
           const zone = TUNABLES.clutterZones[Math.floor(Math.random() * TUNABLES.clutterZones.length)];
           const newLeftPct = zone.leftMin + Math.random() * (zone.leftMax - zone.leftMin);
           const newLeft = ((width - target.size) * newLeftPct) / 100;
-          const newBottom = `${zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin)}%`;
+          const newBottom: `${number}%` = `${zone.bottomMin + Math.random() * (zone.bottomMax - zone.bottomMin)}%`;
           setClutterNodes((prev) => prev.map((n) => n.id === target.id ? { ...n, left: newLeft, bottom: newBottom } : n));
         }
         // else: 50% inert — node unchanged, byte just played with it.

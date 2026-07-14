@@ -1646,10 +1646,15 @@ router.post('/:id/die', async (req, res) => {
 
     const avgNeed = needDecay.getAverageNeed(byte.needs.toObject ? byte.needs.toObject() : byte.needs);
 
+    // Test overrides (force / client-asserted oldage) are dev-mode only.
+    // Without this gate any client could instantly kill any byte.
+    const devModeOn = ['1', 'true'].includes(String(process.env.DEV_MODE || '').toLowerCase());
+
     // PATH 1: old-age death → legacy egg.
-    // v1 lifespan caps at lifespanEngine.DEATH_LEVEL (50). Frontend can also
-    // trigger explicitly with body.deathType === 'oldage'.
-    if (byte.level >= lifespanEngine.DEATH_LEVEL || req.body?.deathType === 'oldage') {
+    // v1 lifespan caps at lifespanEngine.DEATH_LEVEL (50). The explicit
+    // body.deathType === 'oldage' trigger is honored only in dev mode;
+    // production relies on the server-verified level check.
+    if (byte.level >= lifespanEngine.DEATH_LEVEL || (devModeOn && req.body?.deathType === 'oldage')) {
       byte.isAlive = false;
       byte.diedAt = new Date();
       await byte.save();
@@ -1703,7 +1708,7 @@ router.post('/:id/die', async (req, res) => {
     }
 
     // PATH 2: Neglect death → Generation record only, no legacy egg
-    const qualifies = req.body?.force || neglectEngine.shouldDieFromNeglect(avgNeed, byte.neglectTimer || 0);
+    const qualifies = (devModeOn && req.body?.force) || neglectEngine.shouldDieFromNeglect(avgNeed, byte.neglectTimer || 0);
     if (!qualifies) {
       return res.status(400).json({
         error: 'Byte has not reached terminal neglect conditions. Use force:true to override in tests.',
@@ -2318,7 +2323,7 @@ router.post('/:id/arcade-reward', async (req, res) => {
     // Credit player byteBits (single shared currency) when paidBits > 0.
     if (paidBits > 0) {
       try {
-        const player = await Player.findById(byte.playerId);
+        const player = await Player.findById(byte.ownerId);
         if (player) {
           player.byteBits = Math.max(0, (player.byteBits || 0) + paidBits);
           await player.save();

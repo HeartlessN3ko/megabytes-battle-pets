@@ -55,7 +55,7 @@ router.post('/equip', async (req, res) => {
     ]);
     if (!player) return res.status(404).json({ error: 'Player not found' });
     if (!byte) return res.status(404).json({ error: 'Byte not found' });
-    if (String(byte.playerId) !== String(player._id)) {
+    if (String(byte.ownerId) !== String(player._id)) {
       return res.status(403).json({ error: 'Byte does not belong to player' });
     }
 
@@ -102,7 +102,7 @@ router.post('/unequip', async (req, res) => {
 
     const byte = await Byte.findById(byteId);
     if (!byte) return res.status(404).json({ error: 'Byte not found' });
-    if (String(byte.playerId) !== String(playerId)) {
+    if (String(byte.ownerId) !== String(playerId)) {
       return res.status(403).json({ error: 'Byte does not belong to player' });
     }
 
